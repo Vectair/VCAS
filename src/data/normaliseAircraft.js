@@ -1,6 +1,7 @@
 /**
- * Normalise raw ADS-B Exchange API response into Eos internal aircraft objects.
- * All adapter-specific field names are contained here.
+ * Normalise raw ADS-B v2-format API response into Eos internal aircraft objects.
+ * All provider-specific field names are contained here.
+ * Compatible with Airplanes.live and ADS-B Exchange v2 responses.
  */
 
 function normaliseAircraft(raw) {
@@ -10,7 +11,9 @@ function normaliseAircraft(raw) {
   if (!hex) return null;
 
   const callsign = (raw.flight || raw.callsign || "").trim() || null;
-  const type = (raw.t || raw.type || raw.aircraft_type || "").trim() || null;
+  // raw.t = aircraft type code (A320, B738…); raw.type on Airplanes.live is
+  // the ADS-B message source type ("adsb_icao" etc.) — check raw.t first.
+  const type = (raw.t || raw.aircraft_type || "").trim() || null;
 
   const lat = parseFloat(raw.lat);
   const lon = parseFloat(raw.lon);
@@ -24,8 +27,8 @@ function normaliseAircraft(raw) {
   const groundSpeedKt = parseFloat(raw.gs ?? raw.speed ?? NaN);
   const verticalRateFpm = parseFloat(raw.baro_rate ?? raw.geom_rate ?? raw.vert_rate ?? NaN);
 
-  const now = Date.now() / 1000;
-  const seen = parseFloat(raw.seen ?? raw.last_seen ?? 0);
+  // seen_pos = Airplanes.live field; seen = ADS-B Exchange field
+  const seen = parseFloat(raw.seen_pos ?? raw.seen ?? raw.last_seen ?? 0);
   const lastSeenSeconds = isNaN(seen) ? 0 : seen;
 
   const category = (raw.category || "").trim() || null;

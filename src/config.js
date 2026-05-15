@@ -1,6 +1,11 @@
 const CONFIG = {
+  // "airplanes_live" (free, no key) | "adsb_exchange" (requires API key)
+  DATA_PROVIDER: "airplanes_live",
+
+  // ADS-B Exchange — only needed when DATA_PROVIDER is "adsb_exchange"
   ADSB_API_KEY: "",
   ADSB_API_HOST: "adsbexchange.com",
+
   DEFAULT_RANGE_NM: 20,
   REFRESH_INTERVAL_SECONDS: 10,
   MAX_AIRCRAFT_SHOWN: 8,
