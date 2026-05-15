@@ -1,0 +1,397 @@
+/* ---- Reset & base ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-dark:        #0e1117;
+  --bg-panel:       #161b22;
+  --bg-panel-alt:   #1c2128;
+  --border:         #30363d;
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
+  --accent:         #58a6ff;
+  --btn-bg:         #21262d;
+  --btn-hover:      #30363d;
+  --btn-active-bg:  #1f6feb;
+  --radius-sm:      6px;
+  --radius:         10px;
+  --radius-lg:      14px;
+  --shadow:         0 4px 20px rgba(0,0,0,.6);
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font-size: 14px;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* ---- Map container ---- */
+#map-container {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Overlay shell ---- */
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Top bar ---- */
+#top-bar {
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  background: linear-gradient(to bottom, rgba(14,17,23,.92) 80%, transparent);
+}
+
+#top-bar .brand {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  color: var(--text-primary);
+}
+
+#top-bar .brand span {
+  color: var(--accent);
+}
+
+#adsb-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+#adsb-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+  transition: background .4s;
+}
+
+#adsb-status.active .dot   { background: #4caf50; }
+#adsb-status.stale  .dot   { background: #ff9800; }
+#adsb-status.error  .dot   { background: #9e9e9e; }
+#adsb-status.active { color: var(--text-primary); }
+
+/* ---- Mode label strip ---- */
+#mode-strip {
+  display: flex;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+#mode-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+
+/* ---- Spacer ---- */
+.spacer { flex: 1; }
+
+/* ---- Bottom bar ---- */
+#bottom-bar {
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 14px;
+  background: linear-gradient(to top, rgba(14,17,23,.92) 80%, transparent);
+  gap: 10px;
+}
+
+.mode-btn {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  cursor: pointer;
+  transition: background .15s;
+  -webkit-appearance: none;
+}
+
+.mode-btn:active       { background: var(--btn-hover); }
+.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); }
+
+#aircraft-count {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ---- GPS unavailable message ---- */
+#gps-message {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14,17,23,.85);
+  backdrop-filter: blur(4px);
+}
+
+#gps-message .card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  max-width: 300px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+#gps-message .card h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+#gps-message .card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+#gps-message.hidden { display: none; }
+
+/* ---- Config missing banner ---- */
+#config-banner {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  background: var(--bg-panel-alt);
+  border: 1px solid #6e4c06;
+  border-radius: var(--radius);
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #e3b341;
+  white-space: nowrap;
+}
+
+#config-banner.hidden { display: none; }
+
+/* ---- Edge indicators (driving view) ---- */
+.indicator {
+  position: absolute;
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: opacity .3s;
+}
+
+.indicator.stale { opacity: .45; }
+
+.indicator-arrow {
+  font-size: 20px;
+  line-height: 1;
+  display: block;
+  transition: transform .3s;
+}
+
+.indicator-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(14,17,23,.82);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  min-width: 52px;
+  text-align: center;
+}
+
+.indicator-label .callsign {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  line-height: 1.3;
+}
+
+.indicator-label .actype {
+  font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+/* ---- Air mode aircraft markers ---- */
+.air-marker {
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.air-marker-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.air-icon {
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.8));
+}
+
+.air-label-box {
+  background: rgba(14,17,23,.82);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  text-align: center;
+}
+
+.air-label-box .callsign {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.air-label-box .actype {
+  font-size: 8px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+/* ---- Popup ---- */
+#popup {
+  position: fixed;
+  z-index: 60;
+  pointer-events: all;
+  min-width: 180px;
+  max-width: 240px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  animation: pop-in .15s ease-out;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#popup.hidden { display: none; }
+
+#popup .pop-callsign {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+#popup .pop-type {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+#popup .pop-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+#popup .pop-row:last-child { border-bottom: none; }
+#popup .pop-key   { color: var(--text-secondary); }
+#popup .pop-val   { font-weight: 600; }
+
+#popup .pop-vis-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #000;
+}
+
+/* ---- Loading spinner ---- */
+#loading {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+#loading.hidden { display: none; }
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Responsive tweaks ---- */
+@media (max-width: 400px) {
+  .indicator-label .callsign { font-size: 9px; }
+  .indicator-label .actype   { font-size: 8px; }
+  .indicator-arrow           { font-size: 17px; }
+}

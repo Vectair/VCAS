@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0e1117" />
+  <title>Eos</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="src/styles/eos.css" />
+</head>
+<body>
+
+  <!-- Map layer (below everything) -->
+  <div id="map-container">
+    <div id="map"></div>
+  </div>
+
+  <!-- Edge indicators layer (sits above map, below UI chrome) -->
+  <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
+
+  <!-- GPS unavailable message -->
+  <div id="gps-message" class="hidden">
+    <div class="card">
+      <h2>Location unavailable</h2>
+      <p>Eos needs your GPS position to work.<br>
+         Please allow location access and reload the page.</p>
+    </div>
+  </div>
+
+  <!-- ADS-B config missing banner -->
+  <div id="config-banner" class="hidden">
+    ⚙ ADS-B API key not configured — aircraft data unavailable
+  </div>
+
+  <!-- Loading indicator -->
+  <div id="loading" class="hidden">
+    <div class="spinner"></div>
+    <span>Fetching aircraft…</span>
+  </div>
+
+  <!-- Aircraft detail popup -->
+  <div id="popup" class="hidden"></div>
+
+  <!-- Main overlay (top/bottom chrome) -->
+  <div id="overlay">
+    <!-- Top bar -->
+    <div id="top-bar">
+      <div class="brand">E<span>OS</span></div>
+      <div id="mode-strip">
+        <div id="mode-label">DRIVING VIEW</div>
+      </div>
+      <div id="adsb-status" class="error">
+        <div class="dot"></div>
+        <span class="label">ADS-B</span>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <!-- Bottom bar -->
+    <div id="bottom-bar">
+      <button class="mode-btn active-mode" id="btn-nav">NAV</button>
+      <div id="aircraft-count">No aircraft in range</div>
+      <button class="mode-btn" id="btn-air">AIR</button>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- App modules (order matters — dependencies first) -->
+  <script src="src/config.js"></script>
+  <script src="src/data/normaliseAircraft.js"></script>
+  <script src="src/data/adsbExchangeClient.js"></script>
+  <script src="src/logic/geo.js"></script>
+  <script src="src/logic/visibility.js"></script>
+  <script src="src/logic/indicators.js"></script>
+  <script src="src/map.js"></script>
+  <script src="src/ui.js"></script>
+  <script src="src/app.js"></script>
+
+</body>
+</html>
