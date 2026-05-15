@@ -1,6 +1,7 @@
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ---- Night theme (default) ---- */
 :root {
   --bg-dark:        #0e1117;
   --bg-panel:       #161b22;
@@ -10,6 +11,7 @@
   --text-secondary: #8b949e;
   --text-muted:     #484f58;
   --accent:         #58a6ff;
+  --accent-rgb:     88,166,255;
   --btn-bg:         #21262d;
   --btn-hover:      #30363d;
   --btn-active-bg:  #1f6feb;
@@ -17,6 +19,29 @@
   --radius:         10px;
   --radius-lg:      14px;
   --shadow:         0 4px 20px rgba(0,0,0,.6);
+  --bar-bg-rgb:     14,17,23;
+  --overlay-bg-rgb: 14,17,23;
+  --label-bg:       rgba(14,17,23,.82);
+}
+
+/* ---- Day theme ---- */
+:root[data-theme="day"] {
+  --bg-dark:        #f0ede8;
+  --bg-panel:       #ffffff;
+  --bg-panel-alt:   #f5f2ed;
+  --border:         #d6d3ce;
+  --text-primary:   #1c1c1e;
+  --text-secondary: #636366;
+  --text-muted:     #aeaeb2;
+  --accent:         #1a73e8;
+  --accent-rgb:     26,115,232;
+  --btn-bg:         #ede9e3;
+  --btn-hover:      #d8d4ce;
+  --btn-active-bg:  #1a73e8;
+  --shadow:         0 4px 20px rgba(0,0,0,.12);
+  --bar-bg-rgb:     240,237,232;
+  --overlay-bg-rgb: 240,237,232;
+  --label-bg:       rgba(255,255,255,.92);
 }
 
 html, body {
@@ -35,7 +60,7 @@ html, body {
   position: fixed;
   inset: 0;
   z-index: 0;
-  background: var(--bg-dark); /* shows as "sky" behind pitched tile plane */
+  background: var(--bg-dark);
 }
 
 #map {
@@ -58,8 +83,8 @@ html, body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(88,166,255,.1);
-  border: 1.5px solid rgba(88,166,255,.22);
+  background: rgba(var(--accent-rgb),.1);
+  border: 1.5px solid rgba(var(--accent-rgb),.22);
   animation: halo-pulse 2.5s ease-in-out infinite;
 }
 
@@ -69,7 +94,8 @@ html, body {
   width: 18px;
   height: 26px;
   overflow: visible;
-  filter: drop-shadow(0 0 6px rgba(88,166,255,.75));
+  color: var(--accent);
+  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),.75));
   transition: transform .4s ease;
 }
 
@@ -98,7 +124,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px 8px;
-  background: linear-gradient(to bottom, rgba(14,17,23,.92) 80%, transparent);
+  background: linear-gradient(to bottom, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
 }
 
 #top-bar .brand {
@@ -110,6 +136,14 @@ html, body {
 
 #top-bar .brand span {
   color: var(--accent);
+}
+
+/* ---- Top-right controls (ADS-B status + theme picker) ---- */
+#top-right-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
 }
 
 #adsb-status {
@@ -141,6 +175,35 @@ html, body {
 #adsb-status.error  .dot   { background: #9e9e9e; }
 #adsb-status.active { color: var(--text-primary); }
 
+/* ---- Theme picker ---- */
+#theme-picker {
+  display: flex;
+  gap: 1px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 3px;
+}
+
+.theme-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  -webkit-appearance: none;
+  pointer-events: all;
+  white-space: nowrap;
+}
+
+.theme-btn.active {
+  background: var(--btn-active-bg);
+  color: #fff;
+}
+
 /* ---- Mode label strip ---- */
 #mode-strip {
   display: flex;
@@ -170,7 +233,7 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px 14px;
-  background: linear-gradient(to top, rgba(14,17,23,.92) 80%, transparent);
+  background: linear-gradient(to top, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
   gap: 10px;
 }
 
@@ -190,7 +253,7 @@ html, body {
 }
 
 .mode-btn:active       { background: var(--btn-hover); }
-.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); }
+.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
 
 #aircraft-count {
   flex: 1;
@@ -207,7 +270,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(14,17,23,.85);
+  background: rgba(var(--overlay-bg-rgb),.85);
   backdrop-filter: blur(4px);
 }
 
@@ -278,7 +341,7 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: rgba(14,17,23,.82);
+  background: var(--label-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 2px 6px;
@@ -319,7 +382,7 @@ html, body {
 }
 
 .air-label-box {
-  background: rgba(14,17,23,.82);
+  background: var(--label-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 1px 5px;
@@ -433,4 +496,5 @@ html, body {
   .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
   .indicator-arrow           { font-size: 17px; }
+  .theme-btn                 { padding: 2px 5px; }
 }

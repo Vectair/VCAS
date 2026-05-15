@@ -9,6 +9,17 @@
   <meta name="theme-color" content="#0e1117" />
   <title>Eos</title>
 
+  <!-- Apply saved theme before first paint to prevent flash -->
+  <script>
+    (function () {
+      var m = localStorage.getItem("eos-theme-mode") || "auto";
+      var theme = m === "day" ? "day"
+                : m === "night" ? "night"
+                : (new Date().getHours() >= 7 && new Date().getHours() < 19) ? "day" : "night";
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+
   <!-- MapLibre GL JS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css" />
 
@@ -56,9 +67,16 @@
       <div id="mode-strip">
         <div id="mode-label">DRIVING VIEW</div>
       </div>
-      <div id="adsb-status" class="error">
-        <div class="dot"></div>
-        <span class="label">ADS-B</span>
+      <div id="top-right-controls">
+        <div id="adsb-status" class="error">
+          <div class="dot"></div>
+          <span class="label">ADS-B</span>
+        </div>
+        <div id="theme-picker">
+          <button class="theme-btn" id="theme-btn-day"   title="Day mode">☀</button>
+          <button class="theme-btn" id="theme-btn-night" title="Night mode">🌙</button>
+          <button class="theme-btn" id="theme-btn-auto"  title="Auto (time-based)">Auto</button>
+        </div>
       </div>
     </div>
 
@@ -82,6 +100,7 @@
   <script src="src/logic/geo.js"></script>
   <script src="src/logic/visibility.js"></script>
   <script src="src/logic/indicators.js"></script>
+  <script src="src/theme/themeController.js"></script>
   <script src="src/map/cameraController.js"></script>
   <script src="src/map.js"></script>
   <script src="src/ui.js"></script>

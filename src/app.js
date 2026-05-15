@@ -21,6 +21,13 @@
   function init() {
     AdsbExchangeClient.init(CONFIG);
 
+    // Theme must be initialised before the map so EosMap.init() reads the
+    // correct effective theme when building its initial map style.
+    ThemeController.init(function (theme) {
+      EosMap.setTheme(theme);
+    });
+    _syncThemePicker();
+
     showConfigWarningIfNeeded();
     startGps();
     bindButtons();
@@ -196,11 +203,29 @@
     }
   }
 
+  // ---- Theme picker sync ----
+
+  function _syncThemePicker() {
+    const current = ThemeController.getMode();
+    ["day", "night", "auto"].forEach(function (m) {
+      const btn = document.getElementById("theme-btn-" + m);
+      if (btn) btn.classList.toggle("active", m === current);
+    });
+  }
+
   // ---- Button bindings ----
 
   function bindButtons() {
     document.getElementById("btn-air")?.addEventListener("click", () => setMode("air"));
     document.getElementById("btn-nav")?.addEventListener("click", () => setMode("nav"));
+
+    // Theme picker buttons
+    ["day", "night", "auto"].forEach(function (m) {
+      document.getElementById("theme-btn-" + m)?.addEventListener("click", function () {
+        ThemeController.setMode(m);
+        _syncThemePicker();
+      });
+    });
 
     // Re-render indicators on resize (viewport changes edge positions)
     window.addEventListener("resize", () => {
