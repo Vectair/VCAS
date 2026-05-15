@@ -2,8 +2,11 @@
  * ThemeManager — tracks Day/Night/Auto preference and resolves it to a
  * concrete "day" | "night" value that the map and UI can consume.
  *
- * Auto mode listens to the OS prefers-color-scheme media query and fires
- * the onChange callback whenever the system preference changes.
+ * Auto mode resolves by local time of day:
+ *   Day   = 07:00 – 19:00 local
+ *   Night = 19:00 – 07:00 local
+ * A 60-second interval re-checks the clock so the transition fires
+ * automatically without a page reload.
  */
 
 const ThemeManager = (() => {
@@ -11,10 +14,20 @@ const ThemeManager = (() => {
   let _preference = "auto";   // "day" | "night" | "auto"
   let _resolved   = "night";  // "day" | "night"
   let _onChange   = null;
-  let _mq         = null;     // MediaQueryList for prefers-color-scheme
+  let _tickTimer  = null;
 
-  function _fromSystem() {
-    return (_mq && _mq.matches) ? "night" : "day";
+  function _fromTime() {
+    const h = new Date().getHours(); // 0-23 local
+    return (h >= 7 && h < 19) ? "day" : "night";
+  }
+
+  function _tick() {
+    if (_preference !== "auto") return;
+    const next = _fromTime();
+    if (next !== _resolved) {
+      _resolved = next;
+      _onChange?.(_resolved);
+    }
   }
 
   /**
@@ -24,19 +37,8 @@ const ThemeManager = (() => {
    */
   function init(onChangeFn) {
     _onChange = onChangeFn;
-    _mq = window.matchMedia("(prefers-color-scheme: dark)");
-
-    _mq.addEventListener("change", () => {
-      if (_preference === "auto") {
-        const next = _fromSystem();
-        if (next !== _resolved) {
-          _resolved = next;
-          _onChange?.(_resolved);
-        }
-      }
-    });
-
-    _resolved = (_preference === "auto") ? _fromSystem() : _preference;
+    _resolved = (_preference === "auto") ? _fromTime() : _preference;
+    _tickTimer = setInterval(_tick, 60_000);
     return _resolved;
   }
 
@@ -47,7 +49,7 @@ const ThemeManager = (() => {
    */
   function setPreference(pref) {
     _preference = pref;
-    const next  = (pref === "auto") ? _fromSystem() : pref;
+    const next  = (pref === "auto") ? _fromTime() : pref;
     if (next !== _resolved) {
       _resolved = next;
       _onChange?.(_resolved);
