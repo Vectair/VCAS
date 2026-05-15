@@ -1,11 +1,14 @@
 /**
  * NavStyle — MapLibre GL JS vector style factory for Eos navigation.
  *
- * Tile source: OpenFreeMap (openfreemap.org) — free, no API key, global CDN,
- * OpenMapTiles schema.  Supports "day" and "night" palettes; the caller
- * switches themes by calling map.setStyle(NavStyle.getStyle(theme), {diff:true}).
- * Because the source URL is identical across themes MapLibre reuses cached
- * tiles and only re-renders paint properties, so the switch is instant.
+ * Tile source: MapTiler v3 (OpenMapTiles schema).
+ *   Free tier: https://cloud.maptiler.com/auth/widget?mode=add  (no credit card)
+ *   Set CONFIG.MAPTILER_KEY to enable tiles.
+ *
+ * Why not OpenFreeMap: tiles.openfreemap.org enforces a domain allowlist via
+ * their CDN (x-deny-reason: host_not_allowed) — localhost is blocked without
+ * portal registration.  MapTiler uses the same OpenMapTiles source-layer
+ * schema so all 31 layer definitions below are unchanged.
  *
  * Layer order (painter's algorithm, bottom → top):
  *   background → water → waterway → landcover → park → landuse →
@@ -17,12 +20,28 @@
 
 const NavStyle = (() => {
 
-  const SOURCE_ID  = "ofm";
-  // TileJSON endpoint — MapLibre fetches tile URL templates automatically.
-  const SOURCE_URL = "https://tiles.openfreemap.org/planet";
-  const GLYPHS     = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
-  const ATTR       = '© <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> '
-                   + '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
+  const SOURCE_ID = "omvt";
+
+  // Read key once at module init (config.js always loads before navStyle.js).
+  function _key() {
+    return (typeof CONFIG !== "undefined" && CONFIG.MAPTILER_KEY) || "";
+  }
+
+  function _sourceUrl() {
+    const k = _key();
+    if (!k) {
+      console.warn("[NavStyle] CONFIG.MAPTILER_KEY is empty — vector tiles will not load. "
+        + "Get a free key at https://cloud.maptiler.com/auth/widget?mode=add");
+    }
+    return `https://api.maptiler.com/tiles/v3/tiles.json?key=${k}`;
+  }
+
+  function _glyphsUrl() {
+    return `https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key=${_key()}`;
+  }
+
+  const ATTR = '© <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a> '
+             + '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>';
 
   // ---- Colour palettes -------------------------------------------------- //
 
@@ -490,11 +509,11 @@ const NavStyle = (() => {
     const t = (theme === "day") ? "day" : "night";
     return {
       version: 8,
-      glyphs:  GLYPHS,
+      glyphs:  _glyphsUrl(),
       sources: {
         [SOURCE_ID]: {
           type:        "vector",
-          url:         SOURCE_URL,
+          url:         _sourceUrl(),
           attribution: ATTR,
         },
       },

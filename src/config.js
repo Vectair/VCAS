@@ -6,6 +6,13 @@ const CONFIG = {
   ADSB_API_KEY: "",
   ADSB_API_HOST: "adsbexchange.com",
 
+  // MapTiler API key — required for vector basemap tiles.
+  // Free tier (100k tile requests/month, no credit card):
+  //   1. Sign up at https://cloud.maptiler.com/auth/widget?mode=add
+  //   2. Copy the key from https://cloud.maptiler.com/account/keys/
+  //   3. Paste it below.
+  MAPTILER_KEY: "",
+
   DEFAULT_RANGE_NM: 20,
   REFRESH_INTERVAL_SECONDS: 10,
   MAX_AIRCRAFT_SHOWN: 8,

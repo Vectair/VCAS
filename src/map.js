@@ -1,7 +1,7 @@
 /**
  * MapLibre GL JS map — navigation vector basemap.
  *
- * Tile source: OpenFreeMap (openfreemap.org) via NavStyle.getStyle().
+ * Tile source: MapTiler v3 (OpenMapTiles schema) via NavStyle.getStyle().
  * Theme switching calls map.setStyle(style, {diff:true}) which reuses
  * cached tiles (same source URL) and only re-renders paint properties.
  * maplibregl.Marker objects are DOM elements and survive setStyle unchanged.
@@ -46,6 +46,9 @@ const EosMap = (() => {
       CameraController.init(_map);
       CameraController.followNav(lat, lon, 0);
     });
+
+    // Temporary diagnostic logging — remove once tiles are confirmed rendering.
+    _map.on("error", e => console.error("[MapLibre error]", e.error || e));
 
     // Apply initial sky colour (visible above horizon at pitch 60°)
     _applySkyCss(initialTheme);
