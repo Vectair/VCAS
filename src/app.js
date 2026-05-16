@@ -34,6 +34,15 @@
     const initialTheme = ThemeManager.init(_onThemeChange);
     _applyThemeToDom(initialTheme);
 
+    ViewportDevPanel.init({
+      onViewportChanged() {
+        EosMap.getMap()?.resize();
+        if (mode === "nav" && userLat !== null && userLon !== null) {
+          CameraController.transitionToNav(userLat, userLon, userHeading);
+        }
+      },
+    });
+
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
     startGps();
@@ -176,8 +185,7 @@
 
   function refreshIndicators() {
     if (userLat === null) return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
     const userState = {
       lat: userLat, lon: userLon,

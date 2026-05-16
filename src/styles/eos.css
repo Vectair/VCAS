@@ -818,3 +818,114 @@ body[data-mode="nav"] .indicator:hover { opacity: 0.85; }
   .indicator-arrow           { font-size: 17px; }
   .theme-btn                 { padding: 2px 5px; }
 }
+
+/* ================================================================
+   DEV: viewport emulator
+   All selectors prefixed #viewport-dev- / #vdp- / .vdp- so they
+   never collide with production styles.
+   ================================================================ */
+
+/* Shell — covers the full browser window at all times */
+#viewport-dev-shell {
+  position: fixed;
+  inset: 0;
+}
+
+/* Shell in emulated mode: dark surround + flex centering for the frame */
+#viewport-dev-shell.vdp-emulated {
+  background: #0b0b14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Frame — full size by default; JS applies dimensions + transform in emulated modes */
+#viewport-dev-frame {
+  width: 100%;
+  height: 100%;
+}
+
+/* Frame in emulated mode: clip content and show device outline */
+#viewport-dev-shell.vdp-emulated #viewport-dev-frame {
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1.5px solid #2a2a3e;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.05),
+    0 28px 90px rgba(0,0,0,.95);
+}
+
+/* ---- VIEW button + preset menu ---- */
+#viewport-dev-panel {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  pointer-events: all;
+}
+
+#vdp-toggle {
+  background: rgba(18, 18, 36, 0.90);
+  color: #7b8cde;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background .15s, color .15s;
+  -webkit-appearance: none;
+}
+
+#vdp-toggle:hover {
+  background: rgba(36, 36, 64, 0.96);
+  color: #a0b4ff;
+}
+
+#vdp-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(12, 12, 26, 0.96);
+  border: 1px solid #3a3a5e;
+  border-radius: 8px;
+  padding: 5px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.7);
+}
+
+#vdp-menu.hidden { display: none; }
+
+.vdp-preset {
+  background: transparent;
+  color: #7080b0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+  -webkit-appearance: none;
+}
+
+.vdp-preset:hover {
+  background: rgba(70, 80, 140, 0.35);
+  color: #b0c0ff;
+}
+
+.vdp-preset.active {
+  background: rgba(55, 70, 150, 0.55);
+  color: #c8d4ff;
+  border-color: #505aaa;
+}

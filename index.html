@@ -17,95 +17,104 @@
 </head>
 <body data-theme="night">
 
-  <!-- Map layer (below everything) -->
-  <div id="map-container">
-    <div id="map"></div>
-  </div>
+  <!-- Dev viewport emulator shell — wraps all app content so the frame can
+       be constrained to emulated device dimensions.  In Full Browser mode
+       the shell is transparent and the frame fills the window normally. -->
+  <div id="viewport-dev-shell">
+    <div id="viewport-dev-frame">
 
-  <!-- Edge indicators layer (sits above map, below UI chrome) -->
-  <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
-
-  <!-- GPS unavailable message -->
-  <div id="gps-message" class="hidden">
-    <div class="card">
-      <h2>Location unavailable</h2>
-      <p>Eos needs your GPS position to work.<br>
-         Please allow location access and reload the page.</p>
-    </div>
-  </div>
-
-  <!-- ADS-B config missing banner -->
-  <div id="config-banner" class="hidden">
-    ⚙ ADS-B provider not configured — check src/config.js
-  </div>
-
-  <!-- Loading indicator -->
-  <div id="loading" class="hidden">
-    <div class="spinner"></div>
-    <span>Fetching aircraft…</span>
-  </div>
-
-  <!-- Aircraft detail popup -->
-  <div id="popup" class="hidden"></div>
-
-  <!-- Main overlay (top/bottom chrome) -->
-  <div id="overlay">
-    <!-- Top bar -->
-    <div id="top-bar">
-      <div class="brand">E<span>OS</span></div>
-      <div id="mode-strip">
-        <div id="mode-label">DRIVING VIEW</div>
+      <!-- Map layer (below everything) -->
+      <div id="map-container">
+        <div id="map"></div>
       </div>
-      <div id="adsb-status" class="error">
-        <div class="dot"></div>
-        <span class="label">ADS-B</span>
+
+      <!-- Edge indicators layer (sits above map, below UI chrome) -->
+      <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
+
+      <!-- GPS unavailable message -->
+      <div id="gps-message" class="hidden">
+        <div class="card">
+          <h2>Location unavailable</h2>
+          <p>Eos needs your GPS position to work.<br>
+             Please allow location access and reload the page.</p>
+        </div>
       </div>
-    </div>
 
-    <div class="spacer"></div>
-
-    <!-- Bottom bar -->
-    <div id="bottom-bar">
-      <!-- Mode row -->
-      <div id="mode-row">
-        <button class="mode-btn active-mode" id="btn-nav">NAV</button>
-        <div id="aircraft-count">No aircraft in range</div>
-        <button class="mode-btn route-btn" id="btn-test-route" title="Route to Liverpool Airport">↗</button>
-        <button class="mode-btn" id="btn-air">AIR</button>
+      <!-- ADS-B config missing banner -->
+      <div id="config-banner" class="hidden">
+        ⚙ ADS-B provider not configured — check src/config.js
       </div>
-      <!-- Theme row -->
-      <div id="theme-row">
-        <button class="theme-btn" id="btn-theme-day">Day</button>
-        <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
-        <button class="theme-btn" id="btn-theme-night">Night</button>
+
+      <!-- Loading indicator -->
+      <div id="loading" class="hidden">
+        <div class="spinner"></div>
+        <span>Fetching aircraft…</span>
       </div>
-    </div>
-  </div>
 
-  <!-- Developer: camera tuning toggle -->
-  <button id="btn-cam-dev" title="Camera tuning panel (dev)">CAM</button>
+      <!-- Aircraft detail popup -->
+      <div id="popup" class="hidden"></div>
 
-  <!-- Navigation guidance card (top — shown in NAV mode with active route) -->
-  <div id="nav-guidance-card" class="hidden">
-    <div class="ngc-maneuver">↑</div>
-    <div class="ngc-body">
-      <div class="ngc-action" id="ngc-action-text">Continue</div>
-      <div class="ngc-dest" id="ngc-dest-text">towards Liverpool Airport</div>
-    </div>
-  </div>
+      <!-- Main overlay (top/bottom chrome) -->
+      <div id="overlay">
+        <!-- Top bar -->
+        <div id="top-bar">
+          <div class="brand">E<span>OS</span></div>
+          <div id="mode-strip">
+            <div id="mode-label">DRIVING VIEW</div>
+          </div>
+          <div id="adsb-status" class="error">
+            <div class="dot"></div>
+            <span class="label">ADS-B</span>
+          </div>
+        </div>
 
-  <!-- ETA card (bottom — shown when a route is active) -->
-  <div id="route-card" class="hidden">
-    <div class="route-eta-col">
-      <div class="route-eta-time" id="route-eta-text">—</div>
-      <div class="route-eta-sub">
-        <span id="route-dist-text"></span>
-        <span class="route-sep"> · </span>
-        <span id="route-dest-name"></span>
+        <div class="spacer"></div>
+
+        <!-- Bottom bar -->
+        <div id="bottom-bar">
+          <!-- Mode row -->
+          <div id="mode-row">
+            <button class="mode-btn active-mode" id="btn-nav">NAV</button>
+            <div id="aircraft-count">No aircraft in range</div>
+            <button class="mode-btn route-btn" id="btn-test-route" title="Route to Liverpool Airport">↗</button>
+            <button class="mode-btn" id="btn-air">AIR</button>
+          </div>
+          <!-- Theme row -->
+          <div id="theme-row">
+            <button class="theme-btn" id="btn-theme-day">Day</button>
+            <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
+            <button class="theme-btn" id="btn-theme-night">Night</button>
+          </div>
+        </div>
       </div>
-    </div>
-    <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
-  </div>
+
+      <!-- Developer: camera tuning toggle -->
+      <button id="btn-cam-dev" title="Camera tuning panel (dev)">CAM</button>
+
+      <!-- Navigation guidance card (top — shown in NAV mode with active route) -->
+      <div id="nav-guidance-card" class="hidden">
+        <div class="ngc-maneuver">↑</div>
+        <div class="ngc-body">
+          <div class="ngc-action" id="ngc-action-text">Continue</div>
+          <div class="ngc-dest" id="ngc-dest-text">towards Liverpool Airport</div>
+        </div>
+      </div>
+
+      <!-- ETA card (bottom — shown when a route is active) -->
+      <div id="route-card" class="hidden">
+        <div class="route-eta-col">
+          <div class="route-eta-time" id="route-eta-text">—</div>
+          <div class="route-eta-sub">
+            <span id="route-dist-text"></span>
+            <span class="route-sep"> · </span>
+            <span id="route-dest-name"></span>
+          </div>
+        </div>
+        <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
+      </div>
+
+    </div><!-- #viewport-dev-frame -->
+  </div><!-- #viewport-dev-shell -->
 
   <!-- MapLibre GL JS -->
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
@@ -123,6 +132,7 @@
   <script src="src/map/themeManager.js"></script>
   <script src="src/map/cameraController.js"></script>
   <script src="src/dev/cameraDevPanel.js"></script>
+  <script src="src/dev/viewportDevPanel.js"></script>
   <script src="src/map.js"></script>
   <script src="src/ui.js"></script>
   <script src="src/app.js"></script>
