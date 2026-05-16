@@ -8,11 +8,14 @@
  */
 
 const EosMap = (() => {
-  let _map        = null;
-  let _userMarker = null;
-  let _airMarkers = [];
-  let _mode       = "nav";
-  let _heading    = 0;
+  let _map                   = null;
+  let _userMarker            = null;
+  let _airMarkers            = [];
+  let _mode                  = "nav";
+  let _heading               = 0;
+  let _mapLoaded             = false;
+  let _pendingRoute          = null;  // geometry queued before first map load
+  let _currentRouteGeometry  = null;  // retained so theme changes can re-apply it
 
   // ---- Init ----
 
@@ -43,8 +46,14 @@ const EosMap = (() => {
     );
 
     _map.on("load", () => {
+      _mapLoaded = true;
       CameraController.init(_map);
       CameraController.followNav(lat, lon, 0);
+      _initRouteLayer();
+      if (_pendingRoute) {
+        _applyRoute(_pendingRoute);
+        _pendingRoute = null;
+      }
     });
 
     // Temporary diagnostic logging — remove once tiles are confirmed rendering.
@@ -70,6 +79,14 @@ const EosMap = (() => {
     if (!_map) return;
     _map.setStyle(NavStyle.getStyle(theme), { diff: true });
     _applySkyCss(theme);
+    // setStyle({diff:true}) only patches layers/sources present in the style JSON;
+    // dynamically added route layers survive in practice, but guard anyway.
+    _map.once("styledata", () => {
+      if (!_map.getSource("route")) {
+        _initRouteLayer();
+        if (_currentRouteGeometry) _applyRoute(_currentRouteGeometry);
+      }
+    });
   }
 
   function _applySkyCss(theme) {
@@ -77,6 +94,55 @@ const EosMap = (() => {
     // is pitched 60°.  Sync it to the map palette so the sky matches the land.
     const el = document.getElementById("map-container");
     if (el) el.style.background = NavStyle.skyColor(theme);
+  }
+
+  // ---- Route layer ----
+
+  function _initRouteLayer() {
+    _map.addSource("route", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+
+    // White casing — wider, drawn first (below the blue line).
+    _map.addLayer({
+      id:     "route-casing",
+      type:   "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint:  { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.88 },
+    });
+
+    // Navigation blue — Google Maps style, above the casing.
+    _map.addLayer({
+      id:     "route-line",
+      type:   "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint:  { "line-color": "#4285F4", "line-width": 5.5, "line-opacity": 1 },
+    });
+  }
+
+  function _applyRoute(geometry) {
+    _map.getSource("route")?.setData({
+      type:       "Feature",
+      geometry:   geometry,
+      properties: {},
+    });
+  }
+
+  function showRoute(geometry) {
+    _currentRouteGeometry = geometry;
+    if (!_mapLoaded) { _pendingRoute = geometry; return; }
+    if (!_map.getSource("route")) _initRouteLayer();
+    _applyRoute(geometry);
+  }
+
+  function clearRoute() {
+    _currentRouteGeometry = null;
+    _pendingRoute         = null;
+    if (!_mapLoaded || !_map.getSource("route")) return;
+    _map.getSource("route").setData({ type: "FeatureCollection", features: [] });
   }
 
   // ---- User marker ----
@@ -173,7 +239,7 @@ const EosMap = (() => {
     if (_map) _map.easeTo({ center: [lon, lat], zoom, duration: 800 });
   }
 
-  return { init, setTheme, updateUserPosition, setMode, getMap, renderAirMarkers, clearAirMarkers, flyTo };
+  return { init, setTheme, updateUserPosition, setMode, getMap, renderAirMarkers, clearAirMarkers, flyTo, showRoute, clearRoute };
 })();
 
 if (typeof module !== "undefined") module.exports = EosMap;

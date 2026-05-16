@@ -16,6 +16,13 @@
   let lastFetchTime = null;
   let lastFetchError = null;
 
+  // Route state
+  let activeRoute   = null;
+  let routeDestName = "";
+
+  // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
+  const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
+
   // ---- Init ----
 
   function init() {
@@ -202,6 +209,65 @@
     UI.showAirPopup(aircraft, vis);
   }
 
+  // ---- Routing ----
+
+  async function requestTestRoute() {
+    if (!userLat) return;
+
+    const btn = document.getElementById("btn-test-route");
+    if (btn) { btn.textContent = "…"; btn.disabled = true; }
+
+    const route = await OsrmProvider.getRoute(
+      { lat: userLat, lon: userLon },
+      { lat: TEST_DEST.lat, lon: TEST_DEST.lon }
+    );
+
+    if (btn) { btn.textContent = "↗"; btn.disabled = false; }
+
+    if (!route) {
+      console.warn("Route request failed — check network or OSRM availability.");
+      return;
+    }
+
+    activeRoute   = route;
+    routeDestName = TEST_DEST.name;
+    EosMap.showRoute(route.geometry);
+    _showRouteCard();
+  }
+
+  function clearActiveRoute() {
+    activeRoute   = null;
+    routeDestName = "";
+    EosMap.clearRoute();
+    _hideRouteCard();
+  }
+
+  function _showRouteCard() {
+    document.getElementById("route-dest-name").textContent = routeDestName;
+    document.getElementById("route-dist-text").textContent = _fmtDistance(activeRoute.distanceMeters);
+    document.getElementById("route-eta-text").textContent  = _fmtDuration(activeRoute.durationSeconds);
+    document.getElementById("route-card").classList.remove("hidden");
+  }
+
+  function _hideRouteCard() {
+    document.getElementById("route-card")?.classList.add("hidden");
+  }
+
+  function _fmtDistance(meters) {
+    return meters >= 1000
+      ? (meters / 1000).toFixed(1) + " km"
+      : Math.round(meters) + " m";
+  }
+
+  function _fmtDuration(seconds) {
+    if (seconds >= 3600) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return h + "h " + m + "m";
+    }
+    return Math.floor(seconds / 60) + " min";
+  }
+
   // ---- Mode switching ----
 
   function setMode(newMode) {
@@ -226,6 +292,8 @@
   function bindButtons() {
     document.getElementById("btn-air")?.addEventListener("click", () => setMode("air"));
     document.getElementById("btn-nav")?.addEventListener("click", () => setMode("nav"));
+    document.getElementById("btn-test-route")?.addEventListener("click", requestTestRoute);
+    document.getElementById("btn-clear-route")?.addEventListener("click", clearActiveRoute);
 
     // Theme buttons
     ["day", "auto", "night"].forEach(t => {
