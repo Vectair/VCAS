@@ -1,99 +1,43 @@
 /**
- * MapLibre GL JS map wrapper.
+ * MapLibre GL JS map — navigation vector basemap.
  *
- * Public interface is unchanged from the Leaflet version so app.js
- * requires only minimal edits.  Adds setTheme(theme) for day/night switching.
+ * Tile source: MapTiler v3 (OpenMapTiles schema) via NavStyle.getStyle().
+ * Theme switching calls map.setStyle(style, {diff:true}) which reuses
+ * cached tiles (same source URL) and only re-renders paint properties.
+ * maplibregl.Marker objects are DOM elements and survive setStyle unchanged.
  */
 
 const EosMap = (() => {
-  let _map        = null;
-  let _userMarker = null;
-  let _airMarkers = [];
-  let _mode       = "nav";
-  let _heading    = 0;
-  let _mapLoaded  = false;
-  let _pendingTheme = null;
-
-  // CARTO raster tile URLs — no API key required.
-  const TILES = {
-    night: [
-      "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-      "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-      "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-      "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-    ],
-    day: [
-      "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-      "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-      "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-      "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",
-    ],
-  };
-
-  const ATTRIBUTION = '© <a href="https://carto.com/">CARTO</a> © <a href="https://www.openstreetmap.org/copyright">OSM</a>';
-
-  // Build the initial MapLibre style with both tile sources.
-  // The correct layer starts visible; the other starts hidden.
-  // Toggling is done later via setLayoutProperty (no re-init required).
-  function _buildStyle(initialTheme) {
-    const nightVis = initialTheme === "night" ? "visible" : "none";
-    const dayVis   = initialTheme === "day"   ? "visible" : "none";
-    return {
-      version: 8,
-      sources: {
-        "carto-night": {
-          type: "raster",
-          tiles: TILES.night,
-          tileSize: 512,
-          maxzoom: 19,
-          attribution: ATTRIBUTION,
-        },
-        "carto-day": {
-          type: "raster",
-          tiles: TILES.day,
-          tileSize: 512,
-          maxzoom: 19,
-          attribution: ATTRIBUTION,
-        },
-      },
-      layers: [
-        {
-          id: "carto-night-layer",
-          type: "raster",
-          source: "carto-night",
-          minzoom: 0,
-          maxzoom: 20,
-          layout: { visibility: nightVis },
-        },
-        {
-          id: "carto-day-layer",
-          type: "raster",
-          source: "carto-day",
-          minzoom: 0,
-          maxzoom: 20,
-          layout: { visibility: dayVis },
-        },
-      ],
-    };
-  }
+  let _map                   = null;
+  let _userMarker            = null;
+  let _airMarkers            = [];
+  let _mode                  = "nav";
+  let _heading               = 0;
+  let _mapLoaded             = false;
+  let _pendingRoute          = null;  // geometry queued before first map load
+  let _currentRouteGeometry  = null;  // retained so theme changes can re-apply it
 
   // ---- Init ----
 
-  function init(containerId, lat, lon) {
-    const initialTheme = (typeof ThemeController !== "undefined")
-      ? ThemeController.getEffectiveTheme()
-      : "night";
+  /**
+   * @param {string} containerId  DOM id of the map div.
+   * @param {number} lat          Initial latitude.
+   * @param {number} lon          Initial longitude.
+   * @param {string} [theme]      "day" | "night" — resolved by ThemeManager.
+   */
+  function init(containerId, lat, lon, theme) {
+    const initialTheme = theme || "night";
 
     _map = new maplibregl.Map({
-      container:          containerId,
-      style:              _buildStyle(initialTheme),
-      center:             [lon, lat],
-      zoom:               16,
-      pitch:              60,
-      bearing:            0,
+      container:        containerId,
+      style:            NavStyle.getStyle(initialTheme),
+      center:           [lon, lat],
+      zoom:             17,   // matches NAV preset — avoids zoom flash on first followNav
+      pitch:            63,   // matches NAV preset pitch
+      bearing:          0,
       attributionControl: false,
-      pitchWithRotate:    true,
-      touchPitch:         false,
+      pitchWithRotate:  true,
+      touchPitch:       false,
     });
 
     _map.addControl(
@@ -105,9 +49,10 @@ const EosMap = (() => {
       _mapLoaded = true;
       CameraController.init(_map);
       CameraController.followNav(lat, lon, 0);
-      if (_pendingTheme) {
-        _applyThemeToMap(_pendingTheme);
-        _pendingTheme = null;
+      _initRouteLayer();
+      if (_pendingRoute) {
+        _applyRoute(_pendingRoute);
+        _pendingRoute = null;
       }
     });
 
@@ -205,12 +150,11 @@ const EosMap = (() => {
   function _createUserMarker(lat, lon) {
     const el = document.createElement("div");
     el.className = "user-marker";
-    // fill="currentColor" inherits from .user-marker-nav { color: var(--accent) }
     el.innerHTML = `
       <div class="user-marker-halo"></div>
       <svg class="user-marker-nav" viewBox="0 0 20 28" xmlns="http://www.w3.org/2000/svg">
         <path d="M10 1 L19 27 L10 21 L1 27 Z"
-              fill="currentColor" stroke="#ffffff" stroke-width="1.5"
+              fill="#58a6ff" stroke="#ffffff" stroke-width="1.5"
               stroke-linejoin="round"/>
       </svg>`;
 
@@ -223,24 +167,11 @@ const EosMap = (() => {
     const el  = _userMarker?.getElement();
     const svg = el?.querySelector(".user-marker-nav");
     if (!svg) return;
+    // NAV: map rotates to match heading; arrow always points "up" = ahead.
+    // AIR: map is north-up; rotate arrow to show heading relative to north.
     svg.style.transform = mode === "air"
       ? `rotate(${heading}deg)`
       : "rotate(0deg)";
-  }
-
-  // ---- Theme ----
-
-  function _applyThemeToMap(theme) {
-    _map.setLayoutProperty("carto-night-layer", "visibility", theme === "night" ? "visible" : "none");
-    _map.setLayoutProperty("carto-day-layer",   "visibility", theme === "day"   ? "visible" : "none");
-  }
-
-  function setTheme(theme) {
-    if (!_mapLoaded) {
-      _pendingTheme = theme;
-      return;
-    }
-    _applyThemeToMap(theme);
   }
 
   // ---- Public API ----
@@ -308,7 +239,7 @@ const EosMap = (() => {
     if (_map) _map.easeTo({ center: [lon, lat], zoom, duration: 800 });
   }
 
-  return { init, updateUserPosition, setMode, setTheme, getMap, renderAirMarkers, clearAirMarkers, flyTo };
+  return { init, setTheme, updateUserPosition, setMode, getMap, renderAirMarkers, clearAirMarkers, flyTo, showRoute, clearRoute };
 })();
 
 if (typeof module !== "undefined") module.exports = EosMap;
