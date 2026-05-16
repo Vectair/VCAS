@@ -211,7 +211,8 @@ const NavStyle = (() => {
         source: src, "source-layer": "landuse",
         filter: ["in", ["get", "class"],
           ["literal", ["residential", "suburb", "neighbourhood"]]],
-        paint: { "fill-color": p.residential, "fill-opacity": 0.55 },
+        // Pulled back from 0.55 — less residential texture competing with route.
+        paint: { "fill-color": p.residential, "fill-opacity": 0.38 },
       },
 
       // ── Buildings ────────────────────────────────────────────────────────
@@ -403,15 +404,16 @@ const NavStyle = (() => {
       {
         id: "road-label", type: "symbol",
         source: src, "source-layer": "transportation_name",
-        minzoom: 13,
+        // minzoom 14 (was 13) — labels appear later, less clutter at driving zoom.
+        minzoom: 14,
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],
           "symbol-placement": "line",
-          "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 16, 12, 18, 14],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 14, 10, 16, 11, 18, 13],
           "text-max-angle": 30,
-          "text-padding": 10,
-          // Viewport alignment keeps labels readable at 60° map pitch
+          // Increased padding → sparser label placement, fewer labels on screen.
+          "text-padding": 28,
           "text-pitch-alignment": "viewport",
           "text-rotation-alignment": "map",
         },
@@ -468,7 +470,8 @@ const NavStyle = (() => {
         source: src, "source-layer": "place",
         filter: ["in", ["get", "class"],
           ["literal", ["village", "hamlet", "suburb", "quarter", "neighbourhood"]]],
-        minzoom: 11,
+        // minzoom 13 (was 11) — neighbourhood labels stay out of the driving view.
+        minzoom: 13,
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],

@@ -32,8 +32,8 @@ const EosMap = (() => {
       container:        containerId,
       style:            NavStyle.getStyle(initialTheme),
       center:           [lon, lat],
-      zoom:             16,
-      pitch:            60,
+      zoom:             17,   // matches NAV preset — avoids zoom flash on first followNav
+      pitch:            63,   // matches NAV preset pitch
       bearing:          0,
       attributionControl: false,
       pitchWithRotate:  true,
@@ -104,22 +104,22 @@ const EosMap = (() => {
       data: { type: "FeatureCollection", features: [] },
     });
 
-    // White casing — wider, drawn first (below the blue line).
+    // White casing — drawn first, wider, gives the blue line a clean border.
     _map.addLayer({
       id:     "route-casing",
       type:   "line",
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
-      paint:  { "line-color": "#ffffff", "line-width": 9, "line-opacity": 0.88 },
+      paint:  { "line-color": "#ffffff", "line-width": 13, "line-opacity": 0.92 },
     });
 
-    // Navigation blue — Google Maps style, above the casing.
+    // Navigation blue — Google Maps #1a73e8, dominant above road texture.
     _map.addLayer({
       id:     "route-line",
       type:   "line",
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
-      paint:  { "line-color": "#4285F4", "line-width": 5.5, "line-opacity": 1 },
+      paint:  { "line-color": "#1a73e8", "line-width": 8, "line-opacity": 1 },
     });
   }
 
