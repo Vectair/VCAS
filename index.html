@@ -26,7 +26,7 @@
   <!-- App styles -->
   <link rel="stylesheet" href="src/styles/eos.css" />
 </head>
-<body>
+<body data-theme="night">
 
   <!-- Map layer (below everything) -->
   <div id="map-container">
@@ -84,16 +84,40 @@
 
     <!-- Bottom bar -->
     <div id="bottom-bar">
-      <button class="mode-btn active-mode" id="btn-nav">NAV</button>
-      <div id="aircraft-count">No aircraft in range</div>
-      <button class="mode-btn" id="btn-air">AIR</button>
+      <!-- Mode row -->
+      <div id="mode-row">
+        <button class="mode-btn active-mode" id="btn-nav">NAV</button>
+        <div id="aircraft-count">No aircraft in range</div>
+        <button class="mode-btn route-btn" id="btn-test-route" title="Route to Liverpool Airport">↗</button>
+        <button class="mode-btn" id="btn-air">AIR</button>
+      </div>
+      <!-- Theme row -->
+      <div id="theme-row">
+        <button class="theme-btn" id="btn-theme-day">Day</button>
+        <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
+        <button class="theme-btn" id="btn-theme-night">Night</button>
+      </div>
     </div>
+  </div>
+
+  <!-- Route summary card (shown when a route is active) -->
+  <div id="route-card" class="hidden">
+    <div class="route-card-icon">↗</div>
+    <div class="route-card-body">
+      <div class="route-card-dest" id="route-dest-name"></div>
+      <div class="route-card-stats">
+        <span id="route-dist-text"></span><span class="route-sep"> · </span><span id="route-eta-text"></span>
+      </div>
+    </div>
+    <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
   </div>
 
   <!-- MapLibre GL JS -->
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
   <!-- App modules (order matters — dependencies first) -->
+  <script src="src/routing/routingProvider.js"></script>
+  <script src="src/routing/osrmProvider.js"></script>
   <script src="src/config.js"></script>
   <script src="src/data/normaliseAircraft.js"></script>
   <script src="src/data/adsbExchangeClient.js"></script>

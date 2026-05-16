@@ -4,8 +4,10 @@
  * Owns all camera state: pitch, bearing, zoom, padding, and easing.
  * app.js and map.js call into this; nothing outside reads camera state directly.
  *
- * NAV mode: 2.5D over-the-shoulder, heading-aligned, user anchored in lower-centre.
- * AIR mode: top-down north-up overview.
+ * NAV mode: low forward-looking driving perspective (Google Maps reference).
+ *   User arrow anchors near the bottom of the screen (~78 % from top).
+ *   Most useful screen space is the road ahead, not the area behind.
+ * AIR mode: top-down north-up strategic overview.
  */
 
 const CameraController = (() => {
@@ -15,15 +17,15 @@ const CameraController = (() => {
   // ---- Camera presets ----
 
   const NAV = {
-    pitch:           60,   // degrees (0 = top-down, 60 = strong forward perspective)
-    zoom:            16,
+    pitch:           63,   // stronger forward lean than 60° — reduces "drone" feel
+    zoom:            17,   // tighter zoom, road detail clearly visible
     transitionMs:    900,
-    followMs:        500,
-    // Fraction of container height added as top padding so that
-    // the geographic center (= user position) renders at ~70 % from top.
-    // Derivation: anchor% = topFraction + (1 - topFraction) / 2  → 0.40 gives 70 %.
-    topPaddingFraction: 0.40,
-    smoothAlpha:     0.15, // first-order low-pass; lower = smoother but laggier
+    followMs:        400,  // snappier continuous follow
+    // Top-padding as fraction of container height.
+    // User renders at: 0.5 + topPaddingFraction/2 from top.
+    // 0.55 → ~77.5 % from top — lower-centre driving anchor.
+    topPaddingFraction: 0.55,
+    smoothAlpha:     0.12, // slightly smoother bearing; lower = smoother/laggier
   };
 
   const AIR = {

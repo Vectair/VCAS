@@ -1,5 +1,5 @@
 /**
- * Eos V1 — main application controller.
+ * Eos — main application controller.
  */
 
 (function () {
@@ -15,6 +15,13 @@
   let fetchTimer = null;
   let lastFetchTime = null;
   let lastFetchError = null;
+
+  // Route state
+  let activeRoute   = null;
+  let routeDestName = "";
+
+  // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
+  const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
 
   // ---- Init ----
 
@@ -36,6 +43,29 @@
     UI.setLoading(false);
   }
 
+  // ---- Theme ----
+
+  function _onThemeChange(theme) {
+    EosMap.setTheme(theme);
+    _applyThemeToDom(theme);
+  }
+
+  function _applyThemeToDom(theme) {
+    document.body.dataset.theme = theme; // triggers CSS variable overrides
+
+    // Update PWA status-bar colour
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = theme === "day" ? "#f5f3ee" : "#0e1117";
+
+    // Reflect active state on theme buttons
+    ["day", "auto", "night"].forEach(t => {
+      const btn = document.getElementById(`btn-theme-${t}`);
+      if (!btn) return;
+      const active = (t === ThemeManager.getPreference());
+      btn.classList.toggle("active-theme", active);
+    });
+  }
+
   function showConfigWarningIfNeeded() {
     if (!AdsbExchangeClient.isConfigured()) {
       UI.showConfigBanner(true);
@@ -51,14 +81,12 @@
       return;
     }
 
-    // First fix
     navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, {
       enableHighAccuracy: true,
       timeout: 10000,
       maximumAge: 5000,
     });
 
-    // Continuous watch
     gpsWatchId = navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, {
       enableHighAccuracy: true,
       timeout: 15000,
@@ -71,16 +99,17 @@
 
     userLat = pos.coords.latitude;
     userLon = pos.coords.longitude;
-    userSpeedMph = (pos.coords.speed || 0) * 2.23694; // m/s → mph
+    userSpeedMph = (pos.coords.speed || 0) * 2.23694;
 
-    // Use GPS course when moving, else keep last heading
-    if (pos.coords.heading != null && !isNaN(pos.coords.heading) && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
+    if (pos.coords.heading != null && !isNaN(pos.coords.heading)
+        && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
       userHeading = pos.coords.heading;
     }
 
     if (!window._mapInitialised) {
       window._mapInitialised = true;
-      EosMap.init("map", userLat, userLon);
+      // Pass the already-resolved theme so the first render is correct.
+      EosMap.init("map", userLat, userLon, ThemeManager.getResolved());
       scheduleFetch();
     } else {
       EosMap.updateUserPosition(userLat, userLon, userHeading);
@@ -93,10 +122,9 @@
     console.warn("GPS error:", err.message);
     if (userLat === null) {
       UI.showGpsMessage(true);
-      // Still init map at a generic position so the UI is functional
       if (!window._mapInitialised) {
         window._mapInitialised = true;
-        EosMap.init("map", 51.5, -0.12); // London as fallback
+        EosMap.init("map", 51.5, -0.12, ThemeManager.getResolved());
       }
     }
   }
@@ -131,7 +159,6 @@
       UI.showConfigBanner(false);
     }
 
-    // Merge new data; keep aircraft whose last seen is still fresh
     aircraftList = result.aircraft.filter(
       a => a.lastSeenSeconds < CONFIG.REMOVE_THRESHOLD_SECONDS
     );
@@ -183,6 +210,65 @@
     UI.showAirPopup(aircraft, vis);
   }
 
+  // ---- Routing ----
+
+  async function requestTestRoute() {
+    if (!userLat) return;
+
+    const btn = document.getElementById("btn-test-route");
+    if (btn) { btn.textContent = "…"; btn.disabled = true; }
+
+    const route = await OsrmProvider.getRoute(
+      { lat: userLat, lon: userLon },
+      { lat: TEST_DEST.lat, lon: TEST_DEST.lon }
+    );
+
+    if (btn) { btn.textContent = "↗"; btn.disabled = false; }
+
+    if (!route) {
+      console.warn("Route request failed — check network or OSRM availability.");
+      return;
+    }
+
+    activeRoute   = route;
+    routeDestName = TEST_DEST.name;
+    EosMap.showRoute(route.geometry);
+    _showRouteCard();
+  }
+
+  function clearActiveRoute() {
+    activeRoute   = null;
+    routeDestName = "";
+    EosMap.clearRoute();
+    _hideRouteCard();
+  }
+
+  function _showRouteCard() {
+    document.getElementById("route-dest-name").textContent = routeDestName;
+    document.getElementById("route-dist-text").textContent = _fmtDistance(activeRoute.distanceMeters);
+    document.getElementById("route-eta-text").textContent  = _fmtDuration(activeRoute.durationSeconds);
+    document.getElementById("route-card").classList.remove("hidden");
+  }
+
+  function _hideRouteCard() {
+    document.getElementById("route-card")?.classList.add("hidden");
+  }
+
+  function _fmtDistance(meters) {
+    return meters >= 1000
+      ? (meters / 1000).toFixed(1) + " km"
+      : Math.round(meters) + " m";
+  }
+
+  function _fmtDuration(seconds) {
+    if (seconds >= 3600) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return h + "h " + m + "m";
+    }
+    return Math.floor(seconds / 60) + " min";
+  }
+
   // ---- Mode switching ----
 
   function setMode(newMode) {
@@ -191,7 +277,6 @@
     UI.setModeLabel(newMode);
     UI.hidePopup();
 
-    // Camera transition is owned by EosMap.setMode; no separate flyTo needed.
     EosMap.setMode(newMode, userLat, userLon, userHeading);
 
     if (newMode === "nav") {
@@ -218,6 +303,16 @@
   function bindButtons() {
     document.getElementById("btn-air")?.addEventListener("click", () => setMode("air"));
     document.getElementById("btn-nav")?.addEventListener("click", () => setMode("nav"));
+    document.getElementById("btn-test-route")?.addEventListener("click", requestTestRoute);
+    document.getElementById("btn-clear-route")?.addEventListener("click", clearActiveRoute);
+
+    // Theme buttons
+    ["day", "auto", "night"].forEach(t => {
+      document.getElementById(`btn-theme-${t}`)?.addEventListener("click", () => {
+        ThemeManager.setPreference(t);
+        _applyThemeToDom(ThemeManager.getResolved());
+      });
+    });
 
     // Theme picker buttons
     ["day", "night", "auto"].forEach(function (m) {
@@ -232,7 +327,6 @@
       if (mode === "nav") refreshIndicators();
     });
 
-    // Dismiss popup on map tap
     document.getElementById("map")?.addEventListener("click", () => UI.hidePopup());
   }
 

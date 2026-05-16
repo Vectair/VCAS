@@ -111,8 +111,93 @@ const EosMap = (() => {
       }
     });
 
+    // Temporary diagnostic logging — remove once tiles are confirmed rendering.
+    _map.on("error", e => console.error("[MapLibre error]", e.error || e));
+
+    // Apply initial sky colour (visible above horizon at pitch 60°)
+    _applySkyCss(initialTheme);
+
     _userMarker = _createUserMarker(lat, lon);
     return _map;
+  }
+
+  // ---- Theme ----
+
+  /**
+   * Switch the map basemap theme.  Safe to call at any time after init().
+   * The Markers (user arrow, aircraft) are DOM elements and are unaffected
+   * by setStyle; camera state is also preserved.
+   *
+   * @param {"day"|"night"} theme
+   */
+  function setTheme(theme) {
+    if (!_map) return;
+    _map.setStyle(NavStyle.getStyle(theme), { diff: true });
+    _applySkyCss(theme);
+    // setStyle({diff:true}) only patches layers/sources present in the style JSON;
+    // dynamically added route layers survive in practice, but guard anyway.
+    _map.once("styledata", () => {
+      if (!_map.getSource("route")) {
+        _initRouteLayer();
+        if (_currentRouteGeometry) _applyRoute(_currentRouteGeometry);
+      }
+    });
+  }
+
+  function _applySkyCss(theme) {
+    // The #map-container background is visible above the horizon when the map
+    // is pitched 60°.  Sync it to the map palette so the sky matches the land.
+    const el = document.getElementById("map-container");
+    if (el) el.style.background = NavStyle.skyColor(theme);
+  }
+
+  // ---- Route layer ----
+
+  function _initRouteLayer() {
+    _map.addSource("route", {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+
+    // White casing — drawn first, wider, gives the blue line a clean border.
+    _map.addLayer({
+      id:     "route-casing",
+      type:   "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint:  { "line-color": "#ffffff", "line-width": 13, "line-opacity": 0.92 },
+    });
+
+    // Navigation blue — Google Maps #1a73e8, dominant above road texture.
+    _map.addLayer({
+      id:     "route-line",
+      type:   "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint:  { "line-color": "#1a73e8", "line-width": 8, "line-opacity": 1 },
+    });
+  }
+
+  function _applyRoute(geometry) {
+    _map.getSource("route")?.setData({
+      type:       "Feature",
+      geometry:   geometry,
+      properties: {},
+    });
+  }
+
+  function showRoute(geometry) {
+    _currentRouteGeometry = geometry;
+    if (!_mapLoaded) { _pendingRoute = geometry; return; }
+    if (!_map.getSource("route")) _initRouteLayer();
+    _applyRoute(geometry);
+  }
+
+  function clearRoute() {
+    _currentRouteGeometry = null;
+    _pendingRoute         = null;
+    if (!_mapLoaded || !_map.getSource("route")) return;
+    _map.getSource("route").setData({ type: "FeatureCollection", features: [] });
   }
 
   // ---- User marker ----

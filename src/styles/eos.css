@@ -230,6 +230,15 @@ html, body {
 #bottom-bar {
   pointer-events: all;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px 16px;
+  background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
+}
+
+/* Mode row: NAV | count | AIR */
+#mode-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px 14px;
@@ -260,6 +269,41 @@ html, body {
   text-align: center;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* Theme row: Day | Auto | Night */
+#theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  align-self: center;
+}
+
+.theme-btn {
+  flex: 1;
+  padding: 6px 14px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  -webkit-appearance: none;
+}
+
+.theme-btn:last-child   { border-right: none; }
+.theme-btn:active       { background: var(--btn-hover); }
+.theme-btn.active-theme {
+  background: var(--btn-active-bg);
+  color: #ffffff;
 }
 
 /* ---- GPS unavailable message ---- */
@@ -349,6 +393,10 @@ html, body {
   text-align: center;
 }
 
+body[data-theme="day"] .indicator-label {
+  background: rgba(245,243,238,.88);
+}
+
 .indicator-label .callsign {
   font-size: 10px;
   font-weight: 700;
@@ -387,6 +435,10 @@ html, body {
   border-radius: var(--radius-sm);
   padding: 1px 5px;
   text-align: center;
+}
+
+body[data-theme="day"] .air-label-box {
+  background: rgba(245,243,238,.88);
 }
 
 .air-label-box .callsign {
@@ -462,7 +514,7 @@ html, body {
 /* ---- Loading spinner ---- */
 #loading {
   position: fixed;
-  bottom: 80px;
+  bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 30;
@@ -490,6 +542,92 @@ html, body {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Route button (in mode-row) ---- */
+.route-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-size: 16px;
+  padding: 10px 16px;
+}
+
+.route-btn:active   { opacity: .75; }
+.route-btn:disabled { opacity: .5; pointer-events: none; }
+
+/* ---- Route summary card ---- */
+#route-card {
+  position: fixed;
+  /* sits just above the bottom bar (bottom bar ≈ 96 px tall with theme row) */
+  bottom: 104px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(340px, calc(100vw - 28px));
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 11px 14px;
+  box-shadow: var(--shadow);
+  animation: pop-in .15s ease-out;
+}
+
+#route-card.hidden { display: none; }
+
+.route-card-icon {
+  font-size: 18px;
+  color: #4285F4;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.route-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-card-dest {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.route-card-stats {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.route-sep { color: var(--text-muted); }
+
+.route-card-clear {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-appearance: none;
+  transition: background .15s;
+}
+
+.route-card-clear:active { background: var(--btn-hover); }
 
 /* ---- Responsive tweaks ---- */
 @media (max-width: 400px) {
