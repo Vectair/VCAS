@@ -1,17 +1,13 @@
 const CONFIG = {
+  // MapTiler vector basemap — required for navigation map rendering
+  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
+
   // "airplanes_live" (free, no key) | "adsb_exchange" (requires API key)
   DATA_PROVIDER: "airplanes_live",
 
   // ADS-B Exchange — only needed when DATA_PROVIDER is "adsb_exchange"
   ADSB_API_KEY: "",
   ADSB_API_HOST: "adsbexchange.com",
-
-  // MapTiler API key — required for vector basemap tiles.
-  // Free tier (100k tile requests/month, no credit card):
-  //   1. Sign up at https://cloud.maptiler.com/auth/widget?mode=add
-  //   2. Copy the key from https://cloud.maptiler.com/account/keys/
-  //   3. Paste it below.
-  MAPTILER_KEY: "",
 
   DEFAULT_RANGE_NM: 20,
   REFRESH_INTERVAL_SECONDS: 10,

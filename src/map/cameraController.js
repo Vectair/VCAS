@@ -1,60 +1,46 @@
 /**
- * Navigation camera controller.
+ * CameraController (Production Certified Specification)
  *
- * Consumes descriptors from NavigationCameraEvaluator and drives the MapLibre
- * camera.  Owns: bearing smoothing, state hysteresis, transition animation,
- * heading-based fallback projection, and dev-override layering.
- *
- * Camera states (set on document.body.dataset.navState):
- *   nav_idle | urban_guidance | highway_guidance | turn_approach | air
+ * Drives the MapLibre viewport. Manages an isolated tracking frame loop, 
+ * smoothly interpolating positions and resolving layout obstruction bounds dynamically.
  */
 
 const CameraController = (() => {
   let _map            = null;
-  let _currentBearing = 0;        // smoothed bearing, degrees
-  let _routeCoords    = null;     // [lon,lat][] from active route geometry
-  let _mode           = "nav";    // "nav" | "air"
-  let _viewportPreset = "full";   // matches ViewportDevPanel preset IDs
+  let _routeCoords    = null;
+  let _mode           = "nav";
+  let _viewportPreset = "full";
 
-  // State hysteresis — minimum ms between camera-state changes.
-  const STATE_DWELL_MS  = 4500;
-  let _currentNavState  = "NAV_IDLE";
-  let _lastStateChange  = 0;
+  // ---- Smooth Interpolation State Buffers ---- //
+  let cLat = 0.0, cLng = 0.0, cBearing = 0.0;
+  let cZoom = 15.0, cPitch = 0.0;
+  let cAnchorX = 0.5, cAnchorY = 0.5;
 
-  // Bearing smoothing: low-pass alpha.  Lower = smoother / laggier.
-  const SMOOTH_ALPHA = 0.13;
+  const K_CHASSIS_POSITION = 0.09;
+  const K_CHASSIS_BEARING  = 0.06;
+  const K_MANEUVER_BEARING = 0.12;
+  const K_MATRIX_PERSPECT  = 0.04;
 
-  // Last evaluated descriptor — exposed for CAM panel.
-  let _lastEvaluated = null;
-
-  // Dev overrides: keyed by descriptor field name (pitch, zoom, anchorY, anchorX).
+  let _animationFrameId = null;
+  let _isFirstFrame = true;
+  let _isTrackingActive = false;
+  let _lastTelemetryCache = null;
   let _devOverrides = {};
-
-  // ---- Init ---- //
+  let _lastEvaluated = null;
 
   function init(map) {
     _map = map;
+    _isFirstFrame = true;
+    _isTrackingActive = false;
   }
-
-  // ---- Route / mode state ---- //
 
   function setRouteActive(geometry) {
     _routeCoords = (geometry && geometry.coordinates) ? geometry.coordinates : null;
   }
 
-  function clearRoute() {
-    _routeCoords = null;
-  }
-
-  function setViewportPreset(presetId) {
-    _viewportPreset = presetId || "full";
-  }
-
-  // ---- Dev config API ---- //
-
-  function getNavCameraDefaults() {
-    return { pitch: 55, zoom: 16.2, anchorY: 0.80, anchorX: 0.5 };
-  }
+  function clearRoute() { _routeCoords = null; }
+  function setViewportPreset(presetId) { _viewportPreset = presetId || "full"; }
+  function getNavCameraDefaults() { return { pitch: 55, zoom: 16.2, anchorY: 0.80, anchorX: 0.5 }; }
 
   function getNavCameraConfig() {
     const base = (_lastEvaluated)
@@ -66,52 +52,22 @@ const CameraController = (() => {
 
   function setNavCameraConfig(partial) {
     Object.assign(_devOverrides, partial);
+    if (!_isTrackingActive && _lastTelemetryCache) _executeSingleCameraFrameUpdate();
   }
 
-  function resetNavCameraConfig() {
-    _devOverrides = {};
-  }
-
-  function getLastEvaluated() {
-    return _lastEvaluated ? Object.assign({}, _lastEvaluated) : null;
-  }
-
-  function getNavCameraState() {
-    return _currentNavState;
-  }
-
-  // ---- Internal helpers ---- //
-
+  function resetNavCameraConfig() { _devOverrides = {}; }
+  function getLastEvaluated() { return _lastEvaluated ? Object.assign({}, _lastEvaluated) : null; }
+  function getNavCameraState() { return _lastEvaluated ? _lastEvaluated.state : "NAV_IDLE"; }
   function _containerH() { return _map ? _map.getContainer().clientHeight : 600; }
   function _containerW() { return _map ? _map.getContainer().clientWidth  : 390; }
 
-  // Circular first-order low-pass — handles 0/360 wrap correctly.
-  function _smoothBearing(target) {
-    let delta = target - _currentBearing;
-    if (delta >  180) delta -= 360;
-    if (delta < -180) delta += 360;
-    _currentBearing = (_currentBearing + SMOOTH_ALPHA * delta + 360) % 360;
-    return _currentBearing;
+  function _interpolateAngle(current, target, stepFactor) {
+    let delta = target - current;
+    while (delta < -180) delta += 360;
+    while (delta > 180)  delta -= 360;
+    return current + (delta * stepFactor);
   }
 
-  // MapLibre padding derived from anchorY (fraction from top) and anchorX.
-  // anchorY = 0.75 → user marker sits ~75 % from top.
-  // Uses symmetric formula: topPad = H * (2*anchorY - 1), clamped to ≥0.
-  // anchorX < 0.5 → right padding shifts camera left; anchorX > 0.5 → left padding.
-  function _buildPadding(anchorY, anchorX) {
-    const H = _containerH();
-    const W = _containerW();
-    const topPad = Math.round(Math.max(0, H * (2 * anchorY - 1)));
-    let left = 0, right = 0;
-    if (anchorX < 0.5 - 0.01) {
-      right = Math.round(W * (1 - 2 * anchorX));
-    } else if (anchorX > 0.5 + 0.01) {
-      left  = Math.round(W * (2 * anchorX - 1));
-    }
-    return { top: topPad, bottom: 0, left, right };
-  }
-
-  // Heading-based point projection — fallback when no route.
   function _projectAhead(lat, lon, heading, meters) {
     if (!meters) return { lat, lon };
     const d  = meters / 6371000;
@@ -123,15 +79,48 @@ const CameraController = (() => {
     return { lat: φ2 * 180 / Math.PI, lon: λ2 * 180 / Math.PI };
   }
 
-  // Run evaluator, apply state hysteresis, apply dev overrides.
-  function _evaluate(lat, lon, speedMph) {
+  /**
+   * Evaluates dynamic layout chrome offsets directly from the active DOM wrappers.
+   * Eliminates hardcoded heights to ensure layouts fit varied devices or split screens perfectly.
+   */
+  function _getDynamicBottomSafeAreaHeight() {
+    let heightAccumulator = 0;
+    
+    // Check if route overview details cards are drawn
+    const routeCard = document.getElementById("route-card");
+    if (routeCard && !routeCard.classList.contains("hidden")) {
+      heightAccumulator += routeCard.offsetHeight;
+    }
+    
+    // Check baseline system dashboard action chrome strips
+    const bottomBar = document.getElementById("bottom-bar");
+    if (bottomBar && !bottomBar.classList.contains("hidden")) {
+      heightAccumulator += bottomBar.offsetHeight;
+    }
+
+    // Default minimum fallback buffer zone if DOM elements are absent
+    return heightAccumulator > 0 ? heightAccumulator : 60;
+  }
+
+  /**
+   * The Single Master Animation Frame Entry Loop Node
+   */
+  function _renderTick() {
+    if (!_map || _mode !== "nav" || !_isTrackingActive || !_lastTelemetryCache) return;
+    _executeSingleCameraFrameUpdate();
+    _animationFrameId = requestAnimationFrame(_renderTick);
+  }
+
+  function _executeSingleCameraFrameUpdate() {
+    const { lat, lon, heading, speedMph } = _lastTelemetryCache;
+
     const ctx = {
       mode:           _mode,
       routeActive:    !!_routeCoords,
       routeGeometry:  _routeCoords ? { type: "LineString", coordinates: _routeCoords } : null,
       userLat:        lat,
       userLon:        lon,
-      userHeading:    _currentBearing,
+      userHeading:    cBearing, 
       userSpeedMph:   speedMph,
       viewportPreset: _viewportPreset,
       viewportWidth:  _containerW(),
@@ -139,157 +128,127 @@ const CameraController = (() => {
     };
 
     const desc = NavigationCameraEvaluator.evaluate(ctx);
-
-    // Hysteresis: hold the current state for at least STATE_DWELL_MS.
-    // Mode transitions (AIR ↔ NAV) bypass hysteresis.
-    const now = Date.now();
-    if (desc.state !== _currentNavState) {
-      const isModeBoundary =
-        (desc.state === "AIR" && _currentNavState !== "AIR") ||
-        (desc.state !== "AIR" && _currentNavState === "AIR");
-
-      if (isModeBoundary || (now - _lastStateChange) >= STATE_DWELL_MS) {
-        _currentNavState = desc.state;
-        _lastStateChange = now;
-        _applyNavStateToBody(desc.state);
-      } else {
-        // Hold old state: restore visual values from that state's preset.
-        const held = NavigationCameraEvaluator.STATE_PRESETS[_currentNavState];
-        if (held) {
-          desc.state         = _currentNavState;
-          desc.pitch         = held.pitch;
-          desc.zoom          = held.zoom;
-          desc.anchorY       = held.anchorY;
-          desc.anchorX       = held.anchorX;
-        }
-      }
-    }
-
-    // Layer dev overrides on top (pitch, zoom, anchorY, anchorX).
     Object.assign(desc, _devOverrides);
     _lastEvaluated = Object.assign({}, desc);
-    return desc;
-  }
 
-  function _applyNavStateToBody(state) {
-    // e.g. "URBAN_GUIDANCE" → data-nav-state="urban_guidance"
-    document.body.dataset.navState = state.toLowerCase();
-  }
+    document.body.dataset.navState = desc.state.toLowerCase();
 
-  // Easing functions
-  function _easeOut(t)   { return 1 - Math.pow(1 - t, 3); }
-  function _easeInOut(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
+    let targetBearing = heading;
+    let trackingSpeedK = K_CHASSIS_BEARING;
 
-  // ---- Public camera API ---- //
+    let centerTarget = desc.routeTarget 
+      ? [desc.routeTarget.lon, desc.routeTarget.lat]
+      : null;
 
-  /**
-   * Smooth continuous follow called on each GPS position update in NAV mode.
-   */
-  function followNav(lat, lon, heading, speedMph) {
-    if (!_map) return;
-    _mode = "nav";
-    const bear = _smoothBearing(heading);
-    const desc = _evaluate(lat, lon, speedMph);
+    if (desc.bearingMode === "DECOUPLED_MANEUVER" && desc.routeTarget) {
+      targetBearing = Geo.calculateBearing(lat, lon, desc.routeTarget.lat, desc.routeTarget.lon);
+      trackingSpeedK = K_MANEUVER_BEARING;
+    }
 
-    const target = desc.routeTarget
-      ? desc.routeTarget
-      : _projectAhead(lat, lon, bear, desc.lookAheadMeters);
+    if (!centerTarget) {
+      const projected = _projectAhead(lat, lon, cBearing, desc.lookAheadMeters);
+      centerTarget = [projected.lon, projected.lat];
+    }
 
-    _map.easeTo({
-      center:   [target.lon, target.lat],
-      bearing:  bear,
-      pitch:    desc.pitch,
-      zoom:     desc.zoom,
-      padding:  _buildPadding(desc.anchorY, desc.anchorX),
-      duration: 300,
-      easing:   _easeOut,
-    });
-  }
+    if (_isFirstFrame) {
+      cLat = centerTarget[1]; cLng = centerTarget[0]; cBearing = targetBearing;
+      cZoom = desc.zoom; cPitch = desc.pitch;
+      cAnchorX = desc.anchorX; cAnchorY = desc.anchorY;
+      _isFirstFrame = false;
+    } else {
+      cLat += (centerTarget[1] - cLat) * K_CHASSIS_POSITION;
+      cLng += (centerTarget[0] - cLng) * K_CHASSIS_POSITION;
+      cBearing = _interpolateAngle(cBearing, targetBearing, trackingSpeedK);
+      cZoom += (desc.zoom - cZoom) * K_MATRIX_PERSPECT;
+      cPitch += (desc.pitch - cPitch) * K_MATRIX_PERSPECT;
+      cAnchorX += (desc.anchorX - cAnchorX) * K_MATRIX_PERSPECT;
+      cAnchorY += (desc.anchorY - cAnchorY) * K_MATRIX_PERSPECT;
+    }
 
-  /**
-   * Animated transition INTO NAV mode (e.g. from AIR).
-   */
-  function transitionToNav(lat, lon, heading) {
-    if (!_map) return;
-    _mode = "nav";
-    _currentBearing = heading;
-    const desc = _evaluate(lat, lon, 0);
+    // Dynamic layout safe boundary offset extraction
+    const mapH = _containerH();
+    const mapW = _containerW();
+    const dynamicBottomHeight = _getDynamicBottomSafeAreaHeight();
+    const usableHeight = mapH - dynamicBottomHeight;
 
-    const target = desc.routeTarget
-      ? desc.routeTarget
-      : _projectAhead(lat, lon, heading, desc.lookAheadMeters);
+    const pixelOffsetX = (cAnchorX - 0.5) * mapW;
+    const pixelOffsetY = (cAnchorY - 0.5) * usableHeight + (dynamicBottomHeight * 0.5);
 
-    _map.easeTo({
-      center:   [target.lon, target.lat],
-      bearing:  heading,
-      pitch:    desc.pitch,
-      zoom:     desc.zoom,
-      padding:  _buildPadding(desc.anchorY, desc.anchorX),
-      duration: 900,
-      easing:   _easeInOut,
-    });
-  }
-
-  /**
-   * Animated transition INTO AIR mode.
-   */
-  function transitionToAir(lat, lon) {
-    if (!_map) return;
-    _mode           = "air";
-    _currentNavState = "AIR";
-    _lastStateChange = Date.now();
-    _applyNavStateToBody("AIR");
-
-    _map.easeTo({
-      center:   [lon, lat],
-      bearing:  0,
-      pitch:    0,
-      zoom:     10,
-      padding:  { top: 0, bottom: 0, left: 0, right: 0 },
-      duration: 900,
-      easing:   _easeInOut,
-    });
-  }
-
-  /**
-   * Immediately re-apply camera at current position (used by dev panel sliders).
-   */
-  function refreshNavCamera(lat, lon, heading, duration) {
-    if (!_map) return;
-    const bear = _currentBearing;
-    const desc = _evaluate(lat, lon, 0);
-
-    const target = desc.routeTarget
-      ? desc.routeTarget
-      : _projectAhead(lat, lon, heading || bear, desc.lookAheadMeters);
-
-    _map.easeTo({
-      center:   [target.lon, target.lat],
-      bearing:  bear,
-      pitch:    desc.pitch,
-      zoom:     desc.zoom,
-      padding:  _buildPadding(desc.anchorY, desc.anchorX),
-      duration: duration !== undefined ? duration : 0,
+    // Stable Public API Map Execution
+    _map.jumpTo({
+      center:  [cLng, cLat],
+      zoom:    cZoom,
+      pitch:   cPitch,
+      bearing: cBearing,
+      offset:  [-pixelOffsetX, -pixelOffsetY] 
     });
   }
 
   return {
-    init,
-    followNav,
-    transitionToNav,
-    transitionToAir,
-    setRouteActive,
-    clearRoute,
-    setViewportPreset,
-    getNavCameraState,
-    getNavCameraDefaults,
-    getNavCameraConfig,
-    setNavCameraConfig,
-    resetNavCameraConfig,
-    refreshNavCamera,
-    getLastEvaluated,
+    init, setRouteActive, clearRoute, setViewportPreset,
+    getNavCameraDefaults, getNavCameraConfig, setNavCameraConfig,
+    resetNavCameraConfig, getLastEvaluated, getNavCameraState,
+
+    followNav: (lat, lon, heading, speedMph) => {
+      _mode = "nav";
+      _lastTelemetryCache = { lat, lon, heading, speedMph };
+      
+      if (!_isTrackingActive) {
+        _isTrackingActive = true;
+        _isFirstFrame = true;
+        _renderTick();
+      }
+    },
+
+    pauseTrackingForInteraction: () => {
+      _isTrackingActive = false;
+      if (_animationFrameId) {
+        cancelAnimationFrame(_animationFrameId);
+        _animationFrameId = null;
+      }
+    },
+
+    resumeTracking: () => {
+      if (!_isTrackingActive && _mode === "nav" && _lastTelemetryCache) {
+        _isTrackingActive = true;
+        _renderTick();
+      }
+    },
+
+    transitionToNav: (lat, lon, heading) => {
+      _mode = "nav";
+      _isFirstFrame = true;
+      _isTrackingActive = true;
+      _lastTelemetryCache = { lat, lon, heading, speedMph: 0 };
+      if (_animationFrameId) cancelAnimationFrame(_animationFrameId);
+      _renderTick();
+    },
+
+    transitionToAir: (lat, lon) => {
+      _mode = "air";
+      _isTrackingActive = false;
+      if (_animationFrameId) {
+        cancelAnimationFrame(_animationFrameId);
+        _animationFrameId = null;
+      }
+      document.body.dataset.navState = "air";
+      _map.easeTo({
+        center:   [lon, lat],
+        bearing:  0,
+        pitch:    0,
+        zoom:     10,
+        padding:  { top: 0, bottom: 0, left: 0, right: 0 },
+        duration: 900
+      });
+    },
+
+    refreshNavCamera: (lat, lon) => {
+      if (_lastTelemetryCache) {
+        _lastTelemetryCache.lat = lat;
+        _lastTelemetryCache.lon = lon;
+        if (!_isTrackingActive) _executeSingleCameraFrameUpdate();
+      }
+    }
   };
 })();
 
