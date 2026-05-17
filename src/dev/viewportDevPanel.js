@@ -144,5 +144,7 @@ const ViewportDevPanel = (() => {
     if (_onViewportChanged) setTimeout(_onViewportChanged, 60);
   }
 
-  return { init, getViewportDimensions };
+  function getCurrentPresetId() { return _currentId; }
+
+  return { init, getViewportDimensions, getCurrentPresetId };
 })();

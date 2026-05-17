@@ -33,8 +33,8 @@ const EosMap = (() => {
       container:        containerId,
       style:            NavStyle.getStyle(initialTheme),
       center:           [lon, lat],
-      zoom:             18.5, // matches NAV preset — avoids zoom flash on first followNav
-      pitch:            72,   // matches NAV preset pitch
+      zoom:             17,   // NAV_IDLE default
+      pitch:            45,   // NAV_IDLE default
       bearing:          0,
       attributionControl: false,
       pitchWithRotate:  true,
@@ -103,36 +103,44 @@ const EosMap = (() => {
       data: { type: "FeatureCollection", features: [] },
     });
 
-    // Soft outer glow — drawn first, widest, low opacity cyan halo.
+    // Layer 1 — translucent outer glow (widest, drawn first).
     _map.addLayer({
       id:     "route-glow",
       type:   "line",
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
       paint:  {
-        "line-color":   "#4fc3f7",
-        "line-width":   38,
-        "line-opacity": 0.18,
-        "line-blur":    4,
+        "line-color":   "#1A73E8",
+        "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 18, 16, 30, 20, 44],
+        "line-opacity": 0.32,
+        "line-blur":    5,
       },
     });
 
-    // White casing — drawn second, wider, gives the blue line a clean border.
-    _map.addLayer({
-      id:     "route-casing",
-      type:   "line",
-      source: "route",
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint:  { "line-color": "#ffffff", "line-width": 28, "line-opacity": 1 },
-    });
-
-    // Navigation blue — dominant, route-first visual hierarchy.
+    // Layer 2 — main navigation blue.
     _map.addLayer({
       id:     "route-line",
       type:   "line",
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
-      paint:  { "line-color": "#1a73e8", "line-width": 17, "line-opacity": 1 },
+      paint:  {
+        "line-color":   "#4285F4",
+        "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 8, 16, 14, 20, 20],
+        "line-opacity": 1,
+      },
+    });
+
+    // Layer 3 — inner highlight (narrowest, drawn last / on top).
+    _map.addLayer({
+      id:     "route-highlight",
+      type:   "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint:  {
+        "line-color":   "#ADCCFF",
+        "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 5, 20, 8],
+        "line-opacity": 0.60,
+      },
     });
   }
 

@@ -37,11 +37,13 @@
     ViewportDevPanel.init({
       onViewportChanged() {
         EosMap.getMap()?.resize();
+        CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
         if (mode === "nav" && userLat !== null && userLon !== null) {
           CameraController.transitionToNav(userLat, userLon, userHeading);
         }
       },
     });
+    CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
 
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();

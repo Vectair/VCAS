@@ -867,6 +867,49 @@ body.route-active[data-mode="nav"] #cam-dev-panel {
 
 .cdp-btn.cdp-btn-accent:hover { background: rgba(249,115,22,.15); }
 
+/* CAM panel — evaluated state status section */
+.cdp-status {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #1e2530;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cdp-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.cdp-status-label {
+  font-size: 10px;
+  color: #4a5568;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.cdp-status-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: #63b3ed;
+  font-variant-numeric: tabular-nums;
+}
+
+.cdp-section-label {
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: #4a5568;
+  padding: 5px 10px 2px;
+  text-transform: uppercase;
+}
+
+/* ---- Navigation state body attributes ---- */
+/* Used for state-driven cartography suppression and future CSS hooks. */
+body[data-nav-state="urban_guidance"] { }
+body[data-nav-state="highway_guidance"] { }
+body[data-nav-state="turn_approach"] { }
+
 /* ---- Responsive tweaks ---- */
 @media (max-width: 400px) {
   .indicator-label .callsign { font-size: 9px; }
