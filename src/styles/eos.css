@@ -555,69 +555,152 @@ body[data-theme="day"] .air-label-box {
 .route-btn:active   { opacity: .75; }
 .route-btn:disabled { opacity: .5; pointer-events: none; }
 
-/* ---- Route summary card ---- */
-#route-card {
+/* ---- Navigation guidance card (top — Google Maps maneuver banner) ---- */
+#nav-guidance-card {
   position: fixed;
-  /* sits just above the bottom bar (bottom bar ≈ 96 px tall with theme row) */
-  bottom: 104px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
-  pointer-events: all;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: min(340px, calc(100vw - 28px));
+  gap: 18px;
+  padding: 18px 22px 16px;
   background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 11px 14px;
-  box-shadow: var(--shadow);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 3px 16px rgba(0,0,0,.35);
+  pointer-events: none;
   animation: pop-in .15s ease-out;
 }
 
-#route-card.hidden { display: none; }
+#nav-guidance-card.hidden { display: none; }
 
-.route-card-icon {
-  font-size: 18px;
-  color: #4285F4;
-  flex-shrink: 0;
-  line-height: 1;
+/* Route-active: Google Maps blue banner */
+body.route-active[data-mode="nav"] #nav-guidance-card {
+  background: var(--accent);
+  border-bottom: none;
+  box-shadow: 0 6px 24px rgba(0,0,0,.55);
+  padding: 20px 22px 18px;
 }
 
-.route-card-body {
+.ngc-maneuver {
+  font-size: 44px;
+  color: var(--accent);
+  font-weight: 900;
+  flex-shrink: 0;
+  line-height: 1;
+  min-width: 48px;
+  text-align: center;
+}
+
+body.route-active[data-mode="nav"] .ngc-maneuver { color: #ffffff; }
+
+.ngc-body {
   flex: 1;
   min-width: 0;
 }
 
-.route-card-dest {
-  font-size: 14px;
+.ngc-action {
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   line-height: 1.2;
 }
 
-.route-card-stats {
-  font-size: 11px;
+body.route-active[data-mode="nav"] .ngc-action { color: #ffffff; }
+
+.ngc-dest {
+  font-size: 14px;
   color: var(--text-secondary);
-  margin-top: 2px;
+  margin-top: 3px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
+
+/* Route-active: hide the top bar branding — guidance card replaces it */
+body.route-active[data-mode="nav"] #top-bar {
+  background: transparent;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s;
+}
+
+/* ---- ETA card (bottom — Google Maps style) ---- */
+#route-card {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 22;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 16px 20px 24px;
+  box-shadow: 0 -4px 24px rgba(0,0,0,.40);
+  animation: slide-up .2s ease-out;
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+#route-card.hidden { display: none; }
+
+.route-eta-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-eta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.route-eta-time {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+
+.route-eta-arrival {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.route-eta-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .route-sep { color: var(--text-muted); }
 
 .route-card-clear {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   background: var(--btn-bg);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -629,10 +712,319 @@ body[data-theme="day"] .air-label-box {
 
 .route-card-clear:active { background: var(--btn-hover); }
 
+/* Route active: hide normal bottom bar behind the ETA card */
+body.route-active[data-mode="nav"] #bottom-bar {
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s;
+}
+
+/* ---- NAV mode: ADS-B indicators are secondary ---- */
+body[data-mode="nav"] .indicator { opacity: 0.45; }
+body[data-mode="nav"] .indicator:hover { opacity: 0.80; }
+
+/* Route active: push CAM button above the ETA card */
+body.route-active[data-mode="nav"] #btn-cam-dev {
+  bottom: 108px;
+}
+
+body.route-active[data-mode="nav"] #cam-dev-panel {
+  bottom: 148px;
+}
+
+/* ---- Dev camera tuning panel ---- */
+
+#btn-cam-dev {
+  position: fixed;
+  bottom: 18px;
+  right: 14px;
+  z-index: 25;
+  padding: 6px 10px;
+  border: 1px dashed #f97316;
+  border-radius: var(--radius-sm);
+  background: rgba(14,17,23,.88);
+  color: #f97316;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  pointer-events: all;
+  transition: background .15s, color .15s;
+}
+
+#btn-cam-dev:hover  { background: rgba(249,115,22,.15); }
+#btn-cam-dev.active { background: #f97316; color: #000; border-style: solid; }
+
+#cam-dev-panel {
+  position: fixed;
+  bottom: 60px;
+  right: 14px;
+  z-index: 80;
+  width: 280px;
+  background: #0e1117;
+  border: 1px dashed #f97316;
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,.8);
+  font-size: 12px;
+  color: var(--text-primary);
+  pointer-events: all;
+}
+
+#cam-dev-panel.hidden { display: none; }
+
+.cdp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #f97316;
+}
+
+.cdp-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: #f97316;
+}
+
+.cdp-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  -webkit-appearance: none;
+}
+
+.cdp-close:hover { color: var(--text-primary); }
+
+.cdp-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cdp-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 38px;
+  align-items: center;
+  gap: 6px;
+}
+
+.cdp-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cdp-slider {
+  width: 100%;
+  height: 4px;
+  accent-color: #f97316;
+  cursor: pointer;
+}
+
+.cdp-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f97316;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cdp-footer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid #30363d;
+}
+
+.cdp-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: background .15s;
+}
+
+.cdp-btn:hover  { background: var(--btn-hover); }
+.cdp-btn:active { opacity: .75; }
+
+.cdp-btn.cdp-btn-accent {
+  border-color: #f97316;
+  color: #f97316;
+}
+
+.cdp-btn.cdp-btn-accent:hover { background: rgba(249,115,22,.15); }
+
+/* CAM panel — evaluated state status section */
+.cdp-status {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #1e2530;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cdp-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.cdp-status-label {
+  font-size: 10px;
+  color: #4a5568;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.cdp-status-val {
+  font-size: 11px;
+  font-weight: 600;
+  color: #63b3ed;
+  font-variant-numeric: tabular-nums;
+}
+
+.cdp-section-label {
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: #4a5568;
+  padding: 5px 10px 2px;
+  text-transform: uppercase;
+}
+
+/* ---- Navigation state body attributes ---- */
+/* Used for state-driven cartography suppression and future CSS hooks. */
+body[data-nav-state="urban_guidance"] { }
+body[data-nav-state="highway_guidance"] { }
+body[data-nav-state="turn_approach"] { }
+
 /* ---- Responsive tweaks ---- */
 @media (max-width: 400px) {
   .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
   .indicator-arrow           { font-size: 17px; }
   .theme-btn                 { padding: 2px 5px; }
+}
+
+/* ================================================================
+   DEV: viewport emulator
+   All selectors prefixed #viewport-dev- / #vdp- / .vdp- so they
+   never collide with production styles.
+   ================================================================ */
+
+/* Shell — covers the full browser window at all times */
+#viewport-dev-shell {
+  position: fixed;
+  inset: 0;
+}
+
+/* Shell in emulated mode: dark surround + flex centering for the frame */
+#viewport-dev-shell.vdp-emulated {
+  background: #0b0b14;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Frame — full size by default; JS applies dimensions + transform in emulated modes */
+#viewport-dev-frame {
+  width: 100%;
+  height: 100%;
+}
+
+/* Frame in emulated mode: clip content and show device outline */
+#viewport-dev-shell.vdp-emulated #viewport-dev-frame {
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1.5px solid #2a2a3e;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.05),
+    0 28px 90px rgba(0,0,0,.95);
+}
+
+/* ---- VIEW button + preset menu ---- */
+#viewport-dev-panel {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  pointer-events: all;
+}
+
+#vdp-toggle {
+  background: rgba(18, 18, 36, 0.90);
+  color: #7b8cde;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background .15s, color .15s;
+  -webkit-appearance: none;
+}
+
+#vdp-toggle:hover {
+  background: rgba(36, 36, 64, 0.96);
+  color: #a0b4ff;
+}
+
+#vdp-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(12, 12, 26, 0.96);
+  border: 1px solid #3a3a5e;
+  border-radius: 8px;
+  padding: 5px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.7);
+}
+
+#vdp-menu.hidden { display: none; }
+
+.vdp-preset {
+  background: transparent;
+  color: #7080b0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+  -webkit-appearance: none;
+}
+
+.vdp-preset:hover {
+  background: rgba(70, 80, 140, 0.35);
+  color: #b0c0ff;
+}
+
+.vdp-preset.active {
+  background: rgba(55, 70, 150, 0.55);
+  color: #c8d4ff;
+  border-color: #505aaa;
 }

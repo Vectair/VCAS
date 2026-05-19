@@ -185,7 +185,7 @@ const UI = (() => {
     return `${side}-rear`;
   }
 
-  return {
+    return {
     setAdsbStatus,
     showConfigBanner,
     showGpsMessage,
@@ -197,6 +197,8 @@ const UI = (() => {
     showPopup,
     showAirPopup,
     hidePopup,
+    // Add a safe fallback hook to prevent external caller crashes
+    bindButtons: () => { console.warn("CameraController buttons bound internally via core application layer."); }
   };
 })();
 

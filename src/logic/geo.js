@@ -1,10 +1,12 @@
 /**
  * Geodesic utilities used throughout Eos.
  * All angle inputs/outputs in degrees unless stated.
+ * Refactored to fully support strict SI metre calculations and 3D frustum perspective offsets.
  */
 
 const Geo = (() => {
-  const R_NM = 3440.065; // Earth radius in nautical miles
+  const R_M = 6371000.0; // Earth radius in Metres (Fixed engine scale break)
+  const R_NM = 3440.065; // Earth radius in nautical miles (Retained solely for ADS-B compliance)
   const DEG = Math.PI / 180;
 
   function toRad(d) { return d * DEG; }
@@ -22,7 +24,18 @@ const Geo = (() => {
   }
 
   /**
-   * Great-circle distance in nautical miles.
+   * Great-circle distance in Metres (Required for true 1:1 Vector Tile alignment).
+   */
+  function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+    const φ1 = toRad(lat1), φ2 = toRad(lat2);
+    const Δφ = toRad(lat2 - lat1);
+    const Δλ = toRad(lon2 - lon1);
+    const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * Great-circle distance in nautical miles (Used strictly for aircraft airspeed correlation).
    */
   function calculateDistanceNm(lat1, lon1, lat2, lon2) {
     const φ1 = toRad(lat1), φ2 = toRad(lat2);
@@ -33,7 +46,7 @@ const Geo = (() => {
   }
 
   /**
-   * Relative bearing: bearing to aircraft minus user's heading, normalised to [-180, 180].
+   * Relative bearing: bearing to aircraft minus user's heading, normalized to [-180, 180].
    * Positive = right of heading, negative = left.
    */
   function calculateRelativeBearing(aircraftBearing, userHeading) {
@@ -44,23 +57,34 @@ const Geo = (() => {
 
   /**
    * Project a relative bearing onto the screen edge.
-   * Returns { x, y } in pixels from top-left, and { side } ('top'|'right'|'bottom'|'left'|'overhead').
+   * Leverages exponential perspective scaling factors to correct for a tilted 3D map horizon.
    *
    * relativeBearing: degrees, [-180,180], 0 = straight ahead.
    * viewportWidth, viewportHeight: pixels.
+   * anchorY: vertical camera offset coefficient tracking (0.5 to 0.9)
+   * cameraPitch: current camera tilt angle in degrees (0 to 60)
    * safeInset: pixels reserved at each edge for UI chrome.
    */
-  function projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight, safeInset = 60) {
+  function projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, cameraPitch = 55, safeInset = 60) {
     const w = viewportWidth;
     const h = viewportHeight;
-    const cx = w / 2;
-    const cy = h * 0.65; // user icon sits ~65% down
+    const cx = w * 0.5;
+    
+    // Dynamically lock target Y generation base directly to the evaluated vehicle core axis
+    const cy = h * anchorY; 
 
     const angleRad = toRad(relativeBearing);
+    
+    // Apply 3D perspective warp compensation
+    // As the view tilts toward the horizon line, the vertical ray projection compressed 
+    const perspectiveCompressionFactor = (cameraPitch > 0) ? Math.cos(toRad(cameraPitch)) : 1.0;
+    
     const sinA = Math.sin(angleRad);
-    const cosA = Math.cos(angleRad); // positive = towards top (ahead)
+    
+    // Compresses forward vectors to counteract the matrix distortion skew
+    const cosA = Math.cos(angleRad) * (1.0 / perspectiveCompressionFactor); 
 
-    // Available edge bounds respecting safe zones
+    // Available edge boundaries respecting UI safety perimeters
     const topY    = safeInset + 20;
     const bottomY = h - safeInset - 20;
     const leftX   = safeInset + 20;
@@ -68,32 +92,36 @@ const Geo = (() => {
 
     let x, y, side;
 
-    // Scale factor to reach nearest edge
+    // Scale factors calculating the boundary intercept coordinates
     const scaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
     const scaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
 
     const scale = Math.min(scaleX, scaleY);
 
     x = Math.round(cx + sinA * scale);
-    y = Math.round(cy - cosA * scale); // screen y is inverted
+    y = Math.round(cy - cosA * scale); // Screen coordinates run inverted
 
-    // Clamp
+    // Enforce layout edge clamping bounds
     x = Math.max(leftX, Math.min(rightX, x));
     y = Math.max(topY, Math.min(bottomY, y));
 
-    // Determine side label
+    // Refactored context side categorization logic to balance viewport layouts
     const absRel = Math.abs(relativeBearing);
-    if (absRel <= 30) side = "top";
-    else if (absRel >= 150) side = "bottom";
-    else if (relativeBearing > 0) side = "right";
-    else side = "left";
+    if (y <= topY + 5) {
+      side = "top";
+    } else if (y >= bottomY - 5) {
+      side = "bottom";
+    } else if (x >= rightX - 5) {
+      side = "right";
+    } else {
+      side = "left";
+    }
 
     return { x, y, side };
   }
 
   /**
    * Arrow rotation angle (CSS degrees) so ▲ points toward the aircraft.
-   * relativeBearing 0 = ahead = arrow points up (0°).
    */
   function arrowRotation(relativeBearing) {
     return relativeBearing;
@@ -101,6 +129,7 @@ const Geo = (() => {
 
   return {
     calculateBearing,
+    calculateDistanceMeters, // Injected to resolve route engine calculation scale bugs
     calculateDistanceNm,
     calculateRelativeBearing,
     projectToScreenEdge,

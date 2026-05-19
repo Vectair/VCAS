@@ -178,13 +178,13 @@ const NavStyle = (() => {
         source: src, "source-layer": "landcover",
         filter: ["in", ["get", "class"],
           ["literal", ["park", "national_park", "garden", "grass", "scrub"]]],
-        paint: { "fill-color": p.park, "fill-opacity": 0.75 },
+        paint: { "fill-color": p.park, "fill-opacity": 0.35 },
       },
       {
         id: "landcover-forest", type: "fill",
         source: src, "source-layer": "landcover",
         filter: ["in", ["get", "class"], ["literal", ["wood", "forest"]]],
-        paint: { "fill-color": p.forest, "fill-opacity": 0.70 },
+        paint: { "fill-color": p.forest, "fill-opacity": 0.40 },
       },
       {
         id: "landcover-grass", type: "fill",
@@ -202,7 +202,7 @@ const NavStyle = (() => {
       {
         id: "park-fill", type: "fill",
         source: src, "source-layer": "park",
-        paint: { "fill-color": p.park, "fill-opacity": 0.55 },
+        paint: { "fill-color": p.park, "fill-opacity": 0.25 },
       },
 
       // ── Land use (urban) ─────────────────────────────────────────────────
@@ -211,11 +211,10 @@ const NavStyle = (() => {
         source: src, "source-layer": "landuse",
         filter: ["in", ["get", "class"],
           ["literal", ["residential", "suburb", "neighbourhood"]]],
-        // Pulled back from 0.55 — less residential texture competing with route.
-        paint: { "fill-color": p.residential, "fill-opacity": 0.38 },
+        paint: { "fill-color": p.residential, "fill-opacity": 0 },
       },
 
-      // ── Buildings ────────────────────────────────────────────────────────
+      // ── Buildings — hidden; route corridor is the scene ──────────────────
       {
         id: "building-fill", type: "fill",
         source: src, "source-layer": "building",
@@ -223,7 +222,7 @@ const NavStyle = (() => {
         paint: {
           "fill-color": p.buildings,
           "fill-antialias": true,
-          "fill-outline-color": p.buildingOutline,
+          "fill-opacity": 0,
         },
       },
 
@@ -236,6 +235,7 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.serviceCasing,
           "line-width": _rampW(13, 1.5, 16, 3.5, 19, 8),
+          "line-opacity": 0,  // service roads fully suppressed in nav view
         },
       },
       {
@@ -246,7 +246,8 @@ const NavStyle = (() => {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": p.minorCasing,
-          "line-width": _rampW(12, 1.5, 15, 4, 18, 9),
+          "line-width": _rampW(12, 0.8, 15, 2, 18, 4),
+          "line-opacity": 0,  // minor roads fully suppressed — route dominates
         },
       },
       {
@@ -309,6 +310,7 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.service,
           "line-width": _rampW(13, 0.5, 16, 2.5, 19, 7),
+          "line-opacity": 0,  // service roads fully suppressed
         },
       },
       {
@@ -320,6 +322,7 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.minor,
           "line-width": _rampW(12, 0.5, 15, 2.5, 18, 8),
+          "line-opacity": 0,  // minor roads fully suppressed
         },
       },
       {
@@ -400,20 +403,20 @@ const NavStyle = (() => {
       },
 
       // ── Labels ───────────────────────────────────────────────────────────
-      // Road name labels (follow road geometry)
+      // Road name labels — major roads only; minor street names suppressed.
       {
         id: "road-label", type: "symbol",
         source: src, "source-layer": "transportation_name",
-        // minzoom 14 (was 13) — labels appear later, less clutter at driving zoom.
-        minzoom: 14,
+        minzoom: 15,
+        filter: ["in", ["get", "class"],
+          ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary"]]],
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],
           "symbol-placement": "line",
-          "text-size": ["interpolate", ["linear"], ["zoom"], 14, 10, 16, 11, 18, 13],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 15, 11, 17, 12, 19, 13],
           "text-max-angle": 30,
-          // Increased padding → sparser label placement, fewer labels on screen.
-          "text-padding": 28,
+          "text-padding": 40,
           "text-pitch-alignment": "viewport",
           "text-rotation-alignment": "map",
         },
@@ -464,18 +467,18 @@ const NavStyle = (() => {
         },
       },
 
-      // Village / suburb / neighbourhood labels
+      // Village / suburb / neighbourhood labels — heavily suppressed in nav view.
       {
         id: "place-village", type: "symbol",
         source: src, "source-layer": "place",
         filter: ["in", ["get", "class"],
           ["literal", ["village", "hamlet", "suburb", "quarter", "neighbourhood"]]],
-        // minzoom 13 (was 11) — neighbourhood labels stay out of the driving view.
-        minzoom: 13,
+        // minzoom 17 — neighbourhood labels only appear when zoomed very close.
+        minzoom: 17,
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 15, 13],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 17, 9, 19, 11],
           "text-max-width": 7,
           "text-pitch-alignment": "viewport",
         },
@@ -483,6 +486,7 @@ const NavStyle = (() => {
           "text-color": p.labelSecondary,
           "text-halo-color": p.background,
           "text-halo-width": 1.5,
+          "text-opacity": 0,
         },
       },
 

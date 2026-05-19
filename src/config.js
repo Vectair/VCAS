@@ -1,4 +1,7 @@
 const CONFIG = {
+  // MapTiler vector basemap — required for navigation map rendering
+  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
+
   // "airplanes_live" (free, no key) | "adsb_exchange" (requires API key)
   DATA_PROVIDER: "airplanes_live",
 
@@ -11,7 +14,7 @@ const CONFIG = {
   //   1. Sign up at https://cloud.maptiler.com/auth/widget?mode=add
   //   2. Copy the key from https://cloud.maptiler.com/account/keys/
   //   3. Paste it below.
-  MAPTILER_KEY: "",
+  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
 
   DEFAULT_RANGE_NM: 20,
   REFRESH_INTERVAL_SECONDS: 10,
