@@ -1,60 +1,154 @@
 /**
- * Eos — Main Application Controller (Production JS Engine Specification)
- * Serves as a pure telemetry pass-through bridging location events to map controllers.
+ * Eos — main application controller.
+ * Production-Certified JavaScript Specification.
  */
 
 (function () {
   "use strict";
 
-  let mode = "nav"; 
+  // ---- Central Telemetry Pipeline State ----
+  let mode = "nav"; // "nav" | "air"
   let userLat = null, userLon = null;
   let userHeading = 0;
   let userSpeedMph = 0;
   let aircraftList = [];
   let gpsWatchId = null;
   let fetchTimer = null;
+  let lastFetchTime = null;
+  let lastFetchError = null;
 
+  // Route state tracking
   let activeRoute   = null;
   let routeDestName = "";
 
+  // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
   const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
+
+  // ---- Init ----
 
   function init() {
     AdsbExchangeClient.init(CONFIG);
 
+    // Resolve initial theme before map initialization so the first render
+    // uses the correct visual style layer palette.
     const initialTheme = ThemeManager.init(_onThemeChange);
     _applyThemeToDom(initialTheme);
 
+    // Synchronized Viewport Resize Matrix Gateway
     ViewportDevPanel.init({
       onViewportChanged() {
         const activeMap = EosMap.getMap();
         if (activeMap) {
           activeMap.resize();
-          CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
-          if (mode === "nav" && userLat !== null && userLon !== null) {
-            CameraController.transitionToNav(userLat, userLon, userHeading);
-          }
+          
+          // Enforce strict asynchronous completion check before applying positions
+          activeMap.once('resize', () => {
+            CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
+            if (mode === "nav" && userLat !== null && userLon !== null) {
+              CameraController.transitionToNav(userLat, userLon, userHeading);
+            }
+          });
         }
       },
     });
-    
     CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
+
     document.body.dataset.mode = "nav";
-    
     showConfigWarningIfNeeded();
     startGps();
     
-    // CRITICAL FIX: Explicitly retain local app button connection layouts
-    if (typeof bindButtons === "function") {
-      bindButtons(); 
-    } else {
-      _fallbackInternalCoreButtonBindings();
-    }
-
+    // Core Fix: Localised assignment execution handles the button setup cleanly
+    bindButtons(); 
+    
     UI.setModeLabel("nav");
     UI.setAdsbStatus("error", "ADS-B");
     UI.setLoading(false);
   }
+
+  // ---- Core Interface Event Listeners Matrix ---- //
+
+  function bindButtons() {
+    // 1. Navigation View Selection Tracking Mode Toggle
+    const btnNav = document.getElementById("btn-nav");
+    if (btnNav) {
+      btnNav.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (mode === "nav") return;
+        mode = "nav";
+        document.body.dataset.mode = "nav";
+        UI.setModeLabel("nav");
+        if (userLat !== null && userLon !== null) {
+          CameraController.transitionToNav(userLat, userLon, userHeading);
+          refreshIndicators();
+        }
+      });
+    }
+
+    // 2. Airspace View Overview Strategic Selection Toggle
+    const btnAir = document.getElementById("btn-air");
+    if (btnAir) {
+      btnAir.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (mode === "air") return;
+        mode = "air";
+        document.body.dataset.mode = "air";
+        UI.setModeLabel("air");
+        UI.clearIndicators(); // Clear screen edge markers inside 2D views
+        if (userLat !== null && userLon !== null) {
+          CameraController.transitionToAir(userLat, userLon);
+          refreshAirMode();
+        }
+      });
+    }
+
+    // 3. Test Routing Generation Call Target Hookup
+    const btnTestRoute = document.getElementById("btn-test-route");
+    if (btnTestRoute) {
+      btnTestRoute.addEventListener("click", (e) => {
+        e.preventDefault();
+        requestTestRoute();
+      });
+    }
+
+    // 4. Flush / Evacuate Active Routing Coordinates Hookup
+    const btnClearRoute = document.getElementById("btn-clear-route");
+    if (btnClearRoute) {
+      btnClearRoute.addEventListener("click", (e) => {
+        e.preventDefault();
+        clearActiveRoute();
+      });
+    }
+  }
+
+  // ---- Theme ----
+
+  function _onThemeChange(theme) {
+    EosMap.setTheme(theme);
+    _applyThemeToDom(theme);
+  }
+
+  function _applyThemeToDom(theme) {
+    document.body.dataset.theme = theme;
+
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = theme === "day" ? "#f5f3ee" : "#0e1117";
+
+    ["day", "auto", "night"].forEach(t => {
+      const btn = document.getElementById(`btn-theme-${t}`);
+      if (!btn) return;
+      const active = (t === ThemeManager.getPreference());
+      btn.classList.toggle("active-theme", active);
+    });
+  }
+
+  function showConfigWarningIfNeeded() {
+    if (!AdsbExchangeClient.isConfigured()) {
+      UI.showConfigBanner(true);
+      UI.setAdsbStatus("error", "ADS-B");
+    }
+  }
+
+  // ---- GPS Telemetry Feed Stream ----
 
   function startGps() {
     if (!navigator.geolocation) {
@@ -65,13 +159,13 @@
     navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, {
       enableHighAccuracy: true,
       timeout: 10000,
-      maximumAge: 1000,
+      maximumAge: 5000,
     });
 
     gpsWatchId = navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, {
       enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
+      timeout: 15000,
+      maximumAge: 3000,
     });
   }
 
@@ -82,7 +176,8 @@
     userLon = pos.coords.longitude;
     userSpeedMph = (pos.coords.speed || 0) * 2.23694;
 
-    if (pos.coords.heading !== null && !isNaN(pos.coords.heading) && userSpeedMph > 3.0) {
+    if (pos.coords.heading != null && !isNaN(pos.coords.heading)
+        && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
       userHeading = pos.coords.heading;
     }
 
@@ -94,12 +189,25 @@
       EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
     }
 
-    // Pushes fresh telemetry values to the single-source camera thread
     if (mode === "nav") {
+      // Direct pass down to the isolated 60Hz rendering thread execution matrix
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
     }
   }
+
+  function onGpsError(err) {
+    console.warn("GPS error:", err.message);
+    if (userLat === null) {
+      UI.showGpsMessage(true);
+      if (!window._mapInitialised) {
+        window._mapInitialised = true;
+        EosMap.init("map", 51.5, -0.12, ThemeManager.getResolved());
+      }
+    }
+  }
+
+  // ---- Data fetch loop ----
 
   function scheduleFetch() {
     fetchAircraft();
@@ -113,13 +221,21 @@
     const result = await AdsbExchangeClient.fetchNearby(userLat, userLon, CONFIG.DEFAULT_RANGE_NM);
     UI.setLoading(false);
 
-    if (result.error) {
-      _handleAdsbFetchErrors(result.error);
-      return;
-    }
+    lastFetchTime = Date.now();
+    lastFetchError = result.error;
 
-    UI.setAdsbStatus("active", "ADS-B");
-    UI.showConfigBanner(false);
+    if (result.error) {
+      if (result.error === "not_configured") {
+        UI.setAdsbStatus("error", "ADS-B");
+      } else if (result.error === "auth_failed") {
+        UI.setAdsbStatus("error", "Auth error");
+      } else {
+        UI.setAdsbStatus("stale", "No data");
+      }
+    } else {
+      UI.setAdsbStatus("active", "ADS-B");
+      UI.showConfigBanner(false);
+    }
 
     aircraftList = result.aircraft.filter(
       a => a.lastSeenSeconds < CONFIG.REMOVE_THRESHOLD_SECONDS
@@ -134,15 +250,7 @@
     }
   }
 
-  function _handleAdsbFetchErrors(errorString) {
-    if (errorString === "not_configured") {
-      UI.setAdsbStatus("error", "ADS-B");
-    } else if (errorString === "auth_failed") {
-      UI.setAdsbStatus("error", "Auth error");
-    } else {
-      UI.setAdsbStatus("stale", "No data");
-    }
-  }
+  // ---- Driving view ----
 
   function refreshIndicators() {
     if (userLat === null) return;
@@ -164,6 +272,23 @@
     UI.renderIndicators(indicators, onIndicatorClick);
   }
 
+  function onIndicatorClick(ind) {
+    UI.showPopup(ind);
+  }
+
+  // ---- Air mode ----
+
+  function refreshAirMode() {
+    if (userLat === null) return;
+    EosMap.renderAirMarkers(aircraftList, userLat, userLon, onAirMarkerClick);
+  }
+
+  function onAirMarkerClick(aircraft, vis) {
+    UI.showAirPopup(aircraft, vis);
+  }
+
+  // ---- Routing Core Integration ---- //
+
   async function requestTestRoute() {
     if (!userLat) return;
 
@@ -176,13 +301,17 @@
     );
 
     if (btn) { btn.textContent = "↗"; btn.disabled = false; }
-    if (!route) return;
+
+    if (!route) {
+      console.warn("Route request failed — check network or OSRM availability.");
+      return;
+    }
 
     activeRoute   = route;
     routeDestName = TEST_DEST.name;
     
     EosMap.showRoute(route.geometry);
-    CameraController.setRouteActive(route.geometry);
+    CameraController.setRouteActive(route.geometry); // Push parameters down to the evaluator bounds
     
     document.body.classList.add("route-active");
     _showRouteCard();
@@ -192,18 +321,9 @@
     activeRoute   = null;
     routeDestName = "";
     EosMap.clearRoute();
-    CameraController.clearRoute();
+    CameraController.clearRoute(); // Flush dynamic camera limits safely
     document.body.classList.remove("route-active");
     _hideRouteCard();
-  }
-
-  function _fallbackInternalCoreButtonBindings() {
-    // Standard fail-safe hookups mapping interface nodes if code snippets separate
-    const testRouteBtn = document.getElementById("btn-test-route");
-    if (testRouteBtn) testRouteBtn.addEventListener("click", requestTestRoute);
-    
-    const clearRouteBtn = document.getElementById("btn-clear-route");
-    if (clearRouteBtn) clearRouteBtn.addEventListener("click", clearActiveRoute);
   }
 
   function _showRouteCard() {
@@ -214,26 +334,47 @@
     if (arrivalEl) {
       const arrivalMs = Date.now() + activeRoute.durationSeconds * 1000;
       const d  = new Date(arrivalMs);
-      document.getElementById("route-eta-arrival").textContent = 
-        d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
+      const hh = d.getHours().toString().padStart(2, "0");
+      const mm = d.getMinutes().toString().padStart(2, "0");
+      arrivalEl.textContent = hh + ":" + mm;
     }
     document.getElementById("route-card").classList.remove("hidden");
     _showGuidanceCard();
   }
 
-  function _onThemeChange(theme) { EosMap.setTheme(theme); _applyThemeToDom(theme); }
-  function _applyThemeToDom(theme) { document.body.dataset.theme = theme; }
-  function _hideRouteCard() { document.getElementById("route-card")?.classList.add("hidden"); _hideGuidanceCard(); }
-  function _showGuidanceCard() { if (mode !== "nav" || !activeRoute) return; document.getElementById("ngc-dest-text").textContent = "towards " + (routeDestName || "destination"); document.getElementById("nav-guidance-card").classList.remove("hidden"); }
-  function _hideGuidanceCard() { document.getElementById("nav-guidance-card")?.classList.add("hidden"); }
-  function onIndicatorClick(ind) { UI.showPopup(ind); }
-  function refreshAirMode() { if (userLat !== null) EosMap.renderAirMarkers(aircraftList, userLat, userLon, onAirMarkerClick); }
-  function onAirMarkerClick(aircraft, vis) { UI.showAirPopup(aircraft, vis); }
-  function onGpsError(err) { console.warn("GPS error:", err.message); }
-  function showConfigWarningIfNeeded() { if (!AdsbExchangeClient.isConfigured()) { UI.showConfigBanner(true); UI.setAdsbStatus("error", "ADS-B"); } }
-  function _fmtDistance(meters) { return meters >= 1000 ? (meters / 1000).toFixed(1) + " km" : Math.round(meters) + " m"; }
-  function _fmtDuration(seconds) { const m = Math.round(seconds / 60); return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " m" : m + " min"; }
+  function _hideRouteCard() {
+    document.getElementById("route-card")?.classList.add("hidden");
+    _hideGuidanceCard();
+  }
 
-  window.EosApp = { init, requestTestRoute, clearActiveRoute, transitionToNav: () => { mode = "nav"; CameraController.transitionToNav(userLat, userLon, userHeading); }, transitionToAir: () => { mode = "air"; CameraController.transitionToAir(userLat, userLon); } };
+  function _showGuidanceCard() {
+    if (mode !== "nav" || !activeRoute) return;
+    const dest = routeDestName || "destination";
+    document.getElementById("ngc-dest-text").textContent = "towards " + dest;
+    document.getElementById("nav-guidance-card").classList.remove("hidden");
+  }
+
+  function _hideGuidanceCard() {
+    document.getElementById("nav-guidance-card")?.classList.add("hidden");
+  }
+
+  function _fmtDistance(meters) {
+    return meters >= 1000 ? (meters / 1000).toFixed(1) + " km" : Math.round(meters) + " m";
+  }
+
+  function _fmtDuration(seconds) {
+    const m = Math.round(seconds / 60);
+    return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " m" : m + " min";
+  }
+
+  // Global scope bridge mappings
+  window.EosApp = { 
+    init, 
+    requestTestRoute, 
+    clearActiveRoute, 
+    transitionToNav: () => { mode = "nav"; CameraController.transitionToNav(userLat, userLon, userHeading); }, 
+    transitionToAir: () => { mode = "air"; CameraController.transitionToAir(userLat, userLon); } 
+  };
+  
   document.addEventListener("DOMContentLoaded", init);
 })();
