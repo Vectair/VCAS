@@ -101,7 +101,7 @@
       });
     }
 
-    // 3. Test Routing Generation Call Target Target Hookup
+    // 3. Test Routing Generation Call Target Hookup
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
       btnTestRoute.addEventListener("click", (e) => {
@@ -198,9 +198,6 @@
   // ---- Camera Padding Update Engine ----
 
   function updateMapViewportPadding() {
-    const activeMap = EosMap.getMap();
-    if (!activeMap) return;
-
     let topPadding = 0;
     let bottomPadding = 0;
 
@@ -220,13 +217,8 @@
       }
     }
 
-    // Apply explicit pixel clipping space offsets directly to the engine
-    activeMap.setPadding({
-      top: topPadding,
-      bottom: bottomPadding + 10, // Generous structural layout safety buffer
-      left: 0,
-      right: 0
-    });
+    // Architectural Fix: Route padding targets directly through the unified Camera Controller API
+    CameraController.setViewportPadding(topPadding, bottomPadding + 10);
   }
 
   function onGpsError(err) {
@@ -368,7 +360,7 @@
     document.body.classList.add("route-active");
     _showRouteCard();
     
-    // Core Layout Fix: Recalculate camera bounds immediately when route cards mount
+    // Recalculate camera layout boundaries immediately when cards inject into viewport
     setTimeout(() => {
       updateMapViewportPadding();
       if (userLat !== null && userLon !== null) {
@@ -385,7 +377,7 @@
     document.body.classList.remove("route-active");
     _hideRouteCard();
     
-    // Core Layout Fix: Reset view constraints when exiting route state
+    // Reset view constraints completely back to standard panel guidelines
     setTimeout(() => {
       updateMapViewportPadding();
       if (userLat !== null && userLon !== null) {
@@ -425,6 +417,8 @@
   function _hideGuidanceCard() {
     document.getElementById("nav-guidance-card")?.classList.add("hidden");
   }
+
+  // ---- Numerical Utilities ----
 
   function _fmtDistance(meters) {
     return meters >= 1000 ? (meters / 1000).toFixed(1) + " km" : Math.round(meters) + " m";

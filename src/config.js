@@ -1,32 +1,20 @@
+/**
+ * Eos — Global Application Configuration
+ */
+
 const CONFIG = {
-  // MapTiler vector basemap — required for navigation map rendering
-  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
-
-  // "airplanes_live" (free, no key) | "adsb_exchange" (requires API key)
-  DATA_PROVIDER: "airplanes_live",
-
-  // ADS-B Exchange — only needed when DATA_PROVIDER is "adsb_exchange"
-  ADSB_API_KEY: "",
-  ADSB_API_HOST: "adsbexchange.com",
-
-  // MapTiler API key — required for vector basemap tiles.
-  // Free tier (100k tile requests/month, no credit card):
-  //   1. Sign up at https://cloud.maptiler.com/auth/widget?mode=add
-  //   2. Copy the key from https://cloud.maptiler.com/account/keys/
-  //   3. Paste it below.
-  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
-
-  DEFAULT_RANGE_NM: 20,
+  // ---- API Configurations ----
+  // IMPORTANT: Replace with your restricted MapTiler browser token
+  MAPTILER_KEY: "PASTE_YOUR_MAPTILER_KEY_HERE",
+  
+  // ---- Telemetry & Refresh Intervals ----
   REFRESH_INTERVAL_SECONDS: 10,
-  MAX_AIRCRAFT_SHOWN: 8,
-  VISIBILITY_MODE: "clear_flat_day",
-  MIN_LABEL_VISIBILITY_SCORE: 30,
-
-  // Data freshness threshold in seconds
-  STALE_THRESHOLD_SECONDS: 20,
-  REMOVE_THRESHOLD_SECONDS: 60,
-
-  // Minimum speed (mph) before we use GPS heading over compass
+  REMOVE_THRESHOLD_SECONDS: 30,
+  STALE_THRESHOLD_SECONDS: 15,
+  
+  // ---- Operational Parameters ----
+  DEFAULT_RANGE_NM: 50,
+  MAX_AIRCRAFT_SHOWN: 5,
   GPS_HEADING_MIN_SPEED_MPH: 5,
 };
 
