@@ -101,7 +101,7 @@
       });
     }
 
-    // 3. Test Routing Generation Call Target Hookup
+    // 3. Test Routing Generation Call Target Target Hookup
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
       btnTestRoute.addEventListener("click", (e) => {
@@ -190,10 +190,43 @@
     }
 
     if (mode === "nav") {
-      // Direct pass down to the isolated 60Hz rendering thread execution matrix
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
     }
+  }
+
+  // ---- Camera Padding Update Engine ----
+
+  function updateMapViewportPadding() {
+    const activeMap = EosMap.getMap();
+    if (!activeMap) return;
+
+    let topPadding = 0;
+    let bottomPadding = 0;
+
+    // Check layout heights of active navigation cards
+    const guidanceCard = document.getElementById("nav-guidance-card");
+    if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
+      topPadding = guidanceCard.offsetHeight || 90;
+    }
+
+    const routeCard = document.getElementById("route-card");
+    if (routeCard && !routeCard.classList.contains("hidden")) {
+      bottomPadding = routeCard.offsetHeight || 110;
+    } else {
+      const bottomBar = document.getElementById("bottom-bar");
+      if (bottomBar && !bottomBar.classList.contains("hidden")) {
+        bottomPadding = bottomBar.offsetHeight || 60;
+      }
+    }
+
+    // Apply explicit pixel clipping space offsets directly to the engine
+    activeMap.setPadding({
+      top: topPadding,
+      bottom: bottomPadding + 10, // Generous structural layout safety buffer
+      left: 0,
+      right: 0
+    });
   }
 
   function onGpsError(err) {
@@ -256,12 +289,31 @@
     if (userLat === null) return;
     const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
+    let bottomObstructionHeight = 0;
+    const routeCard = document.getElementById("route-card");
+    if (routeCard && !routeCard.classList.contains("hidden")) {
+      bottomObstructionHeight += routeCard.offsetHeight;
+    }
+    const bottomBar = document.getElementById("bottom-bar");
+    if (bottomBar && !bottomBar.classList.contains("hidden")) {
+      bottomObstructionHeight += bottomBar.offsetHeight;
+    }
+    if (bottomObstructionHeight === 0) bottomObstructionHeight = 60;
+
+    const usableViewportHeight = vh - bottomObstructionHeight - 45;
+
     const userState = {
       lat: userLat, lon: userLon,
       heading: userHeading,
       viewportWidth: vw,
-      viewportHeight: vh,
+      viewportHeight: usableViewportHeight, 
     };
+
+    const camConfig = CameraController.getLastEvaluated();
+    if (camConfig) {
+      userState.cameraPitch = camConfig.pitch;
+      userState.anchorY = camConfig.anchorY; 
+    }
 
     const indicators = Indicators.build(
       aircraftList, userState,
@@ -311,19 +363,35 @@
     routeDestName = TEST_DEST.name;
     
     EosMap.showRoute(route.geometry);
-    CameraController.setRouteActive(route.geometry); // Push parameters down to the evaluator bounds
+    CameraController.setRouteActive(route.geometry); 
     
     document.body.classList.add("route-active");
     _showRouteCard();
+    
+    // Core Layout Fix: Recalculate camera bounds immediately when route cards mount
+    setTimeout(() => {
+      updateMapViewportPadding();
+      if (userLat !== null && userLon !== null) {
+        CameraController.transitionToNav(userLat, userLon, userHeading);
+      }
+    }, 50);
   }
 
   function clearActiveRoute() {
     activeRoute   = null;
     routeDestName = "";
     EosMap.clearRoute();
-    CameraController.clearRoute(); // Flush dynamic camera limits safely
+    CameraController.clearRoute(); 
     document.body.classList.remove("route-active");
     _hideRouteCard();
+    
+    // Core Layout Fix: Reset view constraints when exiting route state
+    setTimeout(() => {
+      updateMapViewportPadding();
+      if (userLat !== null && userLon !== null) {
+        CameraController.transitionToNav(userLat, userLon, userHeading);
+      }
+    }, 50);
   }
 
   function _showRouteCard() {

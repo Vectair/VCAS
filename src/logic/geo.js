@@ -58,12 +58,6 @@ const Geo = (() => {
   /**
    * Project a relative bearing onto the screen edge.
    * Leverages exponential perspective scaling factors to correct for a tilted 3D map horizon.
-   *
-   * relativeBearing: degrees, [-180,180], 0 = straight ahead.
-   * viewportWidth, viewportHeight: pixels.
-   * anchorY: vertical camera offset coefficient tracking (0.5 to 0.9)
-   * cameraPitch: current camera tilt angle in degrees (0 to 60)
-   * safeInset: pixels reserved at each edge for UI chrome.
    */
   function projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, cameraPitch = 55, safeInset = 60) {
     const w = viewportWidth;
@@ -76,7 +70,6 @@ const Geo = (() => {
     const angleRad = toRad(relativeBearing);
     
     // Apply 3D perspective warp compensation
-    // As the view tilts toward the horizon line, the vertical ray projection compressed 
     const perspectiveCompressionFactor = (cameraPitch > 0) ? Math.cos(toRad(cameraPitch)) : 1.0;
     
     const sinA = Math.sin(angleRad);
@@ -86,7 +79,12 @@ const Geo = (() => {
 
     // Available edge boundaries respecting UI safety perimeters
     const topY    = safeInset + 20;
-    const bottomY = h - safeInset - 20;
+    
+    // --- FIXED: SCALE BOTTOM LIMIT TO PUSH LABELS ABOVE THE RADIAL SHADOW ---
+    // Instead of computing relative to absolute screen floor, lock the bottom boundary
+    // closely to your vehicle anchor axis to prevent targets slipping down behind the HUD panels.
+    const bottomY = Math.min(h - safeInset - 20, cy + 40); 
+    
     const leftX   = safeInset + 20;
     const rightX  = w - safeInset - 20;
 
@@ -106,7 +104,6 @@ const Geo = (() => {
     y = Math.max(topY, Math.min(bottomY, y));
 
     // Refactored context side categorization logic to balance viewport layouts
-    const absRel = Math.abs(relativeBearing);
     if (y <= topY + 5) {
       side = "top";
     } else if (y >= bottomY - 5) {
@@ -129,7 +126,7 @@ const Geo = (() => {
 
   return {
     calculateBearing,
-    calculateDistanceMeters, // Injected to resolve route engine calculation scale bugs
+    calculateDistanceMeters,
     calculateDistanceNm,
     calculateRelativeBearing,
     projectToScreenEdge,

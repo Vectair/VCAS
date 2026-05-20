@@ -86,19 +86,16 @@ const CameraController = (() => {
   function _getDynamicBottomSafeAreaHeight() {
     let heightAccumulator = 0;
     
-    // Check if route overview details cards are drawn
     const routeCard = document.getElementById("route-card");
     if (routeCard && !routeCard.classList.contains("hidden")) {
       heightAccumulator += routeCard.offsetHeight;
     }
     
-    // Check baseline system dashboard action chrome strips
     const bottomBar = document.getElementById("bottom-bar");
     if (bottomBar && !bottomBar.classList.contains("hidden")) {
       heightAccumulator += bottomBar.offsetHeight;
     }
 
-    // Default minimum fallback buffer zone if DOM elements are absent
     return heightAccumulator > 0 ? heightAccumulator : 60;
   }
 
@@ -127,7 +124,10 @@ const CameraController = (() => {
       viewportHeight: _containerH(),
     };
 
+    // 1. Evaluate baseline profiles from state machine rules
     const desc = NavigationCameraEvaluator.evaluate(ctx);
+    
+    // 2. Safely merge developer slider overrides (pitch, zoom, anchorY)
     Object.assign(desc, _devOverrides);
     _lastEvaluated = Object.assign({}, desc);
 
@@ -150,6 +150,7 @@ const CameraController = (() => {
       centerTarget = [projected.lon, projected.lat];
     }
 
+    // 3. Low-pass filter interpolation math
     if (_isFirstFrame) {
       cLat = centerTarget[1]; cLng = centerTarget[0]; cBearing = targetBearing;
       cZoom = desc.zoom; cPitch = desc.pitch;
@@ -165,29 +166,45 @@ const CameraController = (() => {
       cAnchorY += (desc.anchorY - cAnchorY) * K_MATRIX_PERSPECT;
     }
 
-    // Dynamic layout safe boundary offset extraction
+    // 4. Transform focal points into camera margins
     const mapH = _containerH();
     const mapW = _containerW();
     const dynamicBottomHeight = _getDynamicBottomSafeAreaHeight();
-    const usableHeight = mapH - dynamicBottomHeight;
+    
+    // Convert abstract decimal boundaries directly into explicit pixel fields
+    const targetPuckPixelY = mapH * cAnchorY;
+    const targetPuckPixelX = mapW * cAnchorX;
+    
+    // Balance focal tracking matrix across dynamic limits
+    const computedBottomPadding = mapH - targetPuckPixelY;
+    const computedLeftPadding = targetPuckPixelX - (mapW * 0.5);
 
-    const pixelOffsetX = (cAnchorX - 0.5) * mapW;
-    const pixelOffsetY = (cAnchorY - 0.5) * usableHeight + (dynamicBottomHeight * 0.5);
-
-    // Stable Public API Map Execution
+    // 5. Execute native viewport adjustments
     _map.jumpTo({
       center:  [cLng, cLat],
       zoom:    cZoom,
       pitch:   cPitch,
       bearing: cBearing,
-      offset:  [-pixelOffsetX, -pixelOffsetY] 
+      padding: { 
+        top: 0, 
+        bottom: Math.max(Math.round(dynamicBottomHeight), Math.round(computedBottomPadding)), 
+        left: computedLeftPadding > 0 ? Math.round(computedLeftPadding) : 0, 
+        right: computedLeftPadding < 0 ? Math.round(Math.abs(computedLeftPadding)) : 0 
+      }
     });
   }
 
   return {
-    init, setRouteActive, clearRoute, setViewportPreset,
-    getNavCameraDefaults, getNavCameraConfig, setNavCameraConfig,
-    resetNavCameraConfig, getLastEvaluated, getNavCameraState,
+    init, 
+    setRouteActive, 
+    clearRoute, 
+    setViewportPreset,
+    getNavCameraDefaults, 
+    getNavCameraConfig, 
+    setNavCameraConfig,
+    resetNavCameraConfig, 
+    getLastEvaluated, 
+    getNavCameraState,
 
     followNav: (lat, lon, heading, speedMph) => {
       _mode = "nav";
