@@ -1,8 +1,8 @@
-# Eos V1 — Personal ADS-B Visibility Prototype
+# VCAS V1 — Personal ADS-B Visibility Prototype
 
 A mobile-first web app that answers: **"Which aircraft around me are likely visible, and in what direction should I look?"**
 
-Eos runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable edge indicators over a dark road-map — similar in spirit to Google Maps night mode with a layer of airspace awareness.
+VCAS runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable edge indicators over a dark road-map — similar in spirit to Google Maps night mode with a layer of airspace awareness.
 
 ---
 
@@ -80,7 +80,7 @@ Tap any edge indicator or aircraft icon to open a detail popup (auto-dismisses a
 
 ## Visibility Categories
 
-Eos estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight):
+VCAS estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight):
 
 | Colour | Category | Angular size |
 |--------|----------|-------------|
@@ -101,7 +101,7 @@ Additional rules:
 ## File Structure
 
 ```
-/eos
+/VCAS
   index.html                  Entry point
   README.md
   /src
@@ -117,7 +117,7 @@ Additional rules:
       visibility.js           Angular size & detectability scoring
       indicators.js           Driving view indicator sorting/filtering
     /styles
-      eos.css                 All styles
+      VCAS.css                 All styles
 ```
 
 ---

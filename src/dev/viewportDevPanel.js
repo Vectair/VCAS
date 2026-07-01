@@ -1,7 +1,7 @@
 /**
  * Dev-only viewport emulator.
  *
- * Renders a VIEW button that lets developers test EOS in realistic
+ * Renders a VIEW button that lets developers test VCAS in realistic
  * target display dimensions (phone portrait/landscape, Android Auto)
  * without deploying to a real device.
  *
@@ -11,7 +11,7 @@
  */
 
 const ViewportDevPanel = (() => {
-  const STORAGE_KEY = "eos-dev-viewport";
+  const STORAGE_KEY = "VCAS-dev-viewport";
 
   const PRESETS = [
     { id: "full",    label: "Full",    width: null, height: null },

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-ROOT = Path(r"C:\Users\dmshs\Documents\Eos")
-OUT = ROOT / "eos_file_tree.txt"
+ROOT = Path(r"C:\Users\dmshs\Documents\VCAS")
+OUT = ROOT / "VCAS_file_tree.txt"
 
 EXCLUDE_DIRS = {
     ".git",
@@ -15,7 +15,7 @@ EXCLUDE_DIRS = {
 
 EXCLUDE_FILES = {
     ".DS_Store",
-    "eos_file_tree.txt",
+    "VCAS_file_tree.txt",
 }
 
 def tree(path: Path, prefix: str = ""):
