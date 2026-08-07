@@ -199,13 +199,16 @@ const EosMap = (() => {
 
   // ---- Public API ----
 
+  // Note: this only updates marker rendering — it deliberately does not call
+  // CameraController.followNav(). app.js:onGpsSuccess already does that once
+  // per GPS tick when in nav mode; calling it here too double-applies the
+  // evaluator's speed smoothing and state-dwell timers on every position update.
   function updateUserPosition(lat, lon, heading, speedMph) {
     if (!_map) return;
     _heading  = heading ?? _heading;
     _speedMph = speedMph ?? _speedMph;
     _userMarker.setLngLat([lon, lat]);
     _updateArrow(_mode, _heading);
-    if (_mode === "nav") CameraController.followNav(lat, lon, _heading, _speedMph);
   }
 
   function setMode(mode, lat, lon, heading) {
