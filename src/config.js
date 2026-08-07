@@ -17,6 +17,9 @@ const CONFIG = {
   // not a fixed constant here.
   DEFAULT_RANGE_NM: 50,
   GPS_HEADING_MIN_SPEED_MPH: 5,
+  // How long a manually-suppressed aircraft (via the popup's Suppress button)
+  // stays hidden from NAV indicators before becoming eligible again.
+  SUPPRESS_DURATION_SECONDS: 180,
 };
 
 if (typeof module !== "undefined") module.exports = CONFIG;

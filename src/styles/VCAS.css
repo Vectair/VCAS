@@ -519,6 +519,25 @@ body[data-theme="day"] .air-label-box {
   color: #000;
 }
 
+#popup .pop-actions {
+  margin-top: 10px;
+}
+
+#popup .pop-suppress-btn {
+  width: 100%;
+  padding: 7px 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#popup .pop-suppress-btn:active { background: var(--btn-hover); }
+
 /* ---- Loading spinner ---- */
 #loading {
   position: fixed;

@@ -26,6 +26,9 @@
   // Manual only (tap the aircraft-count badge to cycle); never auto-rotates.
   let indicatorPage = 0;
 
+  // Manually-suppressed aircraft (via the popup's Suppress button): hex -> expiry timestamp (ms).
+  let suppressedUntil = new Map();
+
   // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
   const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
 
@@ -314,9 +317,15 @@
       userState.anchorY = camConfig.anchorY; 
     }
 
+    const now = Date.now();
+    for (const [hex, expiry] of suppressedUntil) {
+      if (expiry <= now) suppressedUntil.delete(hex);
+    }
+
     const allRelevant = Indicators.build(
       aircraftList, userState,
-      CONFIG.STALE_THRESHOLD_SECONDS
+      CONFIG.STALE_THRESHOLD_SECONDS,
+      new Set(suppressedUntil.keys())
     );
 
     const cap = Indicators.capForViewportWidth(vw);
@@ -336,7 +345,13 @@
   }
 
   function onIndicatorClick(ind) {
-    UI.showPopup(ind);
+    UI.showPopup(ind, () => onSuppressAircraft(ind.aircraft.hex));
+  }
+
+  function onSuppressAircraft(hex) {
+    suppressedUntil.set(hex, Date.now() + CONFIG.SUPPRESS_DURATION_SECONDS * 1000);
+    UI.hidePopup();
+    refreshIndicators();
   }
 
   // ---- Air mode ----

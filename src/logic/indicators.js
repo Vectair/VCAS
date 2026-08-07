@@ -34,12 +34,16 @@ const Indicators = (() => {
    * display/interaction state, not something this pure function should own.
    *
    * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
+   * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
+   *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
+   *   there's no relevance reason exempt from suppression, including overhead/close cases.
    */
-  function build(aircraftList, userState, staleThresholdSeconds) {
+  function build(aircraftList, userState, staleThresholdSeconds, suppressedHexes) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
 
     const withMeta = aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
+      .filter(a => !suppressedHexes || !suppressedHexes.has(a.hex))
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);

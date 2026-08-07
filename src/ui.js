@@ -118,7 +118,13 @@ const UI = (() => {
 
   // ---- Popup ----
 
-  function showPopup(ind) {
+  /**
+   * @param {object} ind                 Indicator data (as built by Indicators.build()).
+   * @param {function} [onSuppressClick] Called with no args when the Suppress button is
+   *   tapped. Omit to render the popup without a Suppress button (used for the AIR mode
+   *   popup, where nothing is relevance-filtered so there's nothing to suppress from).
+   */
+  function showPopup(ind, onSuppressClick) {
     const el = document.getElementById("popup");
     if (!el) return;
 
@@ -139,11 +145,22 @@ const UI = (() => {
       <div class="pop-row"><span class="pop-key">Updated</span><span class="pop-val">${updatedStr}</span></div>
       <div>
         <span class="pop-vis-badge" style="background:${ind.vis.color}">${ind.vis.label}</span>
-      </div>`;
+      </div>
+      ${onSuppressClick ? `
+      <div class="pop-actions">
+        <button type="button" class="pop-suppress-btn">Suppress</button>
+      </div>` : ""}`;
+
+    if (onSuppressClick) {
+      el.querySelector(".pop-suppress-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        onSuppressClick();
+      });
+    }
 
     // Position near indicator, keeping on screen
     const vw = window.innerWidth, vh = window.innerHeight;
-    const popW = 220, popH = 180;
+    const popW = 220, popH = onSuppressClick ? 215 : 180;
     let left = ind.x - popW / 2;
     let top  = ind.y - popH - 14;
     left = Math.max(8, Math.min(vw - popW - 8, left));
