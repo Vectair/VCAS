@@ -271,9 +271,19 @@
       UI.showConfigBanner(false);
     }
 
-    aircraftList = result.aircraft.filter(
-      a => a.lastSeenSeconds < CONFIG.REMOVE_THRESHOLD_SECONDS
-    );
+    aircraftList = result.aircraft.filter(a => {
+      if (a.lastSeenSeconds >= CONFIG.REMOVE_THRESHOLD_SECONDS) return false;
+      // Ground/low-altitude clutter suppression (e.g. busy airports) — only
+      // suppresses aircraft with a known altitude below the threshold, never
+      // ones with missing altitude data. Applies to both NAV and AIR mode
+      // since aircraftList feeds both.
+      if (CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED
+          && a.altitudeFt != null
+          && a.altitudeFt < CONFIG.SUPPRESS_LOW_ALTITUDE_FT) {
+        return false;
+      }
+      return true;
+    });
 
     UI.setAircraftCount(aircraftList.length);
 
