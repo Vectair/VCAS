@@ -297,8 +297,9 @@
     const userState = {
       lat: userLat, lon: userLon,
       heading: userHeading,
+      speedMph: userSpeedMph,
       viewportWidth: vw,
-      viewportHeight: usableViewportHeight, 
+      viewportHeight: usableViewportHeight,
     };
 
     const camConfig = CameraController.getLastEvaluated();

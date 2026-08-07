@@ -5,9 +5,12 @@
 const Indicators = (() => {
   /**
    * Given the full aircraft list and user state, return the top-N indicators
-   * ready for rendering.
+   * ready for rendering. Aircraft that Relevance.evaluate() rules out
+   * (roughly: behind the user, not close, not converging into view) never
+   * reach the sort/cap stage at all — this is a TCAS-style relevance gate,
+   * not just a visibility ranking.
    *
-   * userState: { lat, lon, heading, viewportWidth, viewportHeight }
+   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
    */
   function build(aircraftList, userState, maxShown, staleThresholdSeconds) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
@@ -19,6 +22,7 @@ const Indicators = (() => {
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
         const vis = Visibility.estimate(lat, lon, a);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
+        const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         const { x, y, side } = Geo.projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight);
         const arrowDeg = Geo.arrowRotation(relativeBearing);
         const isStale = a.lastSeenSeconds > staleThresholdSeconds;
@@ -29,11 +33,13 @@ const Indicators = (() => {
           distanceNm,
           relativeBearing,
           vis,
+          relevance,
           x, y, side,
           arrowDeg,
           isStale,
         };
-      });
+      })
+      .filter(item => item.relevance.relevant);
 
     // Sort: higher visibility score first, then proximity
     withMeta.sort((a, b) => {

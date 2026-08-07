@@ -124,6 +124,21 @@ const Geo = (() => {
     return relativeBearing;
   }
 
+  /**
+   * Project a point forward from (lat, lon) by `distanceMeters` along a true
+   * heading, using a flat-earth approximation (fine for the short distances
+   * — tens to low hundreds of metres — this is used for).
+   */
+  function projectPosition(lat, lon, headingDeg, distanceMeters) {
+    const metersPerDegreeLat = 111111;
+    const metersPerDegreeLon = 111111 * Math.cos(toRad(lat));
+    const headingRad = toRad(headingDeg);
+    return {
+      lat: lat + (distanceMeters * Math.cos(headingRad)) / metersPerDegreeLat,
+      lon: lon + (distanceMeters * Math.sin(headingRad)) / (metersPerDegreeLon || 1e-9),
+    };
+  }
+
   return {
     calculateBearing,
     calculateDistanceMeters,
@@ -131,6 +146,7 @@ const Geo = (() => {
     calculateRelativeBearing,
     projectToScreenEdge,
     arrowRotation,
+    projectPosition,
   };
 })();
 
