@@ -310,7 +310,7 @@
 
     const indicators = Indicators.build(
       aircraftList, userState,
-      CONFIG.MAX_AIRCRAFT_SHOWN,
+      Indicators.capForViewportWidth(vw),
       CONFIG.STALE_THRESHOLD_SECONDS
     );
 

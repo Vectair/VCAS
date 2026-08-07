@@ -3,6 +3,25 @@
  */
 
 const Indicators = (() => {
+  // Viewport-tiered NAV display cap — small phone screens stay glanceable
+  // with fewer indicators; larger tablet/infotainment-style displays have
+  // room for more before it becomes clutter.
+  const NAV_CAP_SMALL_MAX_WIDTH  = 500; // px, exclusive
+  const NAV_CAP_MEDIUM_MAX_WIDTH = 900; // px, inclusive
+  const NAV_CAP_SMALL  = 5;
+  const NAV_CAP_MEDIUM = 7;
+  const NAV_CAP_LARGE  = 10;
+
+  /**
+   * @param {number} width  Viewport width in px (real or emulated).
+   * @returns {number} Max NAV indicators to show at that width.
+   */
+  function capForViewportWidth(width) {
+    if (width < NAV_CAP_SMALL_MAX_WIDTH) return NAV_CAP_SMALL;
+    if (width <= NAV_CAP_MEDIUM_MAX_WIDTH) return NAV_CAP_MEDIUM;
+    return NAV_CAP_LARGE;
+  }
+
   /**
    * Given the full aircraft list and user state, return the top-N indicators
    * ready for rendering. Aircraft that Relevance.evaluate() rules out
@@ -50,7 +69,7 @@ const Indicators = (() => {
     return withMeta.slice(0, maxShown);
   }
 
-  return { build };
+  return { build, capForViewportWidth };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

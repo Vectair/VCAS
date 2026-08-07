@@ -13,8 +13,9 @@ const CONFIG = {
   STALE_THRESHOLD_SECONDS: 15,
   
   // ---- Operational Parameters ----
+  // NAV indicator count is viewport-tiered (see Indicators.capForViewportWidth),
+  // not a fixed constant here.
   DEFAULT_RANGE_NM: 50,
-  MAX_AIRCRAFT_SHOWN: 5,
   GPS_HEADING_MIN_SPEED_MPH: 5,
 };
 

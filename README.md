@@ -88,8 +88,9 @@ All keys live in `src/config.js`.
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
-| `MAX_AIRCRAFT_SHOWN` | `5` | Max indicators shown at once in driving view |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
+
+NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
 
 Optional — only needed to switch ADS-B providers (not present in `config.js` by default):
 
