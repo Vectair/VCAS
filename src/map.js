@@ -246,10 +246,13 @@ const EosMap = (() => {
   function _airMarkerHtml(aircraft, vis) {
     const callsign = aircraft.callsign || aircraft.hex;
     const type     = aircraft.type || "";
-    const rot      = aircraft.trackDeg != null ? aircraft.trackDeg : 0;
+    // AIR mode shows every aircraft unconditionally (no relevance filtering),
+    // so the shape doesn't encode a relevance reason here — every marker is
+    // a plain diamond, colour still carries the visibility category.
+    const shapeSvg = AircraftSymbol.svg("in-view", vis.color, 18);
     return `
       <div class="air-marker-inner">
-        <div class="air-icon" style="color:${vis.color};transform:rotate(${rot}deg)">✈</div>
+        <div class="air-icon">${shapeSvg}</div>
         <div class="air-label-box">
           <div class="callsign" style="color:${vis.color}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}

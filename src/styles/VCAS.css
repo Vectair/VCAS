@@ -271,6 +271,13 @@ html, body {
   color: var(--text-secondary);
 }
 
+#aircraft-count.clickable {
+  cursor: pointer;
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
 /* Theme row: Day | Auto | Night */
 #theme-row {
   display: flex;
@@ -374,11 +381,11 @@ html, body {
 
 .indicator.stale { opacity: .45; }
 
-.indicator-arrow {
-  font-size: 20px;
-  line-height: 1;
-  display: block;
-  transition: transform .3s;
+.indicator-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
 }
 
 .indicator-label {
@@ -424,8 +431,9 @@ body[data-theme="day"] .indicator-label {
 }
 
 .air-icon {
-  font-size: 18px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   filter: drop-shadow(0 1px 3px rgba(0,0,0,.8));
 }
 
@@ -510,6 +518,25 @@ body[data-theme="day"] .air-label-box {
   letter-spacing: .04em;
   color: #000;
 }
+
+#popup .pop-actions {
+  margin-top: 10px;
+}
+
+#popup .pop-suppress-btn {
+  width: 100%;
+  padding: 7px 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#popup .pop-suppress-btn:active { background: var(--btn-hover); }
 
 /* ---- Loading spinner ---- */
 #loading {
@@ -733,7 +760,7 @@ body[data-nav-state="turn_approach"] { }
 @media (max-width: 400px) {
   .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
-  .indicator-arrow           { font-size: 17px; }
+  .indicator-shape svg       { width: 17px; height: 17px; }
   .theme-btn                 { padding: 2px 5px; }
 }
 

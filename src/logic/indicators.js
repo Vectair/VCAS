@@ -3,24 +3,54 @@
  */
 
 const Indicators = (() => {
+  // Viewport-tiered NAV display cap — small phone screens stay glanceable
+  // with fewer indicators; larger tablet/infotainment-style displays have
+  // room for more before it becomes clutter.
+  const NAV_CAP_SMALL_MAX_WIDTH  = 500; // px, exclusive
+  const NAV_CAP_MEDIUM_MAX_WIDTH = 900; // px, inclusive
+  const NAV_CAP_SMALL  = 5;
+  const NAV_CAP_MEDIUM = 7;
+  const NAV_CAP_LARGE  = 10;
+
   /**
-   * Given the full aircraft list and user state, return the top-N indicators
-   * ready for rendering.
-   *
-   * userState: { lat, lon, heading, viewportWidth, viewportHeight }
+   * @param {number} width  Viewport width in px (real or emulated).
+   * @returns {number} Max NAV indicators to show at that width.
    */
-  function build(aircraftList, userState, maxShown, staleThresholdSeconds) {
+  function capForViewportWidth(width) {
+    if (width < NAV_CAP_SMALL_MAX_WIDTH) return NAV_CAP_SMALL;
+    if (width <= NAV_CAP_MEDIUM_MAX_WIDTH) return NAV_CAP_MEDIUM;
+    return NAV_CAP_LARGE;
+  }
+
+  /**
+   * Given the full aircraft list and user state, return every relevant
+   * aircraft, sorted best-candidate-first. Aircraft that Relevance.evaluate()
+   * rules out (roughly: behind the user, not close, not converging into
+   * view) never reach the sort stage at all — this is a TCAS-style
+   * relevance gate, not just a visibility ranking.
+   *
+   * Deliberately unpaginated — the caller decides how many to actually
+   * display (via capForViewportWidth) and which page, since that's
+   * display/interaction state, not something this pure function should own.
+   *
+   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
+   * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
+   *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
+   *   there's no relevance reason exempt from suppression, including overhead/close cases.
+   */
+  function build(aircraftList, userState, staleThresholdSeconds, suppressedHexes) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
 
     const withMeta = aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
+      .filter(a => !suppressedHexes || !suppressedHexes.has(a.hex))
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
         const vis = Visibility.estimate(lat, lon, a);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
+        const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         const { x, y, side } = Geo.projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight);
-        const arrowDeg = Geo.arrowRotation(relativeBearing);
         const isStale = a.lastSeenSeconds > staleThresholdSeconds;
 
         return {
@@ -29,11 +59,12 @@ const Indicators = (() => {
           distanceNm,
           relativeBearing,
           vis,
+          relevance,
           x, y, side,
-          arrowDeg,
           isStale,
         };
-      });
+      })
+      .filter(item => item.relevance.relevant);
 
     // Sort: higher visibility score first, then proximity
     withMeta.sort((a, b) => {
@@ -41,10 +72,10 @@ const Indicators = (() => {
       return a.distanceNm - b.distanceNm;
     });
 
-    return withMeta.slice(0, maxShown);
+    return withMeta;
   }
 
-  return { build };
+  return { build, capForViewportWidth };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

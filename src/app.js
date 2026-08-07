@@ -21,6 +21,14 @@
   let activeRoute   = null;
   let routeDestName = "";
 
+  // NAV indicator paging — which page of the ranked relevant-aircraft pool
+  // is currently on screen, when there are more than the viewport cap.
+  // Manual only (tap the aircraft-count badge to cycle); never auto-rotates.
+  let indicatorPage = 0;
+
+  // Manually-suppressed aircraft (via the popup's Suppress button): hex -> expiry timestamp (ms).
+  let suppressedUntil = new Map();
+
   // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
   const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
 
@@ -75,6 +83,7 @@
         e.preventDefault();
         if (mode === "nav") return;
         mode = "nav";
+        indicatorPage = 0; // fresh start when re-entering NAV mode
         document.body.dataset.mode = "nav";
         UI.setModeLabel("nav");
         if (userLat !== null && userLon !== null) {
@@ -262,9 +271,19 @@
       UI.showConfigBanner(false);
     }
 
-    aircraftList = result.aircraft.filter(
-      a => a.lastSeenSeconds < CONFIG.REMOVE_THRESHOLD_SECONDS
-    );
+    aircraftList = result.aircraft.filter(a => {
+      if (a.lastSeenSeconds >= CONFIG.REMOVE_THRESHOLD_SECONDS) return false;
+      // Ground/low-altitude clutter suppression (e.g. busy airports) — only
+      // suppresses aircraft with a known altitude below the threshold, never
+      // ones with missing altitude data. Applies to both NAV and AIR mode
+      // since aircraftList feeds both.
+      if (CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED
+          && a.altitudeFt != null
+          && a.altitudeFt < CONFIG.SUPPRESS_LOW_ALTITUDE_FT) {
+        return false;
+      }
+      return true;
+    });
 
     UI.setAircraftCount(aircraftList.length);
 
@@ -297,8 +316,9 @@
     const userState = {
       lat: userLat, lon: userLon,
       heading: userHeading,
+      speedMph: userSpeedMph,
       viewportWidth: vw,
-      viewportHeight: usableViewportHeight, 
+      viewportHeight: usableViewportHeight,
     };
 
     const camConfig = CameraController.getLastEvaluated();
@@ -307,17 +327,41 @@
       userState.anchorY = camConfig.anchorY; 
     }
 
-    const indicators = Indicators.build(
+    const now = Date.now();
+    for (const [hex, expiry] of suppressedUntil) {
+      if (expiry <= now) suppressedUntil.delete(hex);
+    }
+
+    const allRelevant = Indicators.build(
       aircraftList, userState,
-      CONFIG.MAX_AIRCRAFT_SHOWN,
-      CONFIG.STALE_THRESHOLD_SECONDS
+      CONFIG.STALE_THRESHOLD_SECONDS,
+      new Set(suppressedUntil.keys())
     );
 
-    UI.renderIndicators(indicators, onIndicatorClick);
+    const cap = Indicators.capForViewportWidth(vw);
+    const totalPages = Math.max(1, Math.ceil(allRelevant.length / cap));
+    if (indicatorPage >= totalPages) indicatorPage = 0;
+
+    const pageStart = indicatorPage * cap;
+    const shown = allRelevant.slice(pageStart, pageStart + cap);
+
+    UI.renderIndicators(shown, onIndicatorClick);
+    UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
+  }
+
+  function onCycleIndicatorPage() {
+    indicatorPage++;
+    refreshIndicators(); // re-derives totalPages and wraps back to 0 if past the end
   }
 
   function onIndicatorClick(ind) {
-    UI.showPopup(ind);
+    UI.showPopup(ind, () => onSuppressAircraft(ind.aircraft.hex));
+  }
+
+  function onSuppressAircraft(hex) {
+    suppressedUntil.set(hex, Date.now() + CONFIG.SUPPRESS_DURATION_SECONDS * 1000);
+    UI.hidePopup();
+    refreshIndicators();
   }
 
   // ---- Air mode ----

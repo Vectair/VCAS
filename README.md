@@ -88,8 +88,12 @@ All keys live in `src/config.js`.
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
-| `MAX_AIRCRAFT_SHOWN` | `5` | Max indicators shown at once in driving view |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
+| `SUPPRESS_DURATION_SECONDS` | `180` | How long a manually-suppressed aircraft (popup's Suppress button) stays hidden from NAV |
+| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `true` | Whether ground/low-altitude clutter suppression is active (both modes) |
+| `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Altitude floor for the above — barometric (MSL), not height above you; see the caveat comment in `config.js` |
+
+NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
 
 Optional — only needed to switch ADS-B providers (not present in `config.js` by default):
 
@@ -118,6 +122,35 @@ Additional rules (`src/logic/visibility.js`):
 - Aircraft within 1 NM and below 500 ft: always *Very likely visible*.
 - Aircraft not updated in the last 20 seconds (fixed threshold, independent of `STALE_THRESHOLD_SECONDS` above) have their category degraded by one step.
 - Elevation > 70° is labelled "overhead" in the detail popup's bearing field — it does not change where the indicator is drawn on screen.
+
+---
+
+## Relevance Filtering (TCAS-style)
+
+NAV mode doesn't just rank aircraft by visibility — it filters by relevance first (`src/logic/relevance.js`), modelled on how TCAS's own coverage is illustrated: a teardrop, not a symmetric arc. Long and wide ahead, pinched at the sides, with a small residual allowance directly behind, rather than a hard angular cutoff.
+
+An aircraft is relevant if:
+- it's nearly overhead (elevation > 70° — a plan-view bearing test doesn't mean anything looking straight up), or
+- it's currently within the teardrop boundary for its bearing (closer required at the sides/behind than dead ahead), or
+- projecting both the user's and the aircraft's motion forward a few seconds puts it inside the teardrop even though it isn't yet — i.e. it's converging into view.
+
+Only relevant aircraft reach the visibility-score sort/display stage; everything else — mostly things behind you that aren't converging — is filtered out before ranking ever happens. This re-evaluates on every GPS update, so turning immediately reshuffles what's shown, with no smoothing or lag.
+
+**Symbols** (`src/aircraftSymbol.js`) encode *why* an aircraft is shown; the existing colour scale still independently encodes *how visible* it'll be:
+
+| Shape | Meaning |
+|-------|---------|
+| Diamond | Currently within the teardrop |
+| Circle | Predicted to converge into view |
+| Chevron (points up) | Overhead override — a "look up" cue, not a bearing cue |
+
+AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so every AIR marker is a plain diamond.
+
+**Display cap & overflow**: NAV shows at most 5/7/10 indicators depending on viewport width; AIR mode is unrestricted. When more relevant aircraft exist than fit, the aircraft-count readout becomes a tappable "X of Y shown — tap for more" control that pages through the ranked list. Manual only — no automatic rotation, since an automatically-changing display was judged a driving distraction in its own right.
+
+**Suppression**: the popup's Suppress button hides an aircraft from NAV for `SUPPRESS_DURATION_SECONDS`, freeing its slot for the next-ranked one. Deliberately a separate, explicit action — not a side effect of viewing the popup — and applies uniformly; no relevance reason is exempt from being suppressed.
+
+**Ground/low-altitude clutter suppression**: aircraft with a known altitude below `SUPPRESS_LOW_ALTITUDE_FT` are dropped before either mode ever sees them (toggle via `SUPPRESS_LOW_ALTITUDE_ENABLED`). This is barometric altitude (MSL), not height above you — see the config reference above.
 
 ---
 
@@ -164,13 +197,15 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
     config.js                       All configurable constants
     map.js                          MapLibre wrapper: init, theme, markers, route layer
     ui.js                           Rendering: indicators, popups, status pills
+    aircraftSymbol.js               Shared diamond/circle/chevron SVG icon factory
     /data
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object
     /logic
-      geo.js                        Bearing, distance, edge projection
+      geo.js                        Bearing, distance, edge projection, forward-position projection
       visibility.js                 Angular size & detectability scoring
-      indicators.js                 Driving-view indicator sorting/filtering
+      relevance.js                  TCAS-style teardrop relevance gate (what's worth showing at all)
+      indicators.js                 Driving-view aircraft ranking/filtering (relevance + suppression + sort)
     /map
       cameraController.js           Owns MapLibre camera state; bridges NavigationCameraEvaluator to the map
       navStyle.js                   Vector basemap style factory (day/night palettes, 31 layers)
@@ -197,11 +232,14 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
 - **ADS-B coverage** — depends on feeder network; remote areas may have gaps.
 - **Routing is a fixed demo, not real navigation** — one hardcoded destination, no destination search, turn instruction text/icon are static placeholders.
 - **CORS** — if a chosen ADS-B provider blocks direct browser requests, a small local proxy will be needed.
+- **Relevance prediction assumes straight-line motion** — both the user's and each aircraft's projected position over the lookahead window are simple heading-based projections, not route-following (for the user) or track-curving (for aircraft). Reasonable over the short window used, but not exact through a turn.
+- **Ground/low-altitude suppression is sea-level-referenced, not true height-above-you** — see the caveat in `config.js`. Reconfiguring it currently means editing `config.js` directly; there's no in-app settings screen yet (see below).
 
 ---
 
 ## Future Extension Points
 
+- In-app settings screen — notably to reconfigure `SUPPRESS_LOW_ALTITUDE_FT` at runtime using GPS altitude as a live local-ground-level estimate, rather than a fixed sea-level constant. Deliberately deferred rather than bundled into the relevance-filter work, since it's a distinct piece of UI.
 - Real destination search instead of the hardcoded test route.
 - Turn-by-turn instruction text/icon driven by the existing `TURN_APPROACH` detection.
 - Device orientation API for stationary heading.

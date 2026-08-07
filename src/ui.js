@@ -43,10 +43,32 @@ const UI = (() => {
 
   // ---- Aircraft count ----
 
-  function setAircraftCount(n) {
+  /**
+   * @param {number} shownCount        Aircraft actually displayed right now.
+   * @param {number} [totalCount]      Total relevant aircraft available (may exceed shownCount
+   *                                   when there's more than fits on one page). Defaults to
+   *                                   shownCount — i.e. "no overflow" — when omitted, so existing
+   *                                   callers that only care about a plain count are unaffected.
+   * @param {function} [onCycleClick]  Called when the overflow badge is tapped. Only wired up
+   *                                   when there's actually overflow to cycle through.
+   */
+  function setAircraftCount(shownCount, totalCount, onCycleClick) {
     const el = document.getElementById("aircraft-count");
     if (!el) return;
-    el.textContent = n === 0 ? "No aircraft in range" : `${n} aircraft nearby`;
+
+    const total = totalCount != null ? totalCount : shownCount;
+    const hasOverflow = total > shownCount;
+
+    if (total === 0) {
+      el.textContent = "No aircraft in range";
+    } else if (!hasOverflow) {
+      el.textContent = `${shownCount} aircraft nearby`;
+    } else {
+      el.textContent = `${shownCount} of ${total} shown — tap for more`;
+    }
+
+    el.classList.toggle("clickable", hasOverflow);
+    el.onclick = hasOverflow ? onCycleClick : null;
   }
 
   // ---- Mode label ----
@@ -75,9 +97,10 @@ const UI = (() => {
 
       const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
+      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, ind.vis.color, 20);
 
       el.innerHTML = `
-        <div class="indicator-arrow" style="color:${ind.vis.color};transform:rotate(${ind.arrowDeg}deg)">▲</div>
+        <div class="indicator-shape">${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${ind.vis.color}33">
           <div class="callsign" style="color:${ind.vis.color}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
@@ -95,7 +118,13 @@ const UI = (() => {
 
   // ---- Popup ----
 
-  function showPopup(ind) {
+  /**
+   * @param {object} ind                 Indicator data (as built by Indicators.build()).
+   * @param {function} [onSuppressClick] Called with no args when the Suppress button is
+   *   tapped. Omit to render the popup without a Suppress button (used for the AIR mode
+   *   popup, where nothing is relevance-filtered so there's nothing to suppress from).
+   */
+  function showPopup(ind, onSuppressClick) {
     const el = document.getElementById("popup");
     if (!el) return;
 
@@ -116,11 +145,22 @@ const UI = (() => {
       <div class="pop-row"><span class="pop-key">Updated</span><span class="pop-val">${updatedStr}</span></div>
       <div>
         <span class="pop-vis-badge" style="background:${ind.vis.color}">${ind.vis.label}</span>
-      </div>`;
+      </div>
+      ${onSuppressClick ? `
+      <div class="pop-actions">
+        <button type="button" class="pop-suppress-btn">Suppress</button>
+      </div>` : ""}`;
+
+    if (onSuppressClick) {
+      el.querySelector(".pop-suppress-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        onSuppressClick();
+      });
+    }
 
     // Position near indicator, keeping on screen
     const vw = window.innerWidth, vh = window.innerHeight;
-    const popW = 220, popH = 180;
+    const popW = 220, popH = onSuppressClick ? 215 : 180;
     let left = ind.x - popW / 2;
     let top  = ind.y - popH - 14;
     left = Math.max(8, Math.min(vw - popW - 8, left));
