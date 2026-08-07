@@ -118,13 +118,6 @@ const Geo = (() => {
   }
 
   /**
-   * Arrow rotation angle (CSS degrees) so ▲ points toward the aircraft.
-   */
-  function arrowRotation(relativeBearing) {
-    return relativeBearing;
-  }
-
-  /**
    * Project a point forward from (lat, lon) by `distanceMeters` along a true
    * heading, using a flat-earth approximation (fine for the short distances
    * — tens to low hundreds of metres — this is used for).
@@ -145,7 +138,6 @@ const Geo = (() => {
     calculateDistanceNm,
     calculateRelativeBearing,
     projectToScreenEdge,
-    arrowRotation,
     projectPosition,
   };
 })();

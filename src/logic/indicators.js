@@ -43,7 +43,6 @@ const Indicators = (() => {
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
         const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         const { x, y, side } = Geo.projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight);
-        const arrowDeg = Geo.arrowRotation(relativeBearing);
         const isStale = a.lastSeenSeconds > staleThresholdSeconds;
 
         return {
@@ -54,7 +53,6 @@ const Indicators = (() => {
           vis,
           relevance,
           x, y, side,
-          arrowDeg,
           isStale,
         };
       })

@@ -374,11 +374,11 @@ html, body {
 
 .indicator.stale { opacity: .45; }
 
-.indicator-arrow {
-  font-size: 20px;
-  line-height: 1;
-  display: block;
-  transition: transform .3s;
+.indicator-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
 }
 
 .indicator-label {
@@ -424,8 +424,9 @@ body[data-theme="day"] .indicator-label {
 }
 
 .air-icon {
-  font-size: 18px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   filter: drop-shadow(0 1px 3px rgba(0,0,0,.8));
 }
 
@@ -733,7 +734,7 @@ body[data-nav-state="turn_approach"] { }
 @media (max-width: 400px) {
   .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
-  .indicator-arrow           { font-size: 17px; }
+  .indicator-shape svg       { width: 17px; height: 17px; }
   .theme-btn                 { padding: 2px 5px; }
 }
 

@@ -75,9 +75,10 @@ const UI = (() => {
 
       const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
+      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, ind.vis.color, 20);
 
       el.innerHTML = `
-        <div class="indicator-arrow" style="color:${ind.vis.color};transform:rotate(${ind.arrowDeg}deg)">▲</div>
+        <div class="indicator-shape">${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${ind.vis.color}33">
           <div class="callsign" style="color:${ind.vis.color}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
