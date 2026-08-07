@@ -23,15 +23,19 @@ const Indicators = (() => {
   }
 
   /**
-   * Given the full aircraft list and user state, return the top-N indicators
-   * ready for rendering. Aircraft that Relevance.evaluate() rules out
-   * (roughly: behind the user, not close, not converging into view) never
-   * reach the sort/cap stage at all — this is a TCAS-style relevance gate,
-   * not just a visibility ranking.
+   * Given the full aircraft list and user state, return every relevant
+   * aircraft, sorted best-candidate-first. Aircraft that Relevance.evaluate()
+   * rules out (roughly: behind the user, not close, not converging into
+   * view) never reach the sort stage at all — this is a TCAS-style
+   * relevance gate, not just a visibility ranking.
+   *
+   * Deliberately unpaginated — the caller decides how many to actually
+   * display (via capForViewportWidth) and which page, since that's
+   * display/interaction state, not something this pure function should own.
    *
    * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
    */
-  function build(aircraftList, userState, maxShown, staleThresholdSeconds) {
+  function build(aircraftList, userState, staleThresholdSeconds) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
 
     const withMeta = aircraftList
@@ -64,7 +68,7 @@ const Indicators = (() => {
       return a.distanceNm - b.distanceNm;
     });
 
-    return withMeta.slice(0, maxShown);
+    return withMeta;
   }
 
   return { build, capForViewportWidth };

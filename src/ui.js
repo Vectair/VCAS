@@ -43,10 +43,32 @@ const UI = (() => {
 
   // ---- Aircraft count ----
 
-  function setAircraftCount(n) {
+  /**
+   * @param {number} shownCount        Aircraft actually displayed right now.
+   * @param {number} [totalCount]      Total relevant aircraft available (may exceed shownCount
+   *                                   when there's more than fits on one page). Defaults to
+   *                                   shownCount — i.e. "no overflow" — when omitted, so existing
+   *                                   callers that only care about a plain count are unaffected.
+   * @param {function} [onCycleClick]  Called when the overflow badge is tapped. Only wired up
+   *                                   when there's actually overflow to cycle through.
+   */
+  function setAircraftCount(shownCount, totalCount, onCycleClick) {
     const el = document.getElementById("aircraft-count");
     if (!el) return;
-    el.textContent = n === 0 ? "No aircraft in range" : `${n} aircraft nearby`;
+
+    const total = totalCount != null ? totalCount : shownCount;
+    const hasOverflow = total > shownCount;
+
+    if (total === 0) {
+      el.textContent = "No aircraft in range";
+    } else if (!hasOverflow) {
+      el.textContent = `${shownCount} aircraft nearby`;
+    } else {
+      el.textContent = `${shownCount} of ${total} shown — tap for more`;
+    }
+
+    el.classList.toggle("clickable", hasOverflow);
+    el.onclick = hasOverflow ? onCycleClick : null;
   }
 
   // ---- Mode label ----

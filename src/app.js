@@ -21,6 +21,11 @@
   let activeRoute   = null;
   let routeDestName = "";
 
+  // NAV indicator paging — which page of the ranked relevant-aircraft pool
+  // is currently on screen, when there are more than the viewport cap.
+  // Manual only (tap the aircraft-count badge to cycle); never auto-rotates.
+  let indicatorPage = 0;
+
   // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
   const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
 
@@ -75,6 +80,7 @@
         e.preventDefault();
         if (mode === "nav") return;
         mode = "nav";
+        indicatorPage = 0; // fresh start when re-entering NAV mode
         document.body.dataset.mode = "nav";
         UI.setModeLabel("nav");
         if (userLat !== null && userLon !== null) {
@@ -308,13 +314,25 @@
       userState.anchorY = camConfig.anchorY; 
     }
 
-    const indicators = Indicators.build(
+    const allRelevant = Indicators.build(
       aircraftList, userState,
-      Indicators.capForViewportWidth(vw),
       CONFIG.STALE_THRESHOLD_SECONDS
     );
 
-    UI.renderIndicators(indicators, onIndicatorClick);
+    const cap = Indicators.capForViewportWidth(vw);
+    const totalPages = Math.max(1, Math.ceil(allRelevant.length / cap));
+    if (indicatorPage >= totalPages) indicatorPage = 0;
+
+    const pageStart = indicatorPage * cap;
+    const shown = allRelevant.slice(pageStart, pageStart + cap);
+
+    UI.renderIndicators(shown, onIndicatorClick);
+    UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
+  }
+
+  function onCycleIndicatorPage() {
+    indicatorPage++;
+    refreshIndicators(); // re-derives totalPages and wraps back to 0 if past the end
   }
 
   function onIndicatorClick(ind) {

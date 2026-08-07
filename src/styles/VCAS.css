@@ -271,6 +271,13 @@ html, body {
   color: var(--text-secondary);
 }
 
+#aircraft-count.clickable {
+  cursor: pointer;
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
 /* Theme row: Day | Auto | Night */
 #theme-row {
   display: flex;
