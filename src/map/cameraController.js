@@ -21,12 +21,15 @@ const CameraController = (() => {
     anchorY: 0.8,
   };
 
-  // Viewport Presets Matrix (Maps UI scaling profiles)
+  // Viewport Presets Matrix — ids match ViewportDevPanel's preset ids
+  // (full/phone-p/phone-l/auto) so setViewportPreset() actually resolves
+  // and the same id reaches NavigationCameraEvaluator.VIEWPORT_BIASES.
   const PRESETS = {
-    "desktop-1080p":  { id: "desktop-1080p",  pitch: 65, zoom: 15.8, anchorY: 0.76 },
-    "iphone-14-pro": { id: "iphone-14-pro", pitch: 60, zoom: 15.2, anchorY: 0.82 },
-    "ipad-mini":     { id: "ipad-mini",     pitch: 58, zoom: 15.5, anchorY: 0.80 },
-    "default":       { id: "default",       pitch: 60, zoom: 15.5, anchorY: 0.80 },
+    "full":    { id: "full",    pitch: 65, zoom: 15.8, anchorY: 0.76 },
+    "phone-p": { id: "phone-p", pitch: 60, zoom: 15.2, anchorY: 0.82 },
+    "phone-l": { id: "phone-l", pitch: 58, zoom: 15.5, anchorY: 0.80 },
+    "auto":    { id: "auto",    pitch: 60, zoom: 15.5, anchorY: 0.80 },
+    "default": { id: "default", pitch: 60, zoom: 15.5, anchorY: 0.80 },
   };
 
   /**
@@ -71,11 +74,14 @@ const CameraController = (() => {
 
     // 1. Package current runtime state telemetry vectors for the evaluator brain
     const evaluatorInput = {
-      speedMph: speedMph || 0,
+      mode: "nav",
+      userLat: lat,
+      userLon: lon,
+      userSpeedMph: speedMph || 0,
       heading: heading || 0,
       routeActive: _routeActive,
       routeGeometry: _routeGeometry,
-      presetId: _currentPreset.id
+      viewportPreset: _currentPreset.id
     };
 
     // 2. Compute live camera values using NavigationCameraEvaluator state machine
@@ -88,7 +94,8 @@ const CameraController = (() => {
         pitch: _currentPreset.pitch,
         zoom: _currentPreset.zoom,
         anchorY: _currentPreset.anchorY,
-        lookaheadMeters: _routeActive ? 150 : 0
+        lookAheadMeters: _routeActive ? 150 : 0,
+        routeTarget: null
       };
     }
 
@@ -96,7 +103,7 @@ const CameraController = (() => {
     const pitch = cameraState.pitch;
     const zoom  = cameraState.zoom;
     const anchorY = cameraState.anchorY;
-    const lookaheadMeters = cameraState.lookaheadMeters || 0;
+    const lookaheadMeters = cameraState.lookAheadMeters || 0;
 
     // Save evaluation snapshot for downstream data layers (e.g. frozen indicator pipelines)
     _lastEvaluated = {
@@ -107,11 +114,16 @@ const CameraController = (() => {
       timestamp: Date.now()
     };
 
-    // 3. Process dynamic lookahead projection tracking along current vector
+    // 3. Process dynamic lookahead projection tracking along current vector.
+    // When a route is active, trace forward along the actual route geometry
+    // (curves/turns) instead of a straight line off raw heading.
     let targetLat = lat;
     let targetLon = lon;
 
-    if (lookaheadMeters > 0) {
+    if (cameraState.routeTarget) {
+      targetLat = cameraState.routeTarget.lat;
+      targetLon = cameraState.routeTarget.lon;
+    } else if (lookaheadMeters > 0) {
       // Simple geodesic approximations for computing projection lookahead coordinate offsets
       const metersPerDegreeLat = 111111;
       const metersPerDegreeLon = 111111 * Math.cos((lat * Math.PI) / 180);
