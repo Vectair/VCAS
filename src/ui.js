@@ -134,7 +134,7 @@ const UI = (() => {
     _popupTimer = setTimeout(() => el.classList.add("hidden"), POPUP_DISMISS_MS);
   }
 
-  function showAirPopup(aircraft, vis, mapContainer) {
+  function showAirPopup(aircraft, vis) {
     const el = document.getElementById("popup");
     if (!el) return;
 
@@ -185,7 +185,7 @@ const UI = (() => {
     return `${side}-rear`;
   }
 
-    return {
+  return {
     setAdsbStatus,
     showConfigBanner,
     showGpsMessage,
@@ -197,8 +197,6 @@ const UI = (() => {
     showPopup,
     showAirPopup,
     hidePopup,
-    // Add a safe fallback hook to prevent external caller crashes
-    bindButtons: () => { console.warn("CameraController buttons bound internally via core application layer."); }
   };
 })();
 
