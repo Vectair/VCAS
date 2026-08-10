@@ -45,6 +45,12 @@
         ⚙ ADS-B provider not configured — check src/config.js
       </div>
 
+      <!-- Compass permission prompt (iOS only — Android needs no explicit permission) -->
+      <div id="compass-permission-banner" class="hidden">
+        <span>🧭 Enable compass for accurate heading when stopped</span>
+        <button type="button" id="compass-permission-btn">Enable</button>
+      </div>
+
       <!-- Loading indicator -->
       <div id="loading" class="hidden">
         <div class="spinner"></div>
@@ -122,6 +128,7 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
   <!-- App modules (order matters — dependencies first) -->
+  <script src="src/sensors/compassHeading.js"></script>
   <script src="src/routing/routingProvider.js"></script>
   <script src="src/routing/osrmProvider.js"></script>
   <script src="src/routing/routeGeometry.js"></script>

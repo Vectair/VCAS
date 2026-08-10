@@ -33,6 +33,31 @@ const UI = (() => {
     el.classList.toggle("hidden", !show);
   }
 
+  // ---- Compass permission banner ----
+
+  let _compassBtnBound = false;
+
+  /**
+   * @param {boolean} show
+   * @param {function} [onEnableClick]  Called when the Enable button is tapped.
+   *   The click listener is only ever bound once (button persists across
+   *   show/hide, unlike the popup's freshly-rebuilt content), so this only
+   *   needs to be passed the first time; pass it every call for simplicity.
+   */
+  function showCompassPermissionBanner(show, onEnableClick) {
+    const el = document.getElementById("compass-permission-banner");
+    if (!el) return;
+    el.classList.toggle("hidden", !show);
+
+    if (onEnableClick && !_compassBtnBound) {
+      const btn = document.getElementById("compass-permission-btn");
+      if (btn) {
+        btn.addEventListener("click", onEnableClick);
+        _compassBtnBound = true;
+      }
+    }
+  }
+
   // ---- Loading pill ----
 
   function setLoading(show) {
@@ -264,6 +289,7 @@ const UI = (() => {
     setAdsbStatus,
     showConfigBanner,
     showGpsMessage,
+    showCompassPermissionBanner,
     setLoading,
     setAircraftCount,
     setModeLabel,

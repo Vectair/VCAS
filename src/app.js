@@ -62,6 +62,7 @@
     CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
 
     LogPanel.init();
+    initCompassHeading();
 
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
@@ -200,6 +201,40 @@
       EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
     }
 
+    if (mode === "nav") {
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      refreshIndicators();
+    }
+  }
+
+  // ---- Compass heading fallback (stationary/slow, where GPS course freezes) ----
+
+  function initCompassHeading() {
+    if (!CompassHeading.isSupported()) return;
+
+    if (CompassHeading.needsPermission()) {
+      // iOS: can't request silently — needs a real user gesture.
+      UI.showCompassPermissionBanner(true, async () => {
+        const granted = await CompassHeading.requestPermission();
+        UI.showCompassPermissionBanner(false);
+        if (granted) CompassHeading.start(onCompassHeading);
+      });
+    } else {
+      // Android/others: no explicit permission needed.
+      CompassHeading.start(onCompassHeading);
+    }
+  }
+
+  function onCompassHeading(headingDeg) {
+    // Only trusted as a fallback while GPS course-over-ground is itself
+    // untrusted — see the matching threshold check in onGpsSuccess. GPS
+    // wins whenever it's available and the vehicle is moving fast enough
+    // to trust it.
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return;
+    if (userLat === null) return;
+
+    userHeading = headingDeg;
+    EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
     if (mode === "nav") {
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();

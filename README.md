@@ -241,6 +241,8 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
       themeManager.js               Day/Night/Auto resolution
     /navigation
       navigationCameraEvaluator.js  Pure state machine: driving context → camera targets
+    /sensors
+      compassHeading.js             Device-compass heading fallback for stationary/slow GPS
     /routing
       routingProvider.js            Abstract routing provider interface
       osrmProvider.js               OSRM public demo API adapter
@@ -258,7 +260,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
 ## Known Limitations (V1)
 
 - **No build step / bundler** — all scripts loaded separately in dependency order via `<script>` tags; fine for prototype use, fragile to reorder.
-- **Heading** — uses GPS course-over-ground when moving above `GPS_HEADING_MIN_SPEED_MPH`. Stationary heading is not updated (no device orientation API integration yet).
+- **Heading** — uses GPS course-over-ground when moving above `GPS_HEADING_MIN_SPEED_MPH`; falls back to the device compass (`src/sensors/compassHeading.js`) below that threshold, so heading keeps updating while stopped or crawling through a junction/roundabout — exactly where the relevance filter's "reshuffle on turn" behaviour matters most. Compass heading is magnetic, not true north (a few degrees off depending on region), and phone magnetometers are prone to drift/interference; the Android landscape-mount screen-rotation correction is derived from documentation and needs real-device confirmation. iOS requires a one-tap permission grant (banner shown automatically when needed); on unsupported browsers/desktop this silently does nothing and heading behaves exactly as before.
 - **Visibility model** — flat terrain, clear sky, daylight assumptions only. No cloud, terrain, or haze modelling, and critically, **no contrail modelling** — angular size vs. slant range currently drives the score, but a high, distant aircraft trailing a contrail can be far more conspicuous than a closer one in dry air. See the Ground-Truth Log Panel section above for how this gap is being measured.
 - **ADS-B coverage** — depends on feeder network; remote areas may have gaps.
 - **Routing is a fixed demo, not real navigation** — one hardcoded destination, no destination search, turn instruction text/icon are static placeholders.
@@ -273,7 +275,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
 - In-app settings screen — notably to reconfigure `SUPPRESS_LOW_ALTITUDE_FT` at runtime using GPS altitude as a live local-ground-level estimate, rather than a fixed sea-level constant. Deliberately deferred rather than bundled into the relevance-filter work, since it's a distinct piece of UI.
 - Real destination search instead of the hardcoded test route.
 - Turn-by-turn instruction text/icon driven by the existing `TURN_APPROACH` detection.
-- Device orientation API for stationary heading.
+- Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
 - Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).
 - Contrail-aware visibility scoring — likely via the free, no-key [Open-Meteo](https://open-meteo.com/) pressure-level API (temperature/humidity at flight altitude) feeding a Schmidt-Appleman-criterion check into `Visibility.estimate()`, or Google's purpose-built [Contrails API](https://developers.google.com/contrails) (free but requires a Google Cloud API key) as a higher-accuracy alternative. The Ground-Truth Log Panel exists to build the evidence for whether this is worth the integration effort before committing to it.
 - Terrain obstruction model.
