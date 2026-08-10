@@ -118,13 +118,37 @@ const UI = (() => {
 
   // ---- Popup ----
 
+  /** Shared row of ground-truth log buttons, embedded in both popups below. */
+  function _logButtonsHtml() {
+    return `
+      <div class="pop-log-actions">
+        ${ObservationLogger.OUTCOMES.map(o =>
+          `<button type="button" class="pop-log-btn" data-outcome="${o.code}" title="${o.title}">${o.label}</button>`
+        ).join("")}
+      </div>`;
+  }
+
+  function _wireLogButtons(el, onLogOutcome) {
+    if (!onLogOutcome) return;
+    el.querySelectorAll(".pop-log-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onLogOutcome(btn.dataset.outcome);
+        btn.classList.add("pop-log-btn-done");
+        setTimeout(() => btn.classList.remove("pop-log-btn-done"), 600);
+      });
+    });
+  }
+
   /**
    * @param {object} ind                 Indicator data (as built by Indicators.build()).
    * @param {function} [onSuppressClick] Called with no args when the Suppress button is
    *   tapped. Omit to render the popup without a Suppress button (used for the AIR mode
    *   popup, where nothing is relevance-filtered so there's nothing to suppress from).
+   * @param {function} [onLogOutcome]    Called with an outcome code when a ground-truth
+   *   log button is tapped. Omit to render the popup without log buttons.
    */
-  function showPopup(ind, onSuppressClick) {
+  function showPopup(ind, onSuppressClick, onLogOutcome) {
     const el = document.getElementById("popup");
     if (!el) return;
 
@@ -146,10 +170,13 @@ const UI = (() => {
       <div>
         <span class="pop-vis-badge" style="background:${ind.vis.color}">${ind.vis.label}</span>
       </div>
+      ${onLogOutcome ? _logButtonsHtml() : ""}
       ${onSuppressClick ? `
       <div class="pop-actions">
         <button type="button" class="pop-suppress-btn">Suppress</button>
       </div>` : ""}`;
+
+    _wireLogButtons(el, onLogOutcome);
 
     if (onSuppressClick) {
       el.querySelector(".pop-suppress-btn").addEventListener("click", (e) => {
@@ -160,7 +187,8 @@ const UI = (() => {
 
     // Position near indicator, keeping on screen
     const vw = window.innerWidth, vh = window.innerHeight;
-    const popW = 220, popH = onSuppressClick ? 215 : 180;
+    const popW = 220;
+    const popH = 180 + (onLogOutcome ? 34 : 0) + (onSuppressClick ? 35 : 0);
     let left = ind.x - popW / 2;
     let top  = ind.y - popH - 14;
     left = Math.max(8, Math.min(vw - popW - 8, left));
@@ -174,7 +202,11 @@ const UI = (() => {
     _popupTimer = setTimeout(() => el.classList.add("hidden"), POPUP_DISMISS_MS);
   }
 
-  function showAirPopup(aircraft, vis) {
+  /**
+   * @param {function} [onLogOutcome]  Called with an outcome code when a ground-truth
+   *   log button is tapped. Omit to render the popup without log buttons.
+   */
+  function showAirPopup(aircraft, vis, onLogOutcome) {
     const el = document.getElementById("popup");
     if (!el) return;
 
@@ -191,7 +223,10 @@ const UI = (() => {
       <div class="pop-row"><span class="pop-key">Updated</span><span class="pop-val">${Math.round(aircraft.lastSeenSeconds)}s ago</span></div>
       <div>
         <span class="pop-vis-badge" style="background:${vis.color}">${vis.label}</span>
-      </div>`;
+      </div>
+      ${onLogOutcome ? _logButtonsHtml() : ""}`;
+
+    _wireLogButtons(el, onLogOutcome);
 
     // Centre on screen in air mode
     el.style.left = "50%";

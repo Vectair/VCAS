@@ -538,6 +538,28 @@ body[data-theme="day"] .air-label-box {
 
 #popup .pop-suppress-btn:active { background: var(--btn-hover); }
 
+#popup .pop-log-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+#popup .pop-log-btn {
+  flex: 1;
+  padding: 6px 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s;
+  -webkit-appearance: none;
+}
+
+#popup .pop-log-btn:active { background: var(--btn-hover); }
+#popup .pop-log-btn-done   { background: rgba(76, 175, 80, .5); }
+
 /* ---- Loading spinner ---- */
 #loading {
   position: fixed;

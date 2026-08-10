@@ -11,14 +11,10 @@
  * any special way, just never linked from production UI flows.
  */
 const LogPanel = (() => {
-  const MAX_ROWS_SHOWN = 20; // nearest N — a 50nm radius can return far more than is useful to hand-triage
-
-  const OUTCOMES = [
-    { code: "visible_airframe",       label: "✈",  title: "Visible — airframe" },
-    { code: "visible_contrail",       label: "〜", title: "Visible — contrail only" },
-    { code: "not_visible_obstruction", label: "▨", title: "Not visible — obstruction" },
-    { code: "not_visible_missed",     label: "✕",  title: "Not visible — just not seen" },
-  ];
+  // Deliberately no row cap — a distant, contrail-visible aircraft is
+  // exactly the kind of edge case this tool exists to capture, and capping
+  // by nearest-N previously hid it (that was a real bug, not a feature).
+  // The panel scrolls (see #lp-rows CSS) instead.
 
   let _menuOpen    = false;
   let _tracked     = [];   // last Indicators.buildAll() result
@@ -69,11 +65,10 @@ const LogPanel = (() => {
     if (!menu) return;
 
     const fallbackCount = ObservationLogger.fallbackCount();
-    const shown = _tracked.slice(0, MAX_ROWS_SHOWN);
 
     menu.innerHTML = `
       <div class="lp-header">
-        ${_tracked.length === 0 ? "No tracked aircraft" : `${shown.length} of ${_tracked.length} tracked`}
+        ${_tracked.length === 0 ? "No tracked aircraft" : `${_tracked.length} tracked`}
         ${fallbackCount > 0 ? `<button class="lp-export-btn">Export ${fallbackCount} buffered</button>` : ""}
       </div>
       <div class="lp-rows"></div>
@@ -89,7 +84,7 @@ const LogPanel = (() => {
     }
 
     const rowsEl = menu.querySelector(".lp-rows");
-    shown.forEach(item => rowsEl.appendChild(_buildRow(item)));
+    _tracked.forEach(item => rowsEl.appendChild(_buildRow(item)));
   }
 
   function _buildRow(item) {
@@ -106,7 +101,7 @@ const LogPanel = (() => {
 
     const actions = document.createElement("div");
     actions.className = "lp-actions";
-    OUTCOMES.forEach(outcome => {
+    ObservationLogger.OUTCOMES.forEach(outcome => {
       const btn = document.createElement("button");
       btn.className = "lp-btn";
       btn.title = outcome.title;
@@ -127,33 +122,7 @@ const LogPanel = (() => {
 
   async function _logObservation(item, outcomeCode) {
     if (!_userState) return;
-    const a = item.aircraft;
-
-    const observation = {
-      timestamp: new Date().toISOString(),
-      user: {
-        lat: _userState.lat, lon: _userState.lon,
-        heading: _userState.heading, speedMph: _userState.speedMph,
-      },
-      aircraft: {
-        hex: a.hex, callsign: a.callsign, type: a.type,
-        lat: a.lat, lon: a.lon, altitudeFt: a.altitudeFt,
-        trackDeg: a.trackDeg, groundSpeedKt: a.groundSpeedKt,
-        lastSeenSeconds: a.lastSeenSeconds,
-      },
-      computed: {
-        distanceNm: item.distanceNm,
-        relativeBearing: item.relativeBearing,
-        visibility: {
-          label: item.vis.label, score: item.vis.score,
-          angularSizeDeg: item.vis.angularSizeDeg, elevationDeg: item.vis.elevationDeg,
-          slantRangeNm: item.vis.slantRangeNm,
-        },
-        relevance: item.relevance,
-      },
-      outcome: outcomeCode,
-    };
-
+    const observation = ObservationLogger.buildObservation(item, _userState, outcomeCode);
     await ObservationLogger.record(observation);
     if (_menuOpen) _render(); // refresh fallback-count badge if it just changed
   }
