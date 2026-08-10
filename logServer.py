@@ -27,6 +27,17 @@ LOG_FILE = LOG_DIR / "observations.jsonl"
 
 
 class LogRequestHandler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # No caching, ever — this is a local dev server for actively-changing
+        # files. Without this, browsers can silently keep serving stale
+        # CSS/JS across a plain reload even after a fresh `git pull`, which
+        # is confusing to debug ("I pulled the fix but nothing changed").
+        # Applies uniformly to every response (static files, /api/log GET
+        # and POST) since they all funnel through here.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
     def do_POST(self):
         if self.path != "/api/log":
             self.send_error(404, "Not found")
