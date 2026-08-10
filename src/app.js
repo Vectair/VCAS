@@ -257,14 +257,21 @@
     }
 
     const routeCard = document.getElementById("route-card");
+    let bottomToastHeight = 0;
     if (routeCard && !routeCard.classList.contains("hidden")) {
-      bottomPadding = routeCard.offsetHeight || 110;
+      bottomToastHeight = routeCard.offsetHeight || 110;
+      bottomPadding = bottomToastHeight;
     } else {
       const bottomBar = document.getElementById("bottom-bar");
       if (bottomBar && !bottomBar.classList.contains("hidden")) {
         bottomPadding = bottomBar.offsetHeight || 60;
       }
     }
+
+    // The VIEW/LOG dev panels sit at a fixed bottom-corner offset that
+    // assumes nothing else occupies that space — push them up above the
+    // route/ETA toast when it's showing, instead of letting it overlap them.
+    document.documentElement.style.setProperty("--bottom-toast-offset", bottomToastHeight + "px");
 
     // Architectural Fix: Route padding targets directly through the unified Camera Controller API
     CameraController.setViewportPadding(topPadding, bottomPadding + 10);

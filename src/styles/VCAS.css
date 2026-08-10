@@ -876,7 +876,9 @@ body[data-nav-state="turn_approach"] { }
 /* ---- VIEW button + preset menu ---- */
 #viewport-dev-panel {
   position: fixed;
-  bottom: 14px;
+  /* Pushed up above the route/ETA toast when it's showing (see
+     updateMapViewportPadding() in app.js) instead of sitting underneath it. */
+  bottom: calc(14px + var(--bottom-toast-offset, 0px));
   right: 14px;
   z-index: 9999;
   display: flex;
@@ -885,6 +887,7 @@ body[data-nav-state="turn_approach"] { }
   gap: 5px;
   font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   pointer-events: all;
+  transition: bottom .3s;
 }
 
 #vdp-toggle {
@@ -951,7 +954,7 @@ body[data-nav-state="turn_approach"] { }
 /* ---- LOG button + ground-truth panel (mirrors VIEW, opposite corner) ---- */
 #log-panel {
   position: fixed;
-  bottom: 14px;
+  bottom: calc(14px + var(--bottom-toast-offset, 0px));
   left: 14px;
   z-index: 9999;
   display: flex;
@@ -960,6 +963,7 @@ body[data-nav-state="turn_approach"] { }
   gap: 5px;
   font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   pointer-events: all;
+  transition: bottom .3s;
 }
 
 #lp-toggle {
