@@ -95,7 +95,8 @@ const CameraController = (() => {
         zoom: _currentPreset.zoom,
         anchorY: _currentPreset.anchorY,
         lookAheadMeters: _routeActive ? 150 : 0,
-        routeTarget: null
+        routeTarget: null,
+        maneuver: { exists: false, distanceMeters: 0, bearingDeltaDeg: 0 },
       };
     }
 
@@ -111,6 +112,7 @@ const CameraController = (() => {
       zoom: zoom,
       anchorY: anchorY,
       heading: heading,
+      maneuver: cameraState.maneuver,
       timestamp: Date.now()
     };
 
