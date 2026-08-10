@@ -227,14 +227,22 @@ const EosMap = (() => {
 
   // ---- AIR mode aircraft markers ----
 
-  function renderAirMarkers(aircraftList, userLat, userLon, onClickFn) {
+  /**
+   * @param {Array} trackedList  Indicators.buildAll() output — same computed
+   *   shape (aircraft/vis/relevance/distanceNm/relativeBearing) NAV indicators
+   *   use, so AIR-mode-triggered log observations carry the same complete data
+   *   (including relevance.reason — useful precisely because AIR mode never
+   *   filters by it, so it's a live check on whether the filter agrees).
+   * @param {function} onClickFn  Called with the clicked item.
+   */
+  function renderAirMarkers(trackedList, onClickFn) {
     clearAirMarkers();
-    aircraftList.forEach(a => {
-      const vis = Visibility.estimate(userLat, userLon, a);
-      const el  = document.createElement("div");
+    trackedList.forEach(item => {
+      const a = item.aircraft;
+      const el = document.createElement("div");
       el.className = "air-marker";
-      el.innerHTML = _airMarkerHtml(a, vis);
-      el.addEventListener("click", () => onClickFn(a, vis));
+      el.innerHTML = _airMarkerHtml(a, item.vis);
+      el.addEventListener("click", () => onClickFn(item));
 
       const m = new maplibregl.Marker({ element: el, anchor: "bottom" })
         .setLngLat([a.lon, a.lat])

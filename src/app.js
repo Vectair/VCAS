@@ -365,7 +365,10 @@
   }
 
   function onIndicatorClick(ind) {
-    UI.showPopup(ind, () => onSuppressAircraft(ind.aircraft.hex));
+    UI.showPopup(ind,
+      () => onSuppressAircraft(ind.aircraft.hex),
+      outcomeCode => onLogOutcome(ind, outcomeCode)
+    );
   }
 
   function onSuppressAircraft(hex) {
@@ -378,11 +381,33 @@
 
   function refreshAirMode() {
     if (userLat === null) return;
-    EosMap.renderAirMarkers(aircraftList, userLat, userLon, onAirMarkerClick);
+    const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
+    const userState = {
+      lat: userLat, lon: userLon,
+      heading: userHeading, speedMph: userSpeedMph,
+      viewportWidth: vw, viewportHeight: vh,
+    };
+
+    // AIR mode stays unfiltered (buildAll, not build) — everything in range
+    // is shown regardless of relevance — but now carries the same computed
+    // vis/relevance/distance data NAV indicators do, so an AIR-triggered log
+    // entry is just as complete, and the LOG panel stays live in AIR mode too.
+    const allTracked = Indicators.buildAll(aircraftList, userState, CONFIG.STALE_THRESHOLD_SECONDS);
+
+    EosMap.renderAirMarkers(allTracked, onAirMarkerClick);
+    LogPanel.update(allTracked, userState);
   }
 
-  function onAirMarkerClick(aircraft, vis) {
-    UI.showAirPopup(aircraft, vis);
+  function onAirMarkerClick(item) {
+    UI.showAirPopup(item.aircraft, item.vis, outcomeCode => onLogOutcome(item, outcomeCode));
+  }
+
+  // ---- Ground-truth logging (shared by the NAV and AIR popups) ----
+
+  async function onLogOutcome(item, outcomeCode) {
+    const userState = { lat: userLat, lon: userLon, heading: userHeading, speedMph: userSpeedMph };
+    const observation = ObservationLogger.buildObservation(item, userState, outcomeCode);
+    await ObservationLogger.record(observation);
   }
 
   // ---- Routing Core Integration ---- //

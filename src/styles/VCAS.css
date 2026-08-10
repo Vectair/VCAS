@@ -236,7 +236,7 @@ html, body {
   background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
 }
 
-/* Mode row: NAV | count | AIR */
+/* Mode row: [NAV|AIR toggle] | count | route */
 #mode-row {
   display: flex;
   align-items: center;
@@ -263,6 +263,28 @@ html, body {
 
 .mode-btn:active       { background: var(--btn-hover); }
 .mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
+
+/* NAV/AIR co-located as one segmented control (same pattern as #theme-row
+   below) rather than two independent buttons at opposite ends of the bar —
+   switching modes on a touchscreen shouldn't mean reaching across the width
+   of the screen. */
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.mode-toggle .mode-btn {
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.mode-toggle .mode-btn:last-child { border-right: none; }
 
 #aircraft-count {
   flex: 1;
@@ -537,6 +559,28 @@ body[data-theme="day"] .air-label-box {
 }
 
 #popup .pop-suppress-btn:active { background: var(--btn-hover); }
+
+#popup .pop-log-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+#popup .pop-log-btn {
+  flex: 1;
+  padding: 6px 0;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s;
+  -webkit-appearance: none;
+}
+
+#popup .pop-log-btn:active { background: var(--btn-hover); }
+#popup .pop-log-btn-done   { background: rgba(76, 175, 80, .5); }
 
 /* ---- Loading spinner ---- */
 #loading {
