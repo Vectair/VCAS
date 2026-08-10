@@ -23,27 +23,16 @@ const Indicators = (() => {
   }
 
   /**
-   * Given the full aircraft list and user state, return every relevant
-   * aircraft, sorted best-candidate-first. Aircraft that Relevance.evaluate()
-   * rules out (roughly: behind the user, not close, not converging into
-   * view) never reach the sort stage at all — this is a TCAS-style
-   * relevance gate, not just a visibility ranking.
-   *
-   * Deliberately unpaginated — the caller decides how many to actually
-   * display (via capForViewportWidth) and which page, since that's
-   * display/interaction state, not something this pure function should own.
-   *
-   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
-   * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
-   *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
-   *   there's no relevance reason exempt from suppression, including overhead/close cases.
+   * Shared per-aircraft computation used by both build() and buildAll() —
+   * bearing/distance/visibility/relevance/screen-edge position, for every
+   * aircraft that passes the hard staleness cutoff. Does NOT filter by
+   * relevance or suppression; callers decide what to do with that.
    */
-  function build(aircraftList, userState, staleThresholdSeconds, suppressedHexes) {
+  function _computeAll(aircraftList, userState, staleThresholdSeconds) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
 
-    const withMeta = aircraftList
+    return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
-      .filter(a => !suppressedHexes || !suppressedHexes.has(a.hex))
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
@@ -63,7 +52,28 @@ const Indicators = (() => {
           x, y, side,
           isStale,
         };
-      })
+      });
+  }
+
+  /**
+   * Given the full aircraft list and user state, return every relevant
+   * aircraft, sorted best-candidate-first. Aircraft that Relevance.evaluate()
+   * rules out (roughly: behind the user, not close, not converging into
+   * view) never reach the sort stage at all — this is a TCAS-style
+   * relevance gate, not just a visibility ranking.
+   *
+   * Deliberately unpaginated — the caller decides how many to actually
+   * display (via capForViewportWidth) and which page, since that's
+   * display/interaction state, not something this pure function should own.
+   *
+   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
+   * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
+   *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
+   *   there's no relevance reason exempt from suppression, including overhead/close cases.
+   */
+  function build(aircraftList, userState, staleThresholdSeconds, suppressedHexes) {
+    const withMeta = _computeAll(aircraftList, userState, staleThresholdSeconds)
+      .filter(item => !suppressedHexes || !suppressedHexes.has(item.aircraft.hex))
       .filter(item => item.relevance.relevant);
 
     // Sort: higher visibility score first, then proximity
@@ -75,7 +85,20 @@ const Indicators = (() => {
     return withMeta;
   }
 
-  return { build, capForViewportWidth };
+  /**
+   * Same per-aircraft computation as build(), but with NO relevance or
+   * suppression filtering — every tracked aircraft, nearest first. Used by
+   * the ground-truth logging panel (src/dev/logPanel.js), which needs to
+   * log "not visible" observations against aircraft the relevance filter
+   * already excluded, not just the ones NAV currently shows.
+   */
+  function buildAll(aircraftList, userState, staleThresholdSeconds) {
+    const withMeta = _computeAll(aircraftList, userState, staleThresholdSeconds);
+    withMeta.sort((a, b) => a.distanceNm - b.distanceNm);
+    return withMeta;
+  }
+
+  return { build, buildAll, capForViewportWidth };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

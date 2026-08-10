@@ -51,6 +51,12 @@ npx http-server -p 8080
 
 Then open `http://localhost:8080` in Chrome.
 
+**To also use the ground-truth log panel** (see below), run `logServer.py` instead — it serves the exact same files but additionally persists logged observations to disk:
+
+```bash
+python3 logServer.py 8080
+```
+
 ### 3. Use on Android
 
 1. Connect your phone and PC to the same Wi-Fi network.
@@ -185,6 +191,27 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
 
 ---
 
+## Ground-Truth Log Panel
+
+The **LOG** button (bottom-left, always visible) opens a list of *every* currently-tracked aircraft — not just the ones NAV is showing, including ones the relevance filter excluded, since logging "the algorithm was wrong to hide this" is exactly the point. Each row has four outcome buttons:
+
+| Button | Meaning |
+|--------|---------|
+| ✈ | Visible — airframe |
+| 〜 | Visible — contrail only |
+| ▨ | Not visible — obstruction (building/terrain in the way) |
+| ✕ | Not visible — just not seen |
+
+Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in `logs/observations.jsonl` (JSON Lines: one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later). Requires running `logServer.py` instead of a plain static server (see Quick Start above); you can browse the accumulated log directly at `http://localhost:8080/api/log`.
+
+If the log server isn't running (e.g. you're using plain `python -m http.server`), observations aren't lost — `src/dev/observationLogger.js` falls back to buffering them in `localStorage`, and the panel shows an "Export N buffered" button to download them as a `.jsonl` file once you do have the log server available.
+
+**Why this exists:** the current visibility model is angular-size-only and has no concept of contrails, cloud, haze, or terrain occlusion — real spotting can diverge from what the app predicts in ways the model can't currently explain (e.g. a high, distant aircraft trailing a contrail being far more conspicuous than a closer one in dry air). This panel is how that gap gets measured before it gets modelled.
+
+`logs/` is gitignored — it will contain real GPS coordinates and timestamps and must never be committed.
+
+---
+
 ## File Structure
 
 ```
@@ -192,6 +219,8 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
   index.html                        Entry point — script load order matters
   README.md
   generate_tree.py                  Local dev utility (not part of the app)
+  logServer.py                      Static server + POST/GET /api/log (ground-truth observation persistence)
+  .gitignore                        Excludes logs/ (real GPS data) and OS/Python cruft
   /src
     app.js                          Main controller: GPS loop, mode switching, fetch loop, routing UI
     config.js                       All configurable constants
@@ -218,6 +247,8 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
       routeGeometry.js              Polyline nearest-point / forward-projection math
     /dev
       viewportDevPanel.js           Dev-only device-size emulator overlay
+      observationLogger.js          POSTs to /api/log, falls back to localStorage if unavailable
+      logPanel.js                   Dev-only ground-truth logging UI (LOG button)
     /styles
       VCAS.css                      All styles
 ```
@@ -228,7 +259,7 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
 
 - **No build step / bundler** — all scripts loaded separately in dependency order via `<script>` tags; fine for prototype use, fragile to reorder.
 - **Heading** — uses GPS course-over-ground when moving above `GPS_HEADING_MIN_SPEED_MPH`. Stationary heading is not updated (no device orientation API integration yet).
-- **Visibility model** — flat terrain, clear sky, daylight assumptions only. No cloud, terrain, or haze modelling.
+- **Visibility model** — flat terrain, clear sky, daylight assumptions only. No cloud, terrain, or haze modelling, and critically, **no contrail modelling** — angular size vs. slant range currently drives the score, but a high, distant aircraft trailing a contrail can be far more conspicuous than a closer one in dry air. See the Ground-Truth Log Panel section above for how this gap is being measured.
 - **ADS-B coverage** — depends on feeder network; remote areas may have gaps.
 - **Routing is a fixed demo, not real navigation** — one hardcoded destination, no destination search, turn instruction text/icon are static placeholders.
 - **CORS** — if a chosen ADS-B provider blocks direct browser requests, a small local proxy will be needed.
@@ -244,7 +275,7 @@ The **VIEW** button (bottom-right, always visible) lets you preview the app at f
 - Turn-by-turn instruction text/icon driven by the existing `TURN_APPROACH` detection.
 - Device orientation API for stationary heading.
 - Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).
-- Weather/cloud layer overlay.
+- Contrail-aware visibility scoring — likely via the free, no-key [Open-Meteo](https://open-meteo.com/) pressure-level API (temperature/humidity at flight altitude) feeding a Schmidt-Appleman-criterion check into `Visibility.estimate()`, or Google's purpose-built [Contrails API](https://developers.google.com/contrails) (free but requires a Google Cloud API key) as a higher-accuracy alternative. The Ground-Truth Log Panel exists to build the evidence for whether this is worth the integration effort before committing to it.
 - Terrain obstruction model.
 - PWA manifest + service worker for offline map tiles.
 - Android APK wrapper via Capacitor or similar.

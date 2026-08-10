@@ -61,6 +61,8 @@
     });
     CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
 
+    LogPanel.init();
+
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
     startGps();
@@ -336,6 +338,14 @@
       aircraftList, userState,
       CONFIG.STALE_THRESHOLD_SECONDS,
       new Set(suppressedUntil.keys())
+    );
+
+    // Ground-truth log panel gets everything tracked, unfiltered — including
+    // aircraft the relevance gate excluded, since logging "the algorithm was
+    // wrong to hide this" is the whole point.
+    LogPanel.update(
+      Indicators.buildAll(aircraftList, userState, CONFIG.STALE_THRESHOLD_SECONDS),
+      userState
     );
 
     const cap = Indicators.capForViewportWidth(vw);

@@ -1,0 +1,11 @@
+# Ground-truth observation logs from logServer.py — contains real GPS
+# coordinates and timestamps, must never be committed.
+logs/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc

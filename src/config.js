@@ -5,7 +5,7 @@
 const CONFIG = {
   // ---- API Configurations ----
   // IMPORTANT: Replace with your restricted MapTiler browser token
-  MAPTILER_KEY: "PASTE_YOUR_MAPTILER_KEY_HERE",
+  MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
   
   // ---- Telemetry & Refresh Intervals ----
   REFRESH_INTERVAL_SECONDS: 10,
