@@ -247,10 +247,13 @@
     let topPadding = 0;
     let bottomPadding = 0;
 
-    // Check layout heights of active navigation cards
+    // Check layout heights of active navigation cards. The guidance card
+    // now sits below the top bar (not overlapping/replacing it — see
+    // VCAS.css), so the map's actual top obstruction is both combined.
     const guidanceCard = document.getElementById("nav-guidance-card");
     if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
-      topPadding = guidanceCard.offsetHeight || 90;
+      const topBar = document.getElementById("top-bar");
+      topPadding = (topBar?.offsetHeight || 0) + (guidanceCard.offsetHeight || 90);
     }
 
     const routeCard = document.getElementById("route-card");
