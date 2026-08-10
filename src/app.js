@@ -361,8 +361,9 @@
     const camConfig = CameraController.getLastEvaluated();
     if (camConfig) {
       userState.cameraPitch = camConfig.pitch;
-      userState.anchorY = camConfig.anchorY; 
+      userState.anchorY = camConfig.anchorY;
     }
+    _updateGuidanceCard(camConfig && camConfig.maneuver);
 
     const now = Date.now();
     for (const [hex, expiry] of suppressedUntil) {
@@ -530,6 +531,30 @@
 
   function _hideGuidanceCard() {
     document.getElementById("nav-guidance-card")?.classList.add("hidden");
+  }
+
+  /**
+   * Live turn instruction, driven by NavigationCameraEvaluator's maneuver
+   * detection (via CameraController.getLastEvaluated()) — replaces the old
+   * static "Continue"/↑ placeholder. Called on every refresh, not just when
+   * the route first activates, so the distance countdown and left/right
+   * call actually update as you drive.
+   */
+  function _updateGuidanceCard(maneuver) {
+    if (!activeRoute) return;
+    const actionEl = document.getElementById("ngc-action-text");
+    const iconEl   = document.getElementById("ngc-maneuver-icon");
+    if (!actionEl || !iconEl) return;
+
+    if (maneuver && maneuver.exists) {
+      const direction = maneuver.bearingDeltaDeg > 0 ? "right" : "left";
+      actionEl.textContent = `Turn ${direction} in ${_fmtDistance(maneuver.distanceMeters)}`;
+      const iconRotation = Math.max(-120, Math.min(120, maneuver.bearingDeltaDeg));
+      iconEl.style.transform = `rotate(${iconRotation}deg)`;
+    } else {
+      actionEl.textContent = "Continue";
+      iconEl.style.transform = "rotate(0deg)";
+    }
   }
 
   // ---- Numerical Utilities ----

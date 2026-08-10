@@ -698,6 +698,7 @@ body.route-active[data-mode="nav"] #nav-guidance-card {
   line-height: 1;
   min-width: 48px;
   text-align: center;
+  transition: transform .3s;
 }
 
 body.route-active[data-mode="nav"] .ngc-maneuver { color: #ffffff; }

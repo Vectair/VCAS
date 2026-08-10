@@ -66,7 +66,7 @@ const NavigationCameraEvaluator = (() => {
    */
   function _calculateTimeIndependentManeuver(coords, userLon, userLat, currentSpeedMs) {
     if (!coords || coords.length < 2 || currentSpeedMs < 2.0) {
-      return { exists: false, distance: 0 };
+      return { exists: false, distance: 0, bearingDeltaDeg: 0 };
     }
 
     const nearest = RouteGeometry.nearestOnLine(coords, userLon, userLat);
@@ -74,12 +74,12 @@ const NavigationCameraEvaluator = (() => {
 
     const a = coords[segIdx];
     const b = coords[Math.min(segIdx + 1, coords.length - 1)];
-    
+
     // Core Array Fix: Correctly project absolute coordinate positions inside segment limits
     const startPt = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
 
     const dynamicScanLimitMeters = Math.max(300, currentSpeedMs * T_IMPACT_APPROACH_S);
-    
+
     let totalDistanceAccumulator = 0;
     let prevBearing = null;
 
@@ -91,15 +91,17 @@ const NavigationCameraEvaluator = (() => {
       if (prevBearing !== null) {
         let deltaAngle = Math.abs(curBearing - prevBearing);
         if (deltaAngle > 180) deltaAngle = 360 - deltaAngle;
-        
+
         if (deltaAngle >= TURN_THRESH_DEG) {
-          return { exists: true, distance: totalDistanceAccumulator };
+          // Signed turn angle: positive = clockwise = right, negative = left.
+          const signedDelta = ((curBearing - prevBearing + 180) % 360 + 360) % 360 - 180;
+          return { exists: true, distance: totalDistanceAccumulator, bearingDeltaDeg: signedDelta };
         }
       }
       prevBearing = curBearing;
       totalDistanceAccumulator += _dist(from, to);
     }
-    return { exists: false, distance: 0 };
+    return { exists: false, distance: 0, bearingDeltaDeg: 0 };
   }
 
   // ---- Public Interface Module Engine ---- //
@@ -220,7 +222,15 @@ const NavigationCameraEvaluator = (() => {
         routeTarget,
         suppressionLevel,
         transitionProfile,
-        bearingMode: (targetState === "TURN_APPROACH") ? "DECOUPLED_MANEUVER" : "VEHICLE_TRACKING"
+        bearingMode: (targetState === "TURN_APPROACH") ? "DECOUPLED_MANEUVER" : "VEHICLE_TRACKING",
+        // Real-time, independent of the state-dwell lock above — guidance
+        // text should reflect the actual route ahead immediately, even
+        // while the camera itself is still smoothing into TURN_APPROACH.
+        maneuver: {
+          exists: turnMetrics.exists,
+          distanceMeters: turnMetrics.distance,
+          bearingDeltaDeg: turnMetrics.bearingDeltaDeg,
+        },
       };
     }
   };
