@@ -135,7 +135,20 @@ const CameraController = (() => {
       targetLon += (lookaheadMeters * Math.sin(headingRad)) / metersPerDegreeLon;
     }
 
-    // 4. Map calculated position to screen coordinates and apply structural anchorY offsets
+    // 4. Map calculated position to screen coordinates and apply structural anchorY offsets.
+    // _map.project()/unproject() work in the camera's CURRENT actual transform
+    // (center/bearing/pitch/zoom) — which, now that followNav() eases instead
+    // of jumping, is very often still mid-animation toward the *previous*
+    // call's target rather than sitting still at it. Rotating the screen-space
+    // offset by the incoming `heading` (the NEW target, not where the camera
+    // actually currently is) made this round-trip internally inconsistent
+    // whenever a call landed mid-ease — exactly the "marker floating near the
+    // anchor, not locked to it" symptom, since the two disagreed about which
+    // way "forward" pointed on screen right now. Using the map's own live
+    // bearing for the rotation keeps project()/unproject() and the offset
+    // self-consistent with whatever's actually on screen at this instant;
+    // catching up to the new target heading is left entirely to easeTo()'s
+    // own bearing interpolation below, not baked into this offset.
     const centerPoint = _map.project([targetLon, targetLat]);
     const containerHeight = _map.getContainer().offsetHeight;
 
@@ -143,10 +156,10 @@ const CameraController = (() => {
     const desiredY = containerHeight * anchorY;
     const offsetY = desiredY - (containerHeight / 2);
 
-    const headingRad = (heading * Math.PI) / 180;
+    const currentBearingRad = (_map.getBearing() * Math.PI) / 180;
     const targetPoint = [
-      centerPoint.x + offsetY * Math.sin(headingRad),
-      centerPoint.y - offsetY * Math.cos(headingRad)
+      centerPoint.x + offsetY * Math.sin(currentBearingRad),
+      centerPoint.y - offsetY * Math.cos(currentBearingRad)
     ];
 
     const targetCoords = _map.unproject(targetPoint);
