@@ -93,6 +93,11 @@
     UI.setModeLabel("nav");
     UI.setAdsbStatus("error", "ADS-B");
     UI.setLoading(false);
+
+    // Measure the real bottom-bar height immediately so the VIEW/SPD/LOG dev
+    // panels clear it from the very first frame, not just after the first
+    // route/guidance-toggle event recalculates it.
+    updateMapViewportPadding();
   }
 
   // ---- Core Interface Event Listeners Matrix ---- //
@@ -303,6 +308,13 @@
   function updateMapViewportPadding() {
     let topPadding = 0;
     let bottomPadding = 0;
+    // How much space real bottom chrome (the route/ETA toast, or else the
+    // normal bottom bar) actually occupies right now — fed to the VIEW/SPD/LOG
+    // dev panels below so they float above whatever's visible instead of a
+    // hardcoded offset that only ever accounted for the toast, not the
+    // always-present bottom bar (which is taller, and was swallowing them
+    // whenever no route was active).
+    let bottomChromeHeight = 0;
 
     // Check layout heights of active navigation cards. The guidance card
     // now sits below the top bar (not overlapping/replacing it — see
@@ -314,21 +326,21 @@
     }
 
     const routeCard = document.getElementById("route-card");
-    let bottomToastHeight = 0;
     if (routeCard && !routeCard.classList.contains("hidden")) {
-      bottomToastHeight = routeCard.offsetHeight || 110;
-      bottomPadding = bottomToastHeight;
+      bottomChromeHeight = routeCard.offsetHeight || 110;
+      bottomPadding = bottomChromeHeight;
     } else {
       const bottomBar = document.getElementById("bottom-bar");
       if (bottomBar && !bottomBar.classList.contains("hidden")) {
-        bottomPadding = bottomBar.offsetHeight || 60;
+        bottomChromeHeight = bottomBar.offsetHeight || 60;
+        bottomPadding = bottomChromeHeight;
       }
     }
 
-    // The VIEW/LOG dev panels sit at a fixed bottom-corner offset that
-    // assumes nothing else occupies that space — push them up above the
-    // route/ETA toast when it's showing, instead of letting it overlap them.
-    document.documentElement.style.setProperty("--bottom-toast-offset", bottomToastHeight + "px");
+    // The VIEW/SPD/LOG dev panels sit at a fixed bottom-corner offset that
+    // assumes nothing else occupies that space — push them up above
+    // whichever bottom chrome is actually visible right now.
+    document.documentElement.style.setProperty("--bottom-toast-offset", bottomChromeHeight + "px");
 
     // Architectural Fix: Route padding targets directly through the unified Camera Controller API
     CameraController.setViewportPadding(topPadding, bottomPadding + 10);
