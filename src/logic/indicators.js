@@ -98,7 +98,43 @@ const Indicators = (() => {
     return withMeta;
   }
 
-  return { build, buildAll, capForViewportWidth };
+  /**
+   * Nudges apart indicators whose projected screen positions land too close
+   * together. Geo.projectToScreenEdge() places each aircraft purely by its
+   * own relative bearing, with no awareness of any other aircraft — a queue
+   * of planes on an approach path share nearly the same bearing from a fixed
+   * ground point, so without this they render stacked directly on top of
+   * each other (illegible, and can't be tapped individually). Mutates and
+   * returns the same array; only meant to run on the already-capped/
+   * paginated subset actually being rendered, not the full relevant list.
+   *
+   * @param {Array} items      Items with x/y/side, as produced by build()/buildAll().
+   * @param {number} minGapPx  Minimum spacing along the edge's running axis.
+   */
+  function declutter(items, minGapPx) {
+    const bySide = {};
+    items.forEach(item => {
+      (bySide[item.side] = bySide[item.side] || []).push(item);
+    });
+
+    Object.values(bySide).forEach(group => {
+      // Vertical edges (left/right) run top-to-bottom, so spread along y;
+      // horizontal edges (top/bottom) run left-to-right, so spread along x.
+      const axis = (group[0].side === "left" || group[0].side === "right") ? "y" : "x";
+      group.sort((a, b) => a[axis] - b[axis]);
+      for (let i = 1; i < group.length; i++) {
+        const prev = group[i - 1];
+        const cur  = group[i];
+        if (cur[axis] - prev[axis] < minGapPx) {
+          cur[axis] = prev[axis] + minGapPx;
+        }
+      }
+    });
+
+    return items;
+  }
+
+  return { build, buildAll, capForViewportWidth, declutter };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

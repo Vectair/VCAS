@@ -47,6 +47,12 @@
   // like switching modes or activating/clearing a route).
   let navFollowSuspended = false;
 
+  // Minimum spacing between edge-projected indicators sharing a screen edge
+  // (see Indicators.declutter) — an estimate matching the indicator's
+  // approximate rendered footprint (shape + label), not yet tuned against a
+  // real device.
+  const INDICATOR_DECLUTTER_GAP_PX = 68;
+
   // GPS course-over-ground smoothing — raw pos.coords.heading can be jittery
   // tick-to-tick (urban rail corridors, tunnels, etc.), and since every
   // indicator's screen position is (aircraft bearing − userHeading), that
@@ -527,6 +533,7 @@
 
     const pageStart = indicatorPage * cap;
     const shown = allRelevant.slice(pageStart, pageStart + cap);
+    Indicators.declutter(shown, INDICATOR_DECLUTTER_GAP_PX);
 
     UI.renderIndicators(shown, onIndicatorClick);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
