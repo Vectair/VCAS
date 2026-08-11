@@ -41,6 +41,27 @@
   const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
   let routeMode = "driving";
 
+  // GPS course-over-ground smoothing — raw pos.coords.heading can be jittery
+  // tick-to-tick (urban rail corridors, tunnels, etc.), and since every
+  // indicator's screen position is (aircraft bearing − userHeading), that
+  // noise makes the whole display swing. Same circular-EMA technique as
+  // CompassHeading's fallback smoothing (naive linear averaging breaks at
+  // the 0/360 wrap), just applied to the GPS reading instead.
+  const GPS_HEADING_SMOOTH_FACTOR = 0.3;
+  let _gpsHeadingSmoothX = null, _gpsHeadingSmoothY = null;
+
+  function _smoothGpsHeading(rawDeg) {
+    const rad = (rawDeg * Math.PI) / 180;
+    if (_gpsHeadingSmoothX == null) {
+      _gpsHeadingSmoothX = Math.cos(rad);
+      _gpsHeadingSmoothY = Math.sin(rad);
+    } else {
+      _gpsHeadingSmoothX += (Math.cos(rad) - _gpsHeadingSmoothX) * GPS_HEADING_SMOOTH_FACTOR;
+      _gpsHeadingSmoothY += (Math.sin(rad) - _gpsHeadingSmoothY) * GPS_HEADING_SMOOTH_FACTOR;
+    }
+    return ((Math.atan2(_gpsHeadingSmoothY, _gpsHeadingSmoothX) * 180) / Math.PI + 360) % 360;
+  }
+
   // ---- Init ----
 
   function init() {
@@ -233,7 +254,7 @@
 
     if (pos.coords.heading != null && !isNaN(pos.coords.heading)
         && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
-      userHeading = pos.coords.heading;
+      userHeading = _smoothGpsHeading(pos.coords.heading);
     }
 
     if (!window._mapInitialised) {
