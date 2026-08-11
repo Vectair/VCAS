@@ -167,7 +167,10 @@ const UI = (() => {
       const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
       const displayColor = _displayColor(ind.vis);
-      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, displayColor, 20, AircraftSymbol.opacityForScore(ind.vis.score));
+      const shapeSvg = AircraftSymbol.svg(ind.vis.shape, displayColor, 20, ind.vis.fillOpacity, {
+        predicted: ind.relevance.reason === "predicted-entry",
+        overhead:  ind.relevance.reason === "overhead",
+      });
 
       el.innerHTML = `
         <div class="indicator-shape">${shapeSvg}</div>

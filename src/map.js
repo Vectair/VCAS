@@ -297,10 +297,10 @@ const EosMap = (() => {
     const callsign = aircraft.callsign || aircraft.hex;
     const type     = aircraft.type || "";
     const displayColor = _displayColor(vis);
-    // AIR mode shows every aircraft unconditionally (no relevance filtering),
-    // so the shape doesn't encode a relevance reason here — every marker is
-    // a plain diamond, colour still carries the visibility category.
-    const shapeSvg = AircraftSymbol.svg("in-view", displayColor, 18, AircraftSymbol.opacityForScore(vis.score));
+    // AIR mode shows every aircraft unconditionally (no relevance computed),
+    // so there's no predicted/overhead modifier here — just the tier's own
+    // TCAS shape+fill, same as a NAV indicator's default state.
+    const shapeSvg = AircraftSymbol.svg(vis.shape, displayColor, 18, vis.fillOpacity);
     return `
       <div class="air-marker-inner">
         <div class="air-icon">${shapeSvg}</div>

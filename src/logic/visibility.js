@@ -41,37 +41,41 @@ const Visibility = (() => {
     UNKNOWN:      25,
   };
 
+  // Shape + colour follow TCAS's own symbology (hollow diamond -> filled
+  // diamond -> amber circle -> red square), reinterpreted for VCAS's rules
+  // of *sightability* rather than TCAS's rules of collision risk: a red
+  // square means "you should very likely be able to see this," not "resolve
+  // an RA." fillOpacity is a fixed, hardcoded step per tier (not a
+  // continuous formula) — matching real TCAS, where TA/RA symbols are
+  // always fully solid and only the "other traffic" diamond varies in fill.
+  //
   // color: tuned for the night theme's dark background, where these bright/
   // saturated hues already read clearly (and for the popup badge, which
   // uses these as a background chip behind black text in both themes).
   // colorDay: a darker, more saturated variant for text/shape-fill/border
-  // use specifically on the day theme's light background — the plain
-  // `color` values (especially the yellow) are a near-worst-case
-  // low-contrast pairing against white/cream, which is what actually made
-  // indicators look "faint" in day theme.
+  // use specifically on the day theme's light background. The diamond
+  // family's night colour is a near-white cyan, matching TCAS's own white/
+  // cyan "other traffic" diamond — its day value can't be produced by just
+  // darkening that (still too pale against white/cream), so a distinct dark
+  // teal is used by design instead of a formula.
   //
   // colorblindSafe/colorblindSafeDay: an alternate palette for the
-  // color-vision-deficiency toggle, built from the Okabe-Ito palette
-  // (Okabe & Ito, "Color Universal Design", 2008) — the standard reference
-  // palette validated as pairwise-distinguishable under protanopia and
-  // deuteranopia (the common red-green deficiencies, ~8% of men). The
-  // ordering (blue -> green -> yellow -> orange -> purple) maximizes hue
-  // separation between ADJACENT tiers specifically, since those are the
-  // ones most likely to be confused. colorblindSafeDay is the same
-  // darkening treatment as colorDay, for the same light-background reason.
-  // This is deliberately not several separate per-deficiency-type modes —
-  // an affected user wants one mode that works, not a menu of subtypes to
-  // self-diagnose into. Rarer types (tritanopia, full achromatopsia) are
-  // instead covered by a hue-independent redundant channel: fill opacity
-  // now scales with score too (see indicators.js/ui.js/map.js), so the
-  // category is legible from lightness/fill-density alone even with zero
-  // color perception.
+  // color-vision-deficiency toggle, reusing the exact Okabe-Ito hues
+  // (Okabe & Ito, "Color Universal Design", 2008) already validated
+  // earlier for this app: blue for the diamond/"cool" family, orange for
+  // the circle/TA family, reddish-purple for the square/RA family — chosen
+  // for maximum pairwise hue separation under protanopia/deuteranopia (the
+  // common red-green deficiencies, ~8% of men). This is deliberately one
+  // toggle, not several per-deficiency-type modes. Rarer types (tritanopia,
+  // full achromatopsia) are covered by the hue-independent fillOpacity
+  // channel below, so the tier is legible from fill-density alone even
+  // with zero colour perception.
   const CATEGORIES = [
-    { label: "Very likely visible", minAngle: 1.0,  color: "#4caf50", colorDay: "#2e7d32", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 100 },
-    { label: "Likely visible",      minAngle: 0.35, color: "#8bc34a", colorDay: "#558b2f", colorblindSafe: "#009e73", colorblindSafeDay: "#006147", score: 75 },
-    { label: "Possible",            minAngle: 0.12, color: "#ffeb3b", colorDay: "#9c6500", colorblindSafe: "#f0e442", colorblindSafeDay: "#948d28", score: 50 },
-    { label: "Difficult",           minAngle: 0.05, color: "#ff9800", colorDay: "#e65100", colorblindSafe: "#e69f00", colorblindSafeDay: "#8e6200", score: 25 },
-    { label: "Unlikely",            minAngle: 0,    color: "#9e9e9e", colorDay: "#5f5f61", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 10 },
+    { label: "Very likely visible", minAngle: 1.0,  shape: "square",  fillOpacity: 1,   color: "#e53935", colorDay: "#a3221d", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 100 },
+    { label: "Likely visible",      minAngle: 0.35, shape: "circle",  fillOpacity: 1,   color: "#ffb300", colorDay: "#8a5a00", colorblindSafe: "#e69f00", colorblindSafeDay: "#8e6200", score: 75 },
+    { label: "Possible",            minAngle: 0.12, shape: "diamond", fillOpacity: 1,   color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 50 },
+    { label: "Difficult",           minAngle: 0.05, shape: "diamond", fillOpacity: 0.5, color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 25 },
+    { label: "Unlikely",            minAngle: 0,    shape: "diamond", fillOpacity: 0,   color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 10 },
   ];
 
   const NM_TO_M = 1852;
@@ -98,7 +102,7 @@ const Visibility = (() => {
   /**
    * Estimate visual detectability of an aircraft.
    *
-   * Returns: { label, color, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
+   * Returns: { label, color, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
   function estimate(userLat, userLon, aircraft) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
@@ -145,6 +149,8 @@ const Visibility = (() => {
       colorDay: cat.colorDay,
       colorblindSafe: cat.colorblindSafe,
       colorblindSafeDay: cat.colorblindSafeDay,
+      shape: cat.shape,
+      fillOpacity: cat.fillOpacity,
       score: cat.score,
       angularSizeDeg,
       elevationDeg,

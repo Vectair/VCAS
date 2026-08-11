@@ -115,23 +115,27 @@ Optional — only needed to switch ADS-B providers (not present in `config.js` b
 
 ## Visibility Categories
 
-VCAS estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight), based on its angular size (wingspan vs. slant range):
+VCAS estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight), based on its angular size (wingspan vs. slant range).
 
-| Colour | Category | Angular size |
-|--------|----------|-------------|
-| Green | Very likely visible | ≥ 1.0° |
-| Green (lighter) | Likely visible | 0.35° – 1.0° |
-| Yellow | Possible | 0.12° – 0.35° |
-| Amber | Difficult | 0.05° – 0.12° |
-| Grey | Unlikely | < 0.05° |
+Shape and colour together follow TCAS's own symbology (hollow diamond → filled diamond → amber circle → red square), reinterpreted for VCAS's rules of *sightability* rather than TCAS's rules of collision risk — a red square means "you should very likely be able to see this," not "resolve an RA":
+
+| Shape | Colour | Fill | Category | Angular size |
+|-------|--------|------|----------|-------------|
+| Square | Red | Solid | Very likely visible | ≥ 1.0° |
+| Circle | Amber | Solid | Likely visible | 0.35° – 1.0° |
+| Diamond | Cyan/white | Solid | Possible | 0.12° – 0.35° |
+| Diamond | Cyan/white | Half | Difficult | 0.05° – 0.12° |
+| Diamond | Cyan/white | Hollow | Unlikely | < 0.05° |
+
+Circle and square are always fully solid, matching real TCAS (TA/RA symbols never fade) — only the diamond family's fill varies, from hollow at "Unlikely" up to solid at "Possible."
 
 Additional rules (`src/logic/visibility.js`):
 - Aircraft beyond 40 NM slant range: capped at *Difficult*, regardless of angular size.
 - Aircraft within 1 NM and below 500 ft: always *Very likely visible*.
 - Aircraft not updated in the last 20 seconds (fixed threshold, independent of `STALE_THRESHOLD_SECONDS` above) have their category degraded by one step.
-- Elevation > 70° is labelled "overhead" in the detail popup's bearing field — it does not change where the indicator is drawn on screen.
+- Elevation > 70° is labelled "overhead" in the detail popup's bearing field, and overrides the symbol shape to an upward chevron (see Symbols below) — it does not change where the indicator is drawn on screen.
 
-**Colour-blind-safe mode**: the toggle in Settings → Display & Accessibility (`src/colorblindMode.js`) swaps the five category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, aircraft symbol fill opacity now also scales with visibility score (`AircraftSymbol.opacityForScore()`) — a fully solid shape at "Very likely visible" fading toward a mostly-hollow outline at "Unlikely" — a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
+**Colour-blind-safe mode**: the toggle in Settings → Display & Accessibility (`src/colorblindMode.js`) swaps the category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, shape and fill remain the primary encoding — a square reads as "very likely visible" and a hollow diamond as "unlikely" by outline alone, a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
 
 ---
 
@@ -146,15 +150,15 @@ An aircraft is relevant if:
 
 Only relevant aircraft reach the visibility-score sort/display stage; everything else — mostly things behind you that aren't converging — is filtered out before ranking ever happens. This re-evaluates on every GPS update, so turning immediately reshuffles what's shown, with no smoothing or lag.
 
-**Symbols** (`src/aircraftSymbol.js`) encode *why* an aircraft is shown; the existing colour scale still independently encodes *how visible* it'll be:
+**Symbols** (`src/aircraftSymbol.js`): shape+fill is primarily the sightability tier (see Visibility Categories above). Relevance *reason* is a secondary modifier layered on top of that tier shape:
 
-| Shape | Meaning |
+| Relevance reason | Modifier |
 |-------|---------|
-| Diamond | Currently within the teardrop |
-| Circle | Predicted to converge into view |
-| Chevron (points up) | Overhead override — a "look up" cue, not a bearing cue |
+| Currently within the teardrop | None — plain tier shape/stroke |
+| Predicted to converge into view | Dashed stroke on the tier shape (not yet current) |
+| Overhead override | Shape replaced entirely by an upward chevron, regardless of tier — a "look up" cue, not a bearing cue |
 
-AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so every AIR marker is a plain diamond.
+AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so every AIR marker just shows its tier shape with no dashed/overhead modifier.
 
 **Display cap & overflow**: NAV shows at most 5/7/10 indicators depending on viewport width; AIR mode is unrestricted. When more relevant aircraft exist than fit, the aircraft-count readout becomes a tappable "X of Y shown — tap for more" control that pages through the ranked list. Manual only — no automatic rotation, since an automatically-changing display was judged a driving distraction in its own right.
 
