@@ -299,6 +299,7 @@
         UI.setModeLabel("nav");
         navFollowSuspended = false;
         UI.setRecenterVisible(false);
+        if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToNav(userLat, userLon, userHeading);
           refreshIndicators();
@@ -318,6 +319,7 @@
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
         UI.clearRangeRings(); // Only ever shown in NAV's top-down style
         UI.setRecenterVisible(false);
+        if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToAir(userLat, userLon);
           refreshAirMode();
@@ -379,7 +381,7 @@
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         const resolved = ThemeManager.setPreference(t);
-        EosMap.setTheme(resolved);
+        EosMap.setTheme(_effectiveMapTheme(resolved));
         // setPreference() only fires the onChange callback when the
         // *resolved* theme actually changes (e.g. Auto->Day at 3pm is a
         // no-op resolution-wise) — but the preference itself always
@@ -402,8 +404,21 @@
 
   // ---- Theme ----
 
+  /**
+   * The map basemap's actual theme, which isn't always just the resolved
+   * Day/Night/Auto preference: NAV's top-down display style overrides it
+   * to the "radar" instrument-screen look (always dark, no road/building/
+   * label detail) regardless of Day/Night/Auto — a TCAS/ND doesn't have a
+   * day mode. Only the map basemap is affected; UI chrome (settings, the
+   * status bar meta colour, etc.) still follows the real resolved theme via
+   * _applyThemeToDom(), unrelated to this.
+   */
+  function _effectiveMapTheme(resolvedTheme) {
+    return (mode === "nav" && NavDisplayStyle.isTopdown()) ? "radar" : resolvedTheme;
+  }
+
   function _onThemeChange(theme) {
-    EosMap.setTheme(theme);
+    EosMap.setTheme(_effectiveMapTheme(theme));
     _applyThemeToDom(theme);
   }
 
@@ -484,7 +499,7 @@
 
     if (!window._mapInitialised) {
       window._mapInitialised = true;
-      EosMap.init("map", userLat, userLon, ThemeManager.getResolved());
+      EosMap.init("map", userLat, userLon, _effectiveMapTheme(ThemeManager.getResolved()));
       scheduleFetch();
     } else {
       EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
@@ -546,10 +561,16 @@
   // ---- NAV display style (3rd-person vs top-down) ----
 
   function onNavDisplayStyleChanged() {
-    // Re-evaluate the camera immediately rather than waiting for the next
-    // GPS tick, so flipping the setting visibly takes effect right away.
+    // Swap the basemap between the normal themed map and the radar
+    // instrument-screen look, and re-evaluate the camera immediately
+    // rather than waiting for the next GPS tick, so flipping the setting
+    // visibly takes effect right away.
+    if (window._mapInitialised) {
+      EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
+    }
     if (mode === "nav" && userLat !== null) {
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      refreshIndicators(); // range rings appear/disappear immediately too
     }
   }
 
@@ -636,7 +657,7 @@
       UI.showGpsMessage(true);
       if (!window._mapInitialised) {
         window._mapInitialised = true;
-        EosMap.init("map", 51.5, -0.12, ThemeManager.getResolved());
+        EosMap.init("map", 51.5, -0.12, _effectiveMapTheme(ThemeManager.getResolved()));
       }
     }
   }
