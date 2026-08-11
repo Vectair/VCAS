@@ -316,6 +316,7 @@
         document.body.dataset.mode = "air";
         UI.setModeLabel("air");
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
+        UI.clearRangeRings(); // Only ever shown in NAV's top-down style
         UI.setRecenterVisible(false);
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToAir(userLat, userLon);
@@ -779,6 +780,15 @@
 
     UI.renderIndicators(shown, onIndicatorClick);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
+
+    // TCAS/ND-style range rings — only in the top-down NAV display style
+    // (the 3rd-person tilted view never had these, and wasn't asked to).
+    if (NavDisplayStyle.isTopdown()) {
+      const anchorY = camConfig ? camConfig.anchorY : 0.8;
+      UI.renderRangeRings(vw, usableViewportHeight, Indicators.POLAR_MAX_RANGE_NM, anchorY);
+    } else {
+      UI.clearRangeRings();
+    }
   }
 
   function onCycleIndicatorPage() {

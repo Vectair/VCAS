@@ -103,10 +103,20 @@ const CameraController = (() => {
     // 2. Shift it off-center by a plain screen-space pixel pan — computed
     //    against the transform just applied above, so it's always correct
     //    regardless of how bearing/pitch changed to get here.
+    //
+    //    MapLibre's panBy(offset) negates the offset internally before
+    //    applying it (confirmed against the library's own source — it's
+    //    implemented as panTo(center, {offset: offset.mult(-1)})), so a
+    //    *positive* Y here actually moves the rendered content *up*, not
+    //    down. We want anchorY > 0.5 (target pushed toward the bottom of
+    //    the screen) to mean the content moves DOWN — hence the negation
+    //    below undoes MapLibre's own negation. Without it, anchorY 0.8
+    //    was rendering the user's own position in the upper third of the
+    //    screen instead of near the bottom.
     const containerHeight = _map.getContainer().offsetHeight;
     const offsetY = containerHeight * state.anchorY - containerHeight / 2;
     if (offsetY !== 0) {
-      _map.panBy([0, offsetY], { animate: false });
+      _map.panBy([0, -offsetY], { animate: false });
     }
   }
 

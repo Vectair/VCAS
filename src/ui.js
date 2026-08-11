@@ -201,6 +201,53 @@ const UI = (() => {
     if (container) container.innerHTML = "";
   }
 
+  // ---- NAV top-down range rings ----
+
+  /**
+   * Dashed semicircular range rings centered on the same bottom-anchored
+   * point the polar-plotted indicators use — the TCAS/ND-style "radar
+   * screen" cue that was missing from the flat top-down view. Purely
+   * decorative distance gradations, so (unlike the indicators themselves)
+   * they use a simplified, symmetric semicircle rather than the relevance
+   * teardrop's actual asymmetric bounds — unequal ring shapes would read as
+   * a rendering glitch, not a deliberate design choice.
+   *
+   * @param {number} maxRangeNm  Same range Indicators/Geo.projectToPolarPosition
+   *   use, so the outer ring lines up with where a dead-ahead aircraft at
+   *   max range would actually plot.
+   */
+  function renderRangeRings(viewportWidth, viewportHeight, maxRangeNm, anchorY = 0.8, safeInset = 60) {
+    const svg = document.getElementById("nav-range-rings");
+    if (!svg) return;
+
+    const cx = viewportWidth * 0.5;
+    const cy = viewportHeight * anchorY;
+    const maxRadius = cy - (safeInset + 20);
+
+    if (maxRadius <= 0) {
+      svg.innerHTML = "";
+      svg.classList.add("hidden");
+      return;
+    }
+
+    const RING_FRACTIONS = [0.5, 1.0]; // half-range, full-range — standard ND convention
+    const paths = RING_FRACTIONS.map(frac => {
+      const r = maxRadius * frac;
+      // Semicircle: left -> top (through "ahead") -> right.
+      return `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
+                fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
+                stroke-dasharray="5,6" opacity="0.55"/>`;
+    }).join("");
+
+    svg.innerHTML = paths;
+    svg.classList.remove("hidden");
+  }
+
+  function clearRangeRings() {
+    const svg = document.getElementById("nav-range-rings");
+    if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
+  }
+
   // ---- Popup ----
 
   /** Shared row of ground-truth log buttons, embedded in both popups below. */
@@ -357,6 +404,8 @@ const UI = (() => {
     setModeLabel,
     renderIndicators,
     clearIndicators,
+    renderRangeRings,
+    clearRangeRings,
     showPopup,
     showAirPopup,
     hidePopup,

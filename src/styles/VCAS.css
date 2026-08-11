@@ -409,6 +409,8 @@ html, body {
 
 #gps-message.hidden { display: none; }
 
+#nav-range-rings.hidden { display: none; }
+
 /* ---- Config missing banner ---- */
 #config-banner {
   position: fixed;

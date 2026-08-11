@@ -170,7 +170,7 @@ const Indicators = (() => {
     return items;
   }
 
-  return { build, buildAll, capForViewportWidth, declutter };
+  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

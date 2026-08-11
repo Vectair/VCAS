@@ -41,6 +41,10 @@
         <div id="map"></div>
       </div>
 
+      <!-- NAV top-down range rings (sits above map, below the indicators
+           themselves so aircraft dots draw on top of the ring lines) -->
+      <svg id="nav-range-rings" style="position:fixed;inset:0;z-index:8;pointer-events:none;" class="hidden"></svg>
+
       <!-- Edge indicators layer (sits above map, below UI chrome) -->
       <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
 
