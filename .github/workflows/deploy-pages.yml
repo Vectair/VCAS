@@ -25,6 +25,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Stamp cache-busting build ID
+        # index.html/manifest.json reference every local asset with a
+        # ?v=__BUILD_ID__ query string. GitHub Pages doesn't let us set
+        # custom Cache-Control headers, and browsers/WebViews cache JS/CSS
+        # aggressively — without this, a normal reload after a deploy can
+        # keep serving yesterday's code indefinitely. Substituting the real
+        # commit SHA here means every deploy is a genuinely new URL for
+        # every asset, so it can't come from a stale cache.
+        run: |
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/g" index.html manifest.json
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
