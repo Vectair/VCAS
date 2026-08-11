@@ -70,6 +70,13 @@ const UI = (() => {
     if (banner) banner.classList.toggle("hidden", !active);
   }
 
+  // ---- Recenter button (shown after the user manually pans/zooms/rotates) ----
+
+  function setRecenterVisible(show) {
+    const btn = document.getElementById("btn-recenter");
+    if (btn) btn.classList.toggle("hidden", !show);
+  }
+
   // ---- Loading pill ----
 
   function setLoading(show) {
@@ -303,6 +310,7 @@ const UI = (() => {
     showGpsMessage,
     showCompassPermissionBanner,
     setDestPickMode,
+    setRecenterVisible,
     setLoading,
     setAircraftCount,
     setModeLabel,

@@ -409,6 +409,32 @@ html, body {
 
 #compass-permission-banner.hidden { display: none; }
 
+/* ---- Recenter button (floats above the VIEW/SPD dev-panel stack) ---- */
+#btn-recenter {
+  position: fixed;
+  bottom: calc(14px + 94px + var(--bottom-toast-offset, 0px));
+  right: 14px;
+  z-index: 30;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  -webkit-appearance: none;
+  transition: bottom .3s, opacity .15s, transform .15s;
+}
+
+#btn-recenter:active { opacity: .75; transform: scale(.94); }
+#btn-recenter.hidden { display: none; }
+
 /* ---- Destination-pick hint ---- */
 #dest-pick-banner {
   position: fixed;

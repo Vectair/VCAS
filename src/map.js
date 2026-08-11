@@ -18,6 +18,7 @@ const EosMap = (() => {
   let _pendingRoute          = null;  // geometry queued before first map load
   let _currentRouteGeometry  = null;  // retained so theme changes can re-apply it
   let _clickHandler          = null;  // set via onMapClick(); read lazily by the map's own click listener
+  let _interactionHandler    = null;  // set via onUserInteraction(); fires on real drag/zoom/rotate, not programmatic camera moves
 
   // ---- Init ----
 
@@ -64,6 +65,17 @@ const EosMap = (() => {
     // identically on a phone and on a laptop with a mouse.
     _map.on("click", e => {
       if (_clickHandler) _clickHandler(e.lngLat.lat, e.lngLat.lng);
+    });
+
+    // e.originalEvent is only set when a *start event came from a real user
+    // gesture (mouse/touch) — MapLibre leaves it undefined for camera moves
+    // we trigger ourselves via jumpTo/easeTo/flyTo (CameraController.followNav
+    // runs on every GPS tick), so this only fires for an actual manual pan/
+    // zoom/rotate, which is exactly when a "recenter" affordance is needed.
+    ["dragstart", "zoomstart", "rotatestart", "pitchstart"].forEach(evt => {
+      _map.on(evt, e => {
+        if (e.originalEvent && _interactionHandler) _interactionHandler();
+      });
     });
 
     _applySkyCss(initialTheme);
@@ -235,6 +247,9 @@ const EosMap = (() => {
   /** @param {function(number,number)} handler  Called with (lat, lon) on every map click/tap. */
   function onMapClick(handler) { _clickHandler = handler; }
 
+  /** @param {function()} handler  Called whenever the user manually drags/zooms/rotates the map. */
+  function onUserInteraction(handler) { _interactionHandler = handler; }
+
   function setPickingCursor(active) {
     if (_map) _map.getCanvas().style.cursor = active ? "crosshair" : "";
   }
@@ -298,6 +313,7 @@ const EosMap = (() => {
     setMode,
     getMap,
     onMapClick,
+    onUserInteraction,
     setPickingCursor,
     renderAirMarkers,
     clearAirMarkers,

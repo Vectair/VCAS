@@ -41,6 +41,12 @@
   const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
   let routeMode = "driving";
 
+  // Set once the user manually drags/zooms/rotates the map in NAV mode, so the
+  // continuous GPS-driven camera stops fighting their pan; cleared by tapping
+  // the recenter button (or by any explicit action that already re-centers,
+  // like switching modes or activating/clearing a route).
+  let navFollowSuspended = false;
+
   // GPS course-over-ground smoothing — raw pos.coords.heading can be jittery
   // tick-to-tick (urban rail corridors, tunnels, etc.), and since every
   // indicator's screen position is (aircraft bearing − userHeading), that
@@ -95,6 +101,7 @@
     SpeedSimPanel.init({ onChange: onSpeedSimChanged });
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
+    EosMap.onUserInteraction(onUserPannedMap);
 
     const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
     if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
@@ -134,6 +141,8 @@
         indicatorPage = 0; // fresh start when re-entering NAV mode
         document.body.dataset.mode = "nav";
         UI.setModeLabel("nav");
+        navFollowSuspended = false;
+        UI.setRecenterVisible(false);
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToNav(userLat, userLon, userHeading);
           refreshIndicators();
@@ -151,6 +160,7 @@
         document.body.dataset.mode = "air";
         UI.setModeLabel("air");
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
+        UI.setRecenterVisible(false);
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToAir(userLat, userLon);
           refreshAirMode();
@@ -193,6 +203,15 @@
         setRouteMode(btn.dataset.mode);
       });
     });
+
+    // 7. Recenter on your own position after a manual pan/zoom/rotate
+    const btnRecenter = document.getElementById("btn-recenter");
+    if (btnRecenter) {
+      btnRecenter.addEventListener("click", (e) => {
+        e.preventDefault();
+        onRecenterClick();
+      });
+    }
   }
 
   // ---- Theme ----
@@ -266,8 +285,26 @@
     }
 
     if (mode === "nav") {
-      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
+    }
+  }
+
+  // ---- Recenter (after a manual pan/zoom/rotate) ----
+
+  function onUserPannedMap() {
+    if (mode === "nav") navFollowSuspended = true;
+    UI.setRecenterVisible(true);
+  }
+
+  function onRecenterClick() {
+    UI.setRecenterVisible(false);
+    if (userLat === null) return;
+    if (mode === "nav") {
+      navFollowSuspended = false;
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+    } else {
+      CameraController.transitionToAir(userLat, userLon);
     }
   }
 
@@ -283,7 +320,7 @@
     if (userLat === null) return;
     applySpeedOverrideIfActive();
     if (mode === "nav") {
-      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
     } else {
       refreshAirMode();
@@ -319,7 +356,7 @@
     userHeading = headingDeg;
     EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
     if (mode === "nav") {
-      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
     }
   }
@@ -603,6 +640,12 @@
     document.body.classList.add("route-active");
     _showRouteCard();
 
+    // Activating a route already re-centers the camera, so it doubles as an
+    // implicit recenter — clear any pan-suspend state instead of leaving the
+    // camera stuck mid-route just because the user panned before picking.
+    navFollowSuspended = false;
+    UI.setRecenterVisible(false);
+
     // Recalculate camera layout boundaries immediately when cards inject into viewport
     setTimeout(() => {
       updateMapViewportPadding();
@@ -620,6 +663,8 @@
     CameraController.clearRoute();
     document.body.classList.remove("route-active");
     _hideRouteCard();
+    navFollowSuspended = false;
+    UI.setRecenterVisible(false);
 
     // Reset view constraints completely back to standard panel guidelines
     setTimeout(() => {
