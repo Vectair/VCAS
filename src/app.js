@@ -29,8 +29,8 @@
   // Manually-suppressed aircraft (via the popup's Suppress button): hex -> expiry timestamp (ms).
   let suppressedUntil = new Map();
 
-  // Hardcoded test destination: Liverpool John Lennon Airport (EGGP)
-  const TEST_DEST = { lat: 53.3336, lon: -2.8497, name: "Liverpool Airport" };
+  // Destination-pick mode: route button arms it, next map click/tap supplies the target.
+  let destPickActive = false;
 
   // ---- Init ----
 
@@ -64,6 +64,7 @@
     LogPanel.init();
     SpeedSimPanel.init({ onChange: onSpeedSimChanged });
     initCompassHeading();
+    EosMap.onMapClick(onMapClicked);
 
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
@@ -114,12 +115,12 @@
       });
     }
 
-    // 3. Test Routing Generation Call Target Hookup
+    // 3. Destination-pick arm/disarm — next map tap after arming supplies the target.
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
       btnTestRoute.addEventListener("click", (e) => {
         e.preventDefault();
-        requestTestRoute();
+        toggleDestPickMode();
       });
     }
 
@@ -479,18 +480,32 @@
 
   // ---- Routing Core Integration ---- //
 
-  async function requestTestRoute() {
+  function toggleDestPickMode() {
+    destPickActive = !destPickActive;
+    EosMap.setPickingCursor(destPickActive);
+    UI.setDestPickMode(destPickActive);
+  }
+
+  function onMapClicked(lat, lon) {
+    if (!destPickActive) return;
+    destPickActive = false;
+    EosMap.setPickingCursor(false);
+    UI.setDestPickMode(false);
+    requestRouteTo(lat, lon);
+  }
+
+  async function requestRouteTo(lat, lon) {
     if (!userLat) return;
 
     const btn = document.getElementById("btn-test-route");
-    if (btn) { btn.textContent = "…"; btn.disabled = true; }
+    if (btn) { btn.disabled = true; }
 
     const route = await OsrmProvider.getRoute(
       { lat: userLat, lon: userLon },
-      { lat: TEST_DEST.lat, lon: TEST_DEST.lon }
+      { lat, lon }
     );
 
-    if (btn) { btn.textContent = "↗"; btn.disabled = false; }
+    if (btn) { btn.disabled = false; }
 
     if (!route) {
       console.warn("Route request failed — check network or OSRM availability.");
@@ -498,14 +513,14 @@
     }
 
     activeRoute   = route;
-    routeDestName = TEST_DEST.name;
-    
+    routeDestName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
     EosMap.showRoute(route.geometry);
-    CameraController.setRouteActive(route.geometry); 
-    
+    CameraController.setRouteActive(route.geometry);
+
     document.body.classList.add("route-active");
     _showRouteCard();
-    
+
     // Recalculate camera layout boundaries immediately when cards inject into viewport
     setTimeout(() => {
       updateMapViewportPadding();
@@ -518,11 +533,12 @@
   function clearActiveRoute() {
     activeRoute   = null;
     routeDestName = "";
+    if (destPickActive) toggleDestPickMode();
     EosMap.clearRoute();
-    CameraController.clearRoute(); 
+    CameraController.clearRoute();
     document.body.classList.remove("route-active");
     _hideRouteCard();
-    
+
     // Reset view constraints completely back to standard panel guidelines
     setTimeout(() => {
       updateMapViewportPadding();
@@ -600,10 +616,10 @@
   }
 
   // Global scope bridge mappings
-  window.EosApp = { 
-    init, 
-    requestTestRoute, 
-    clearActiveRoute, 
+  window.EosApp = {
+    init,
+    toggleDestPickMode,
+    clearActiveRoute,
     transitionToNav: () => { mode = "nav"; CameraController.transitionToNav(userLat, userLon, userHeading); }, 
     transitionToAir: () => { mode = "air"; CameraController.transitionToAir(userLat, userLon); } 
   };

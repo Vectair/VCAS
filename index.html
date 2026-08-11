@@ -56,6 +56,11 @@
         <button type="button" id="compass-permission-btn">Enable</button>
       </div>
 
+      <!-- Destination-pick hint (shown while armed via the route button) -->
+      <div id="dest-pick-banner" class="hidden">
+        <span>📍 Tap the map to set your destination</span>
+      </div>
+
       <!-- Loading indicator -->
       <div id="loading" class="hidden">
         <div class="spinner"></div>
@@ -100,7 +105,7 @@
               <button class="mode-btn" id="btn-air">AIR</button>
             </div>
             <div id="aircraft-count">No aircraft in range</div>
-            <button class="mode-btn route-btn" id="btn-test-route" title="Route to Liverpool Airport">↗</button>
+            <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
           </div>
           <!-- Theme row -->
           <div id="theme-row">
