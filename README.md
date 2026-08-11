@@ -115,27 +115,30 @@ Optional — only needed to switch ADS-B providers (not present in `config.js` b
 
 ## Visibility Categories
 
-VCAS estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight), based on its angular size (wingspan vs. slant range).
+VCAS estimates how detectable an aircraft is under ideal conditions (flat terrain, no clouds, daylight), based on its angular size (wingspan vs. slant range) — how large it would actually appear to your eye, not just how close it is on the map.
 
-Shape and colour together follow TCAS's own symbology (hollow diamond → filled diamond → amber circle → red square), reinterpreted for VCAS's rules of *sightability* rather than TCAS's rules of collision risk — a red square means "you should very likely be able to see this," not "resolve an RA":
+Shape and colour together follow TCAS's own 4-symbol symbology (hollow diamond → filled diamond → amber/yellow circle → red square) as closely as the app's day/night theme allows, reinterpreted for VCAS's rules of outright *sightability* rather than TCAS's rules of collision risk — a red square means "you should certainly be able to see this," not "resolve an RA":
 
 | Shape | Colour | Fill | Category | Angular size |
 |-------|--------|------|----------|-------------|
-| Square | Red | Solid | Very likely visible | ≥ 1.0° |
-| Circle | Amber | Solid | Likely visible | 0.35° – 1.0° |
-| Diamond | Cyan/white | Solid | Possible | 0.12° – 0.35° |
-| Diamond | Cyan/white | Half | Difficult | 0.05° – 0.12° |
-| Diamond | Cyan/white | Hollow | Unlikely | < 0.05° |
+| Square | Red | Solid | Certainly visible | ≥ 0.5° |
+| Circle | Amber/yellow | Solid | Likely visible | 0.167° – 0.5° |
+| Diamond | Turquoise/cyan | Solid | Possibly visible | 0.05° – 0.167° |
+| Diamond | Turquoise/cyan | Hollow | Very unlikely/not visible | < 0.05° |
 
-Circle and square are always fully solid, matching real TCAS (TA/RA symbols never fade) — only the diamond family's fill varies, from hollow at "Unlikely" up to solid at "Possible."
+Circle and square are always fully solid, matching real TCAS (TA/RA symbols never fade) — only the diamond family's fill varies, hollow vs. solid.
+
+The three dividers are literal cutoffs applied to every aircraft (not illustrative examples), anchored to real reference numbers where they exist:
+- **0.5° (30 arcmin)** for *Certainly visible* is the Moon/Sun's own apparent diameter as seen from Earth (~29–33 arcmin, averaging ~31) — an independently verifiable "you couldn't miss this" reference size.
+- **1 arcminute (0.0167°)** is the standard 20/20 visual-acuity resolving power. The two lower dividers are small multiples of that: ~3 arcmin (0.05°, *Possibly visible*) for "large enough to register as a contrasty shape once you're looking at the right bearing," ~10 arcmin (0.167°, *Likely visible*) for "large enough to actually resolve as a recognisable aircraft, not just a mark." These two are a principled vision-science estimate rather than a single peer-reviewed figure for this exact scenario.
 
 Additional rules (`src/logic/visibility.js`):
-- Aircraft beyond 40 NM slant range: capped at *Difficult*, regardless of angular size.
-- Aircraft within 1 NM and below 500 ft: always *Very likely visible*.
+- Aircraft beyond 40 NM slant range: capped at *Possibly visible*, regardless of angular size (haze/curvature at that range isn't modelled, so confidence isn't overstated).
+- Aircraft within 1 NM and below 500 ft: always *Certainly visible*, even a small aircraft whose wingspan alone wouldn't cross the 0.5° threshold.
 - Aircraft not updated in the last 20 seconds (fixed threshold, independent of `STALE_THRESHOLD_SECONDS` above) have their category degraded by one step.
 - Elevation > 70° is labelled "overhead" in the detail popup's bearing field, and overrides the symbol shape to an upward chevron (see Symbols below) — it does not change where the indicator is drawn on screen.
 
-**Colour-blind-safe mode**: the toggle in Settings → Display & Accessibility (`src/colorblindMode.js`) swaps the category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, shape and fill remain the primary encoding — a square reads as "very likely visible" and a hollow diamond as "unlikely" by outline alone, a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
+**Colour-blind-safe mode**: the toggle in Settings → Display & Accessibility (`src/colorblindMode.js`) swaps the category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. This alternate palette makes no attempt to echo real TCAS colour — it's picked purely for hue-separation science: blue for the diamond family, yellow for the circle family, reddish-purple for the square family, chosen for maximum pairwise separation under the common red-green deficiencies (~8% of men). Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, shape and fill remain the primary encoding — a square reads as "certainly visible" and a hollow diamond as "very unlikely" by outline alone, a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
 
 ---
 

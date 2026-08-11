@@ -42,40 +42,60 @@ const Visibility = (() => {
   };
 
   // Shape + colour follow TCAS's own symbology (hollow diamond -> filled
-  // diamond -> amber circle -> red square), reinterpreted for VCAS's rules
-  // of *sightability* rather than TCAS's rules of collision risk: a red
-  // square means "you should very likely be able to see this," not "resolve
-  // an RA." fillOpacity is a fixed, hardcoded step per tier (not a
-  // continuous formula) — matching real TCAS, where TA/RA symbols are
-  // always fully solid and only the "other traffic" diamond varies in fill.
+  // diamond -> amber/yellow circle -> red square), reinterpreted for VCAS's
+  // rules of outright *sightability* rather than TCAS's rules of collision
+  // risk: a red square means "you should certainly be able to see this,"
+  // not "resolve an RA." Four tiers, not five — collapsed from an earlier
+  // five-step version down to exactly the states real TCAS uses. fillOpacity
+  // is a fixed, hardcoded step per tier (not a continuous formula) —
+  // matching real TCAS, where every symbol is either fully hollow or fully
+  // solid, nothing in between.
   //
-  // color: tuned for the night theme's dark background, where these bright/
-  // saturated hues already read clearly (and for the popup badge, which
-  // uses these as a background chip behind black text in both themes).
-  // colorDay: a darker, more saturated variant for text/shape-fill/border
-  // use specifically on the day theme's light background. The diamond
-  // family's night colour is a near-white cyan, matching TCAS's own white/
-  // cyan "other traffic" diamond — its day value can't be produced by just
-  // darkening that (still too pale against white/cream), so a distinct dark
-  // teal is used by design instead of a formula.
+  // minAngle dividers are the apparent (angular) size of the aircraft's
+  // wingspan as seen from the observer — literal cutoffs applied to every
+  // aircraft, not illustrative examples. They're anchored to real numbers
+  // where they exist:
+  //  - 0.5° (30 arcmin) for "certainly visible" is the Moon/Sun's own
+  //    apparent diameter as seen from Earth (~29-33 arcmin, averaging ~31) —
+  //    a well-known, independently verifiable reference size for "you could
+  //    not miss this if you looked."
+  //  - 1 arcminute (0.0167°) is the standard 20/20 visual-acuity resolving
+  //    power (Snellen). The two lower dividers are built as small multiples
+  //    of that: ~3 arcmin (0.05°) for "large enough to be a noticeable
+  //    contrasty shape once you're looking at the right bearing" (possibly
+  //    visible), ~10 arcmin (0.167°) for "large enough to actually resolve
+  //    as a recognisable aircraft shape, not just a mark" (likely visible).
+  //    These two multiples are a principled optics/vision-science estimate,
+  //    not a single peer-reviewed figure — the most directly relevant paper
+  //    (Watson & Ramirez, "Predicting Visibility of Aircraft," PLOS ONE
+  //    2009) models exactly this problem via contrast + angular size, but
+  //    its full text wasn't reachable to pull an exact number from here.
   //
-  // colorblindSafe/colorblindSafeDay: an alternate palette for the
-  // color-vision-deficiency toggle, reusing the exact Okabe-Ito hues
-  // (Okabe & Ito, "Color Universal Design", 2008) already validated
-  // earlier for this app: blue for the diamond/"cool" family, orange for
-  // the circle/TA family, reddish-purple for the square/RA family — chosen
-  // for maximum pairwise hue separation under protanopia/deuteranopia (the
-  // common red-green deficiencies, ~8% of men). This is deliberately one
-  // toggle, not several per-deficiency-type modes. Rarer types (tritanopia,
-  // full achromatopsia) are covered by the hue-independent fillOpacity
-  // channel below, so the tier is legible from fill-density alone even
-  // with zero colour perception.
+  // color: chosen to echo real TCAS traffic-display colours as closely as
+  // the app's own day/night theme allows — cyan/turquoise for the diamond
+  // ("other"/"proximate" traffic) family, amber/yellow for the circle (TA)
+  // family, red for the square (RA) family, all standard across TCAS-
+  // equipped flight decks. colorDay is a darker, more saturated variant of
+  // the same hue for the day theme's light background — the night values
+  // (especially the vivid cyan and yellow) would be unreadably pale there.
+  //
+  // colorblindSafe/colorblindSafeDay: NOT trying to match real TCAS colour
+  // — a separate palette built purely for hue-separation, reusing the exact
+  // Okabe-Ito hues (Okabe & Ito, "Color Universal Design", 2008) already
+  // validated earlier for this app: blue for the diamond family, yellow for
+  // the circle family (Okabe-Ito's own "yellow," now free to use here since
+  // the main palette's circle moved off orange), reddish-purple for the
+  // square family — chosen for maximum pairwise separation under
+  // protanopia/deuteranopia (the common red-green deficiencies, ~8% of
+  // men). One toggle, not several per-deficiency-type modes. Rarer types
+  // (tritanopia, full achromatopsia) are covered by the hue-independent
+  // shape+fillOpacity channel, so the tier is legible from outline/fill
+  // alone even with zero colour perception.
   const CATEGORIES = [
-    { label: "Very likely visible", minAngle: 1.0,  shape: "square",  fillOpacity: 1,   color: "#e53935", colorDay: "#a3221d", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 100 },
-    { label: "Likely visible",      minAngle: 0.35, shape: "circle",  fillOpacity: 1,   color: "#ffb300", colorDay: "#8a5a00", colorblindSafe: "#e69f00", colorblindSafeDay: "#8e6200", score: 75 },
-    { label: "Possible",            minAngle: 0.12, shape: "diamond", fillOpacity: 1,   color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 50 },
-    { label: "Difficult",           minAngle: 0.05, shape: "diamond", fillOpacity: 0.5, color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 25 },
-    { label: "Unlikely",            minAngle: 0,    shape: "diamond", fillOpacity: 0,   color: "#dff6fa", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 10 },
+    { label: "Certainly visible",         minAngle: 0.5,   shape: "square",  fillOpacity: 1, color: "#e53935", colorDay: "#a3221d", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 100 },
+    { label: "Likely visible",            minAngle: 0.167, shape: "circle",  fillOpacity: 1, color: "#ffd400", colorDay: "#8a6d00", colorblindSafe: "#f0e442", colorblindSafeDay: "#948d28", score: 66 },
+    { label: "Possibly visible",          minAngle: 0.05,  shape: "diamond", fillOpacity: 1, color: "#2dd4bf", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 33 },
+    { label: "Very unlikely/not visible", minAngle: 0,     shape: "diamond", fillOpacity: 0, color: "#2dd4bf", colorDay: "#0e6a7d", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 10 },
   ];
 
   const NM_TO_M = 1852;
@@ -129,10 +149,12 @@ const Visibility = (() => {
     let cat;
 
     if (veryClose) {
-      cat = CATEGORIES[0]; // Very likely visible
+      cat = CATEGORIES[0]; // Certainly visible
     } else if (slantNm > 40) {
-      // Beyond 40 NM: cap at Difficult
-      cat = CATEGORIES.find(c => c.label === "Difficult") || CATEGORIES[3];
+      // Beyond 40 NM: cap at Possibly visible, even if angular size (e.g. a
+      // very large aircraft) would otherwise put it higher — haze/curvature
+      // at that range isn't modelled, so don't overstate confidence.
+      cat = CATEGORIES.find(c => c.label === "Possibly visible") || CATEGORIES[2];
     } else {
       cat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];
     }
