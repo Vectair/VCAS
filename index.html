@@ -58,7 +58,12 @@
 
       <!-- Destination-pick hint (shown while armed via the route button) -->
       <div id="dest-pick-banner" class="hidden">
-        <span>📍 Tap the map to set your destination</span>
+        <div class="dpb-text">📍 Tap the map to set your destination</div>
+        <div class="dpb-modes">
+          <button type="button" class="dpb-mode-btn" data-mode="driving" title="Driving">🚗</button>
+          <button type="button" class="dpb-mode-btn" data-mode="cycling" title="Cycling">🚲</button>
+          <button type="button" class="dpb-mode-btn" data-mode="walking" title="Walking">🚶</button>
+        </div>
       </div>
 
       <!-- Loading indicator -->
@@ -142,7 +147,7 @@
   <!-- App modules (order matters — dependencies first) -->
   <script src="src/sensors/compassHeading.js"></script>
   <script src="src/routing/routingProvider.js"></script>
-  <script src="src/routing/osrmProvider.js"></script>
+  <script src="src/routing/orsProvider.js"></script>
   <script src="src/routing/routeGeometry.js"></script>
   <script src="src/config.js"></script>
   <script src="src/data/normaliseAircraft.js"></script>

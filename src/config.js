@@ -6,7 +6,9 @@ const CONFIG = {
   // ---- API Configurations ----
   // IMPORTANT: Replace with your restricted MapTiler browser token
   MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
-  
+  // Free OpenRouteService "Standard" API key — https://openrouteservice.org/dev/#/home
+  ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
+
   // ---- Telemetry & Refresh Intervals ----
   REFRESH_INTERVAL_SECONDS: 10,
   REMOVE_THRESHOLD_SECONDS: 30,

@@ -2,7 +2,7 @@
 
 A mobile-first web app that answers: **"Which aircraft around me are likely visible, and in what direction should I look?"**
 
-VCAS runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable edge indicators over a dark, MapLibre-rendered road map — similar in spirit to Google Maps' driving mode with a layer of airspace awareness. A second mode overlays the same aircraft as plotted icons on a top-down airspace view, and a routing layer (OSRM) can drive a Google-Maps-style tilted, route-following 3D camera.
+VCAS runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable edge indicators over a dark, MapLibre-rendered road map — similar in spirit to Google Maps' driving mode with a layer of airspace awareness. A second mode overlays the same aircraft as plotted icons on a top-down airspace view, and a routing layer (OpenRouteService — driving/cycling/walking) can drive a Google-Maps-style tilted, route-following 3D camera.
 
 ---
 
@@ -78,8 +78,9 @@ For a home-screen shortcut:
 
 Tap any edge indicator or aircraft icon to open a detail popup (auto-dismisses after 4 s).
 
-The ↗ button next to the mode row requests a test drive route (OSRM) to a
-hardcoded destination — see [Routing & Navigation Camera](#routing--navigation-camera) below.
+The 📍 button next to the mode row arms destination-picking — the next map tap/click
+requests a route to that point, in whichever transport mode (driving/cycling/walking) is
+selected in the picker banner — see [Routing & Navigation Camera](#routing--navigation-camera) below.
 
 ---
 
@@ -90,6 +91,7 @@ All keys live in `src/config.js`.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `MAPTILER_KEY` | `"PASTE_YOUR_MAPTILER_KEY_HERE"` | MapTiler browser token — required for road map tiles/glyphs |
+| `ORS_API_KEY` | `"PASTE_YOUR_ORS_KEY_HERE"` | Free OpenRouteService "Standard" API key — required for routing (driving/cycling/walking) |
 | `REFRESH_INTERVAL_SECONDS` | `10` | How often to poll the ADS-B provider |
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
@@ -162,7 +164,7 @@ AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so ev
 
 ## Routing & Navigation Camera
 
-Tapping ↗ requests a driving route from the public [OSRM demo API](https://router.project-osrm.org) to a **hardcoded test destination** (Liverpool John Lennon Airport) — there's no destination search yet. The route renders as a 3-layer glow/line/highlight polyline (`src/map.js`), with ETA and distance shown in a bottom card.
+Tapping 📍 arms destination-picking; the next map tap/click requests a route from [OpenRouteService](https://openrouteservice.org) to that point, in the selected transport mode (🚗 driving / 🚲 cycling / 🚶 walking — chosen in the picker banner, persisted across reloads) — there's no destination *search* yet, only tap-to-pick. The route renders as a 3-layer glow/line/highlight polyline (`src/map.js`), with ETA and distance shown in a bottom card. A button on that card also toggles turn-by-turn text on/off, independent of the route line.
 
 While a route is active, `src/navigation/navigationCameraEvaluator.js` drives the 3D camera through a small state machine, hysteresis-gated by speed and a minimum dwell time to avoid flicker:
 
@@ -174,6 +176,8 @@ While a route is active, `src/navigation/navigationCameraEvaluator.js` drives th
 | `TURN_APPROACH` | A turn ≥25° is detected within the current lookahead distance |
 
 Each state has its own pitch/zoom/anchor baseline, and the camera's forward-look point is traced along the actual route polyline (not a straight line off heading), so it stays correct through curves.
+
+**Caveat**: these speed thresholds (and `GPS_HEADING_MIN_SPEED_MPH`) were tuned around driving. Now that cycling/walking routing exists, walking-pace testing may show `NAV_IDLE`/`URBAN_GUIDANCE` behaving oddly at single-digit mph — likely needs its own tuning pass once there's real walking-speed field data.
 
 **Known gap:** the guidance card's turn instruction text and arrow icon are static placeholders ("Continue" / ↑) — they aren't yet derived from the real upcoming maneuver, even though `TURN_APPROACH` detection already exists internally.
 
@@ -245,7 +249,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
       compassHeading.js             Device-compass heading fallback for stationary/slow GPS
     /routing
       routingProvider.js            Abstract routing provider interface
-      osrmProvider.js               OSRM public demo API adapter
+      orsProvider.js                OpenRouteService adapter (driving/cycling/walking profiles)
       routeGeometry.js              Polyline nearest-point / forward-projection math
     /dev
       viewportDevPanel.js           Dev-only device-size emulator overlay

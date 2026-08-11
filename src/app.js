@@ -36,6 +36,11 @@
   const GUIDANCE_TEXT_KEY = "vcas-guidance-text-enabled";
   let guidanceTextEnabled = true;
 
+  // Transport mode for routing — persisted so it defaults to whatever you used last.
+  const ROUTE_MODE_KEY = "vcas-route-mode";
+  const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
+  let routeMode = "driving";
+
   // ---- Init ----
 
   function init() {
@@ -73,6 +78,10 @@
     const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
     if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
     _updateGuidanceToggleBtn();
+
+    const storedMode = localStorage.getItem(ROUTE_MODE_KEY);
+    if (storedMode && MODE_ICONS[storedMode]) routeMode = storedMode;
+    _updateModeButtons();
 
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
@@ -149,6 +158,15 @@
         toggleGuidanceText();
       });
     }
+
+    // 6. Transport mode selector (shown while picking a destination)
+    document.querySelectorAll(".dpb-mode-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setRouteMode(btn.dataset.mode);
+      });
+    });
   }
 
   // ---- Theme ----
@@ -503,6 +521,19 @@
     UI.setDestPickMode(destPickActive);
   }
 
+  function setRouteMode(mode) {
+    if (!MODE_ICONS[mode]) return;
+    routeMode = mode;
+    localStorage.setItem(ROUTE_MODE_KEY, mode);
+    _updateModeButtons();
+  }
+
+  function _updateModeButtons() {
+    document.querySelectorAll(".dpb-mode-btn").forEach(btn => {
+      btn.classList.toggle("active-mode", btn.dataset.mode === routeMode);
+    });
+  }
+
   function onMapClicked(lat, lon) {
     if (!destPickActive) return;
     destPickActive = false;
@@ -517,20 +548,21 @@
     const btn = document.getElementById("btn-test-route");
     if (btn) { btn.disabled = true; }
 
-    const route = await OsrmProvider.getRoute(
+    const route = await OrsProvider.getRoute(
       { lat: userLat, lon: userLon },
-      { lat, lon }
+      { lat, lon },
+      routeMode
     );
 
     if (btn) { btn.disabled = false; }
 
     if (!route) {
-      console.warn("Route request failed — check network or OSRM availability.");
+      console.warn("Route request failed — check network or ORS availability/API key.");
       return;
     }
 
     activeRoute   = route;
-    routeDestName = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    routeDestName = `${MODE_ICONS[routeMode]} ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
 
     EosMap.showRoute(route.geometry);
     CameraController.setRouteActive(route.geometry);
