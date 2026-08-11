@@ -778,6 +778,13 @@
 
     EosMap.renderAirMarkers(allTracked, onAirMarkerClick);
     LogPanel.update(allTracked, userState);
+    // fetchAircraft()'s own setAircraftCount() uses aircraftList.length directly
+    // and runs on every poll regardless of mode, but switching NAV -> AIR mid-
+    // cycle (or the colour-blind toggle's immediate re-render) calls this
+    // function without going through a fresh fetch — without this, the counter
+    // keeps showing whatever NAV's relevance-filtered count last was until the
+    // next poll tick, up to REFRESH_INTERVAL_SECONDS later.
+    UI.setAircraftCount(allTracked.length);
   }
 
   function onAirMarkerClick(item) {
