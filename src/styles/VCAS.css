@@ -154,6 +154,30 @@ html, body {
   color: var(--accent);
 }
 
+#top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#btn-settings {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: background .15s, color .15s;
+}
+
+#btn-settings:active { background: var(--btn-hover); }
+
 /* ---- Top-right controls (ADS-B status + theme picker) ---- */
 #top-right-controls {
   display: flex;
@@ -280,10 +304,10 @@ html, body {
 .mode-btn:active       { background: var(--btn-hover); }
 .mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
 
-/* NAV/AIR co-located as one segmented control (same pattern as #theme-row
-   below) rather than two independent buttons at opposite ends of the bar —
-   switching modes on a touchscreen shouldn't mean reaching across the width
-   of the screen. */
+/* NAV/AIR co-located as one segmented control (same pattern as
+   .theme-toggle-group in the settings screen) rather than two independent
+   buttons at opposite ends of the bar — switching modes on a touchscreen
+   shouldn't mean reaching across the width of the screen. */
 .mode-toggle {
   display: flex;
   align-items: center;
@@ -316,15 +340,7 @@ html, body {
   text-underline-offset: 2px;
 }
 
-/* Theme row: [ Day | Auto | Night ]  [ colour-blind toggle ] */
-#theme-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  align-self: center;
-}
-
+/* Day/Auto/Night segmented control (used inside the settings screen) */
 .theme-toggle-group {
   display: flex;
   align-items: center;
@@ -351,22 +367,6 @@ html, body {
 }
 
 .theme-toggle-group .theme-btn:last-child { border-right: none; }
-
-/* Standalone (not part of the Day/Auto/Night group) — needs its own pill
-   chrome rather than relying on a shared parent border/background. */
-#btn-colorblind-toggle {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--btn-bg);
-  padding: 6px 10px;
-  font-size: 13px;
-}
-
-#btn-colorblind-toggle.active {
-  background: var(--btn-active-bg);
-  border-color: var(--btn-active-bg);
-  color: #fff;
-}
 
 .theme-btn:active       { background: var(--btn-hover); }
 .theme-btn.active-theme {
@@ -1159,87 +1159,6 @@ body[data-nav-state="turn_approach"] { }
 }
 
 /* ---- LOG button + ground-truth panel (mirrors VIEW, opposite corner) ---- */
-/* ---- ALT button + suppression-threshold menu (stacks directly above LOG) ---- */
-#altitude-suppress-panel {
-  position: fixed;
-  bottom: calc(14px + 40px + var(--bottom-toast-offset, 0px));
-  left: 14px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-  pointer-events: all;
-  transition: bottom .3s;
-}
-
-#asp-toggle {
-  background: rgba(18, 18, 36, 0.90);
-  color: #7b8cde;
-  border: 1px solid #3a3a5e;
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .1em;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: background .15s, color .15s;
-  -webkit-appearance: none;
-  white-space: nowrap;
-}
-
-#asp-toggle:hover {
-  background: rgba(36, 36, 64, 0.96);
-  color: #a0b4ff;
-}
-
-#asp-toggle.active {
-  background: rgba(76, 175, 80, .55);
-  color: #fff;
-  border-color: rgba(76, 175, 80, .8);
-}
-
-#asp-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: rgba(12, 12, 26, 0.96);
-  border: 1px solid #3a3a5e;
-  border-radius: 8px;
-  padding: 5px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 8px 32px rgba(0,0,0,.7);
-}
-
-#asp-menu.hidden { display: none; }
-
-.asp-preset {
-  background: transparent;
-  color: #7080b0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 5px 12px;
-  font-size: 10px;
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-  transition: background .12s, color .12s;
-  -webkit-appearance: none;
-}
-
-.asp-preset:hover  { background: rgba(70, 80, 140, 0.35); color: #b0c0ff; }
-.asp-preset.active { background: rgba(55, 70, 150, 0.55); color: #c8d4ff; border-color: #505aaa; }
-
-.asp-ground-toggle.active { background: rgba(76, 175, 80, .3); color: #fff; border-color: rgba(76, 175, 80, .8); }
-
-.asp-menu-sep {
-  height: 1px;
-  background: #3a3a5e;
-  margin: 4px 2px;
-}
 
 #log-panel {
   position: fixed;
@@ -1375,3 +1294,138 @@ body[data-nav-state="turn_approach"] { }
 }
 
 .lp-btn:hover { background: rgba(255,255,255,.14); }
+
+/* ---- Settings screen ---- */
+#settings-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dark);
+  animation: settings-in .2s ease-out;
+}
+
+#settings-screen.hidden { display: none; }
+
+@keyframes settings-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+#settings-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+#settings-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#btn-settings-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#btn-settings-close:active { background: var(--btn-hover); }
+
+#settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.settings-section {
+  margin-top: 22px;
+}
+
+.settings-section h3 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+.settings-label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.settings-toggle-btn {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: background .15s, color .15s;
+}
+
+.settings-toggle-btn:active { background: var(--btn-hover); }
+
+.settings-toggle-btn.active {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-bg);
+  color: #fff;
+}
+
+.settings-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.settings-preset-btn {
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: background .15s, color .15s;
+}
+
+.settings-preset-btn:active { background: var(--btn-hover); }
+
+.settings-preset-btn.active {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-bg);
+  color: #fff;
+}

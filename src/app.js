@@ -86,31 +86,19 @@
     ColorblindMode.init();
     _updateColorblindToggleBtn();
 
-    // Synchronized Viewport Resize Matrix Gateway
-    ViewportDevPanel.init({
-      onViewportChanged() {
-        const activeMap = EosMap.getMap();
-        if (activeMap) {
-          activeMap.resize();
-          
-          // Enforce strict asynchronous completion check before applying positions
-          activeMap.once('resize', () => {
-            CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
-            if (mode === "nav" && userLat !== null && userLon !== null) {
-              CameraController.transitionToNav(userLat, userLon, userHeading);
-            }
-          });
-        }
-      },
-    });
+    DevMode.init();
+    _initDevTools();
+    // Always needed regardless of dev mode — ViewportDevPanel.getCurrentPresetId()
+    // safely defaults to "full" (real window dimensions) even when never init()'d.
     CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
 
     LogPanel.init();
-    SpeedSimPanel.init({ onChange: onSpeedSimChanged });
     AltitudeSuppressPanel.init({ onChange: onAltitudeSuppressChanged });
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
     EosMap.onUserInteraction(onUserPannedMap);
+    _initSettingsScreen();
+    _initDevModeUnlock();
 
     const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
     if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
@@ -135,6 +123,148 @@
     // panels clear it from the very first frame, not just after the first
     // route/guidance-toggle event recalculates it.
     updateMapViewportPadding();
+  }
+
+  // ---- Developer tools (VIEW/SPD) — hidden behind DevMode, see _initDevModeUnlock ----
+
+  function _initDevTools() {
+    if (!DevMode.isEnabled()) return;
+
+    ViewportDevPanel.init({
+      onViewportChanged() {
+        const activeMap = EosMap.getMap();
+        if (activeMap) {
+          activeMap.resize();
+          activeMap.once('resize', () => {
+            CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
+            if (mode === "nav" && userLat !== null && userLon !== null) {
+              CameraController.transitionToNav(userLat, userLon, userHeading);
+            }
+          });
+        }
+      },
+    });
+    SpeedSimPanel.init({ onChange: onSpeedSimChanged });
+  }
+
+  /**
+   * Same convention Android itself uses for its own hidden developer
+   * options: tap the brand mark 7 times within a few seconds. VIEW/SPD
+   * aren't end-user features, so they're deliberately not in the primary
+   * screen or the real settings screen — just not gone entirely, since
+   * they're still useful for verifying speed/viewport-gated behavior.
+   */
+  function _initDevModeUnlock() {
+    const target = document.getElementById("brand-tap-target");
+    if (!target) return;
+
+    let tapCount = 0;
+    let resetTimer = null;
+
+    target.addEventListener("click", () => {
+      tapCount++;
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => { tapCount = 0; }, 3000);
+
+      if (tapCount >= 7) {
+        tapCount = 0;
+        const enabled = DevMode.toggle();
+        alert(`Developer mode ${enabled ? "enabled" : "disabled"} — reloading.`);
+        location.reload();
+      }
+    });
+  }
+
+  // ---- Settings screen ----
+
+  function _initSettingsScreen() {
+    const screen = document.getElementById("settings-screen");
+
+    document.getElementById("btn-settings")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      screen?.classList.remove("hidden");
+      _refreshSettingsScreen();
+    });
+
+    document.getElementById("btn-settings-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      screen?.classList.add("hidden");
+    });
+
+    document.getElementById("btn-settings-ground-toggle")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      AltitudeSuppressPanel.setGroundHidden(!AltitudeSuppressPanel.isGroundHidden());
+      _refreshSettingsScreen();
+    });
+
+    document.getElementById("btn-settings-export")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      ObservationLogger.exportFallback();
+      _refreshSettingsScreen();
+    });
+
+    _renderAltPresets();
+    _refreshSettingsScreen();
+  }
+
+  function _renderAltPresets() {
+    const container = document.getElementById("settings-alt-presets");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const offBtn = document.createElement("button");
+    offBtn.type = "button";
+    offBtn.className = "settings-preset-btn";
+    offBtn.dataset.ft = "off";
+    offBtn.textContent = "Off (show everything)";
+    offBtn.addEventListener("click", () => {
+      AltitudeSuppressPanel.setThreshold(false, AltitudeSuppressPanel.getThresholdFt());
+      _refreshSettingsScreen();
+    });
+    container.appendChild(offBtn);
+
+    AltitudeSuppressPanel.PRESETS_FT.forEach(ft => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "settings-preset-btn";
+      btn.dataset.ft = String(ft);
+      btn.textContent = `Below ${ft} ft`;
+      btn.addEventListener("click", () => {
+        AltitudeSuppressPanel.setThreshold(true, ft);
+        _refreshSettingsScreen();
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  /** Re-syncs every dynamic bit of the settings screen with current state —
+   * called on open and after any control inside it changes something. */
+  function _refreshSettingsScreen() {
+    const groundBtn = document.getElementById("btn-settings-ground-toggle");
+    if (groundBtn) {
+      const on = AltitudeSuppressPanel.isGroundHidden();
+      groundBtn.textContent = on ? "On" : "Off";
+      groundBtn.classList.toggle("active", on);
+    }
+
+    const enabled     = AltitudeSuppressPanel.isEnabled();
+    const thresholdFt = String(AltitudeSuppressPanel.getThresholdFt());
+    document.querySelectorAll("#settings-alt-presets .settings-preset-btn").forEach(btn => {
+      const active = btn.dataset.ft === "off" ? !enabled : (enabled && btn.dataset.ft === thresholdFt);
+      btn.classList.toggle("active", active);
+    });
+
+    const exportLabel = document.getElementById("settings-export-label");
+    const exportBtn   = document.getElementById("btn-settings-export");
+    if (exportLabel && exportBtn) {
+      const count = ObservationLogger.fallbackCount();
+      exportLabel.textContent = count > 0
+        ? `${count} buffered observation${count === 1 ? "" : "s"}`
+        : "No buffered observations";
+      exportBtn.disabled = count === 0;
+    }
+
+    _updateColorblindToggleBtn();
   }
 
   // ---- Core Interface Event Listeners Matrix ---- //
@@ -287,7 +417,10 @@
 
   function _updateColorblindToggleBtn() {
     const btn = document.getElementById("btn-colorblind-toggle");
-    if (btn) btn.classList.toggle("active", ColorblindMode.isEnabled());
+    if (!btn) return;
+    const on = ColorblindMode.isEnabled();
+    btn.textContent = on ? "On" : "Off";
+    btn.classList.toggle("active", on);
   }
 
   function showConfigWarningIfNeeded() {

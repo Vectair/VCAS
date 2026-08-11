@@ -1,8 +1,14 @@
 /**
- * In-app control for ground/low-altitude clutter suppression — previously
- * only adjustable by editing CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED /
+ * State for ground/low-altitude clutter suppression — previously only
+ * adjustable by editing CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED /
  * CONFIG.SUPPRESS_LOW_ALTITUDE_FT directly in config.js and redeploying.
- * Same preset-menu pattern as SpeedSimPanel; state persists across reloads.
+ * State persists across reloads.
+ *
+ * Pure state module — the actual controls live in the settings screen
+ * (src/app.js's _renderSettingsScreen and friends), not here. This module
+ * used to also own a floating ALT button + menu; that UI was retired once
+ * the settings screen existed, since the user classified this as a
+ * "configure occasionally" preference, not a primary-screen control.
  *
  * Reminder (see the caveat already in config.js): the threshold is
  * barometric altitude (MSL), not height above you, so its effectiveness
@@ -22,7 +28,6 @@ const AltitudeSuppressPanel = (() => {
   // point of this control existing is that ground clutter near an airport
   // was the reported problem.
   let _hideGround = true;
-  let _menuOpen  = false;
   let _onChange  = null;
 
   // ---- Public API ----
@@ -45,111 +50,25 @@ const AltitudeSuppressPanel = (() => {
 
     const storedGround = localStorage.getItem(GROUND_STORAGE_KEY);
     if (storedGround !== null) _hideGround = storedGround !== "0";
-
-    _buildPanel();
   }
 
-  function isEnabled()     { return _enabled; }
+  function isEnabled()      { return _enabled; }
   function getThresholdFt() { return _thresholdFt; }
   function isGroundHidden() { return _hideGround; }
 
-  // ---- Panel construction ----
-
-  function _buildPanel() {
-    const panel = document.createElement("div");
-    panel.id = "altitude-suppress-panel";
-
-    const toggle = document.createElement("button");
-    toggle.id = "asp-toggle";
-    toggle.addEventListener("click", e => {
-      e.stopPropagation();
-      _menuOpen ? _closeMenu() : _openMenu();
-    });
-
-    const menu = document.createElement("div");
-    menu.id = "asp-menu";
-    menu.className = "hidden";
-
-    panel.appendChild(toggle);
-    panel.appendChild(menu);
-    document.body.appendChild(panel);
-
-    document.addEventListener("click", () => { if (_menuOpen) _closeMenu(); });
-
-    _renderMenu();
-    _updateToggleLabel();
-  }
-
-  function _renderMenu() {
-    const menu = document.getElementById("asp-menu");
-    if (!menu) return;
-    menu.innerHTML = "";
-
-    const groundBtn = document.createElement("button");
-    groundBtn.className = "asp-preset asp-ground-toggle" + (_hideGround ? " active" : "");
-    groundBtn.textContent = (_hideGround ? "✓ " : "☐ ") + "Hide aircraft on the ground";
-    groundBtn.title = "Separate from the altitude threshold below — catches aircraft with no usable altitude at all";
-    groundBtn.addEventListener("click", e => {
-      e.stopPropagation();
-      _hideGround = !_hideGround;
-      localStorage.setItem(GROUND_STORAGE_KEY, _hideGround ? "1" : "0");
-      _renderMenu();
-      if (_onChange) _onChange();
-    });
-    menu.appendChild(groundBtn);
-
-    const sep = document.createElement("div");
-    sep.className = "asp-menu-sep";
-    menu.appendChild(sep);
-
-    const offBtn = document.createElement("button");
-    offBtn.className = "asp-preset" + (!_enabled ? " active" : "");
-    offBtn.textContent = "Off (show everything)";
-    offBtn.addEventListener("click", e => {
-      e.stopPropagation();
-      _setThreshold(false, _thresholdFt);
-      _closeMenu();
-    });
-    menu.appendChild(offBtn);
-
-    PRESETS_FT.forEach(ft => {
-      const btn = document.createElement("button");
-      btn.className = "asp-preset" + (_enabled && _thresholdFt === ft ? " active" : "");
-      btn.textContent = `Below ${ft} ft`;
-      btn.addEventListener("click", e => {
-        e.stopPropagation();
-        _setThreshold(true, ft);
-        _closeMenu();
-      });
-      menu.appendChild(btn);
-    });
-  }
-
-  function _setThreshold(enabled, ft) {
+  /** @param {boolean} enabled  @param {number} ft  Ignored when enabled is false. */
+  function setThreshold(enabled, ft) {
     _enabled     = enabled;
-    _thresholdFt = ft;
-    localStorage.setItem(STORAGE_KEY, enabled ? String(ft) : "off");
-    _updateToggleLabel();
-    _renderMenu();
+    _thresholdFt = enabled ? ft : _thresholdFt;
+    localStorage.setItem(STORAGE_KEY, enabled ? String(_thresholdFt) : "off");
     if (_onChange) _onChange();
   }
 
-  function _updateToggleLabel() {
-    const toggle = document.getElementById("asp-toggle");
-    if (!toggle) return;
-    toggle.textContent = _enabled ? `ALT <${_thresholdFt}` : "ALT OFF";
-    toggle.classList.toggle("active", _enabled);
+  function setGroundHidden(hidden) {
+    _hideGround = hidden;
+    localStorage.setItem(GROUND_STORAGE_KEY, hidden ? "1" : "0");
+    if (_onChange) _onChange();
   }
 
-  function _openMenu() {
-    _menuOpen = true;
-    document.getElementById("asp-menu")?.classList.remove("hidden");
-  }
-
-  function _closeMenu() {
-    _menuOpen = false;
-    document.getElementById("asp-menu")?.classList.add("hidden");
-  }
-
-  return { init, isEnabled, getThresholdFt, isGroundHidden };
+  return { init, isEnabled, getThresholdFt, isGroundHidden, setThreshold, setGroundHidden, PRESETS_FT };
 })();

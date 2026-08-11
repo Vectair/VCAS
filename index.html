@@ -82,13 +82,16 @@
       <div id="overlay">
         <!-- Top bar -->
         <div id="top-bar">
-          <div class="brand">V<span>CAS</span></div>
+          <div class="brand" id="brand-tap-target">V<span>CAS</span></div>
           <div id="mode-strip">
             <div id="mode-label">DRIVING VIEW</div>
           </div>
-          <div id="adsb-status" class="error">
-            <div class="dot"></div>
-            <span class="label">ADS-B</span>
+          <div id="top-bar-right">
+            <div id="adsb-status" class="error">
+              <div class="dot"></div>
+              <span class="label">ADS-B</span>
+            </div>
+            <button type="button" id="btn-settings" title="Settings">⚙</button>
           </div>
         </div>
 
@@ -115,15 +118,6 @@
             <div id="aircraft-count">No aircraft in range</div>
             <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
           </div>
-          <!-- Theme row -->
-          <div id="theme-row">
-            <div class="theme-toggle-group">
-              <button class="theme-btn" id="btn-theme-day">Day</button>
-              <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
-              <button class="theme-btn" id="btn-theme-night">Night</button>
-            </div>
-            <button class="theme-btn" id="btn-colorblind-toggle" title="Colour-blind safe palette">👁</button>
-          </div>
         </div>
       </div>
 
@@ -142,6 +136,54 @@
         </div>
         <button class="route-card-clear" id="btn-toggle-guidance-text" title="Hide turn-by-turn text">💬</button>
         <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
+      </div>
+
+      <!-- Settings screen — "configure occasionally" preferences live here,
+           out of the way of the primary driving/spotting view. -->
+      <div id="settings-screen" class="hidden">
+        <div id="settings-header">
+          <div id="settings-title">Settings</div>
+          <button type="button" id="btn-settings-close" title="Close">✕</button>
+        </div>
+        <div id="settings-body">
+
+          <section class="settings-section">
+            <h3>Display &amp; Accessibility</h3>
+            <div class="settings-row">
+              <span class="settings-label">Theme</span>
+              <div class="theme-toggle-group">
+                <button class="theme-btn" id="btn-theme-day">Day</button>
+                <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
+                <button class="theme-btn" id="btn-theme-night">Night</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Colour-blind-safe palette</span>
+              <button type="button" class="settings-toggle-btn" id="btn-colorblind-toggle">Off</button>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Traffic Filtering</h3>
+            <div class="settings-row">
+              <span class="settings-label">Hide aircraft on the ground</span>
+              <button type="button" class="settings-toggle-btn" id="btn-settings-ground-toggle">On</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Low-altitude suppression</span>
+            </div>
+            <div class="settings-preset-row" id="settings-alt-presets"></div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Data &amp; Logging</h3>
+            <div class="settings-row">
+              <span class="settings-label" id="settings-export-label">No buffered observations</span>
+              <button type="button" class="settings-toggle-btn" id="btn-settings-export">Export</button>
+            </div>
+          </section>
+
+        </div>
       </div>
 
     </div><!-- #viewport-dev-frame -->
@@ -165,6 +207,7 @@
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
   <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
+  <script src="src/devMode.js?v=__BUILD_ID__"></script>
   <script src="src/navigation/navigationCameraEvaluator.js?v=__BUILD_ID__"></script>
   <script src="src/map/cameraController.js?v=__BUILD_ID__"></script>
   <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>

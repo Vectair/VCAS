@@ -1,14 +1,15 @@
 /**
- * LogPanel — dev-only ground-truth observation tool.
+ * LogPanel — ground-truth observation tool, on the primary screen.
  *
  * Lists every currently-tracked aircraft (not just the ones NAV is
  * currently showing — see Indicators.buildAll()) with four outcome
  * buttons, so "the algorithm excluded this and that was right/wrong" is
  * loggable too, not just "the algorithm showed this and it was right."
  *
- * Purely a dev tool — always present, opt-in to open, same convention as
- * ViewportDevPanel (VIEW button). Not shown to end users of the app in
- * any special way, just never linked from production UI flows.
+ * "Export buffered observations" used to live in this panel's own menu but
+ * moved to the settings screen — everything else here stays on the primary
+ * screen, since logging a sighting is something you do in the moment while
+ * actively spotting traffic, not a background/administrative action.
  */
 const LogPanel = (() => {
   // Deliberately no row cap — a distant, contrail-visible aircraft is
@@ -64,24 +65,12 @@ const LogPanel = (() => {
     const menu = document.getElementById("lp-menu");
     if (!menu) return;
 
-    const fallbackCount = ObservationLogger.fallbackCount();
-
     menu.innerHTML = `
       <div class="lp-header">
         ${_tracked.length === 0 ? "No tracked aircraft" : `${_tracked.length} tracked`}
-        ${fallbackCount > 0 ? `<button class="lp-export-btn">Export ${fallbackCount} buffered</button>` : ""}
       </div>
       <div class="lp-rows"></div>
     `;
-
-    const exportBtn = menu.querySelector(".lp-export-btn");
-    if (exportBtn) {
-      exportBtn.addEventListener("click", e => {
-        e.stopPropagation();
-        ObservationLogger.exportFallback();
-        _render();
-      });
-    }
 
     const rowsEl = menu.querySelector(".lp-rows");
     _tracked.forEach(item => rowsEl.appendChild(_buildRow(item)));

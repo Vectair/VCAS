@@ -98,7 +98,7 @@ All keys live in `src/config.js`.
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
 | `SUPPRESS_DURATION_SECONDS` | `180` | How long a manually-suppressed aircraft (popup's Suppress button) stays hidden from NAV |
-| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `false` | Starting value only — overridden live by the ALT button (see below) once you've touched it, persisted in localStorage |
+| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `false` | Starting value only — overridden live by the Settings screen's Traffic Filtering section once you've touched it, persisted in localStorage |
 | `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Starting value only, same as above — altitude floor is barometric (MSL), not height above you; see the caveat comment in `config.js` |
 
 NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
@@ -131,7 +131,7 @@ Additional rules (`src/logic/visibility.js`):
 - Aircraft not updated in the last 20 seconds (fixed threshold, independent of `STALE_THRESHOLD_SECONDS` above) have their category degraded by one step.
 - Elevation > 70° is labelled "overhead" in the detail popup's bearing field — it does not change where the indicator is drawn on screen.
 
-**Colour-blind-safe mode**: the 👁 button next to the Day/Auto/Night row (`src/colorblindMode.js`) swaps the five category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, aircraft symbol fill opacity now also scales with visibility score (`AircraftSymbol.opacityForScore()`) — a fully solid shape at "Very likely visible" fading toward a mostly-hollow outline at "Unlikely" — a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
+**Colour-blind-safe mode**: the toggle in Settings → Display & Accessibility (`src/colorblindMode.js`) swaps the five category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, aircraft symbol fill opacity now also scales with visibility score (`AircraftSymbol.opacityForScore()`) — a fully solid shape at "Very likely visible" fading toward a mostly-hollow outline at "Unlikely" — a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
 
 ---
 
@@ -160,7 +160,7 @@ AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so ev
 
 **Suppression**: the popup's Suppress button hides an aircraft from NAV for `SUPPRESS_DURATION_SECONDS`, freeing its slot for the next-ranked one. Deliberately a separate, explicit action — not a side effect of viewing the popup — and applies uniformly; no relevance reason is exempt from being suppressed.
 
-**Ground/low-altitude clutter suppression**: aircraft with a known altitude below a threshold are dropped before either mode ever sees them. Adjustable live via the **ALT** button (bottom-left, stacked above LOG) — no redeploy needed, persists across reloads (`src/altitudeSuppressPanel.js`). `config.js`'s `SUPPRESS_LOW_ALTITUDE_ENABLED`/`SUPPRESS_LOW_ALTITUDE_FT` are only the out-of-the-box starting values now, defaulting off. This is barometric altitude (MSL), not height above you — see the config reference above. Prefers GPS/geometric altitude (`alt_geom`) over barometric when both are present, since `alt_geom` isn't affected by local air pressure the way barometric altitude is without a QNH correction (not implemented).
+**Ground/low-altitude clutter suppression**: aircraft with a known altitude below a threshold are dropped before either mode ever sees them. Adjustable live via Settings → Traffic Filtering — no redeploy needed, persists across reloads (`src/altitudeSuppressPanel.js`). `config.js`'s `SUPPRESS_LOW_ALTITUDE_ENABLED`/`SUPPRESS_LOW_ALTITUDE_FT` are only the out-of-the-box starting values now, defaulting off. This is barometric altitude (MSL), not height above you — see the config reference above. Prefers GPS/geometric altitude (`alt_geom`) over barometric when both are present, since `alt_geom` isn't affected by local air pressure the way barometric altitude is without a QNH correction (not implemented).
 
 **Ground traffic and non-aircraft contacts**: ADS-B reports ground status as the literal string `"ground"` in place of a numeric altitude while an aircraft is parked/taxiing (`normaliseAircraft.js` captures this explicitly as `onGround`, rather than losing it to `parseFloat`) — suppressible via a dedicated toggle in the ALT panel menu, separate from the numeric threshold above, defaulting on. Ground service vehicles and fixed obstacles (ADS-B emitter categories C1-C5) are filtered unconditionally, no toggle — they're never aircraft.
 
@@ -193,9 +193,23 @@ Each state has its own pitch/zoom/anchor baseline, and the camera's forward-look
 
 ---
 
-## Dev Viewport Emulator
+## Settings Screen
 
-The **VIEW** button (bottom-right, always visible) lets you preview the app at fixed device dimensions — phone portrait/landscape, and a wide "Auto" (Android Auto head-unit style) profile — without deploying to a real device. It scales `#viewport-dev-frame` via CSS transform so `position:fixed` UI scopes to the emulated frame. Purely a dev tool; ships in the same build as the app.
+The **⚙** button (top-right, next to the ADS-B status pill) opens a full-screen settings overlay, separate from the primary driving/spotting view. Everything in it is a "configure occasionally" preference; everything that stays on the primary screen instead (mode switching, routing, aircraft popups, the LOG panel) is something used in-the-moment while actually driving or spotting. Current sections:
+
+- **Display & Accessibility** — Day/Auto/Night theme, colour-blind-safe palette toggle
+- **Traffic Filtering** — hide-aircraft-on-the-ground toggle, low-altitude suppression threshold presets
+- **Data & Logging** — export buffered ground-truth observations
+
+All the underlying state modules (`src/altitudeSuppressPanel.js`, `src/colorblindMode.js`, `src/map/themeManager.js`) are UI-agnostic — the settings screen just renders controls against their existing `get*()`/`set*()` API, the same functions the primary screen would call if these were ever moved back.
+
+---
+
+## Developer Tools (hidden)
+
+**VIEW** (viewport emulation — preview the app at fixed device dimensions, phone portrait/landscape, and a wide "Auto" Android-Auto-head-unit profile, without deploying to a real device; scales `#viewport-dev-frame` via CSS transform so `position:fixed` UI scopes to the emulated frame) and **SPD** (override GPS speed with a fixed value, to test speed-gated behaviour — turn-by-turn detection, the camera's `HIGHWAY_GUIDANCE` state, the GPS-vs-compass heading trust threshold — without actually moving) aren't end-user features, just scaffolding for verifying behaviour that needs real movement/device diversity to trigger.
+
+Neither is on the primary screen or in the real Settings screen (see below) — they're reachable only by tapping the **VCAS** brand mark in the top bar 7 times within 3 seconds (`src/devMode.js`), the same convention Android itself uses for unlocking its own developer options. Toggling it reloads the page; state persists in localStorage (`vcas-dev-mode`) until you do the same gesture again.
 
 ---
 
@@ -212,7 +226,7 @@ The **LOG** button (bottom-left, always visible) opens a list of *every* current
 
 Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in `logs/observations.jsonl` (JSON Lines: one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later). Requires running `logServer.py` instead of a plain static server (see Quick Start above); you can browse the accumulated log directly at `http://localhost:8080/api/log`.
 
-If the log server isn't running (e.g. you're using plain `python -m http.server`), observations aren't lost — `src/dev/observationLogger.js` falls back to buffering them in `localStorage`, and the panel shows an "Export N buffered" button to download them as a `.jsonl` file once you do have the log server available.
+If the log server isn't running (e.g. you're using plain `python -m http.server`, or the GitHub Pages deployment, which has no backend at all), observations aren't lost — `src/dev/observationLogger.js` falls back to buffering them in `localStorage`. Exporting those buffered observations as a downloadable `.jsonl` file is in the **Settings** screen (see below), not this panel — logging a sighting is an in-the-moment action, exporting the backlog is an occasional/administrative one.
 
 **Why this exists:** the current visibility model is angular-size-only and has no concept of contrails, cloud, haze, or terrain occlusion — real spotting can diverge from what the app predicts in ways the model can't currently explain (e.g. a high, distant aircraft trailing a contrail being far more conspicuous than a closer one in dry air). This panel is how that gap gets measured before it gets modelled.
 
@@ -237,6 +251,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
     aircraftSymbol.js               Shared diamond/circle/chevron SVG icon factory
     altitudeSuppressPanel.js        In-app ALT threshold + hide-ground-aircraft control
     colorblindMode.js               Colour-blind-safe palette toggle state
+    devMode.js                      Hidden VIEW/SPD unlock state (7-tap brand gesture)
     /data
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object
@@ -273,16 +288,16 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
 - **Heading** — uses GPS course-over-ground when moving above `GPS_HEADING_MIN_SPEED_MPH`; falls back to the device compass (`src/sensors/compassHeading.js`) below that threshold, so heading keeps updating while stopped or crawling through a junction/roundabout — exactly where the relevance filter's "reshuffle on turn" behaviour matters most. Compass heading is magnetic, not true north (a few degrees off depending on region), and phone magnetometers are prone to drift/interference; the Android landscape-mount screen-rotation correction is derived from documentation and needs real-device confirmation. iOS requires a one-tap permission grant (banner shown automatically when needed); on unsupported browsers/desktop this silently does nothing and heading behaves exactly as before.
 - **Visibility model** — flat terrain, clear sky, daylight assumptions only. No cloud, terrain, or haze modelling, and critically, **no contrail modelling** — angular size vs. slant range currently drives the score, but a high, distant aircraft trailing a contrail can be far more conspicuous than a closer one in dry air. See the Ground-Truth Log Panel section above for how this gap is being measured.
 - **ADS-B coverage** — depends on feeder network; remote areas may have gaps.
-- **Routing is a fixed demo, not real navigation** — one hardcoded destination, no destination search, turn instruction text/icon are static placeholders.
+- **No destination search by name/address** — tap-to-pick-a-point-on-the-map only.
 - **CORS** — if a chosen ADS-B provider blocks direct browser requests, a small local proxy will be needed.
 - **Relevance prediction assumes straight-line motion** — both the user's and each aircraft's projected position over the lookahead window are simple heading-based projections, not route-following (for the user) or track-curving (for aircraft). Reasonable over the short window used, but not exact through a turn.
-- **Ground/low-altitude suppression is sea-level-referenced, not true height-above-you** — see the caveat in `config.js`. Reconfiguring it currently means editing `config.js` directly; there's no in-app settings screen yet (see below).
+- **Ground/low-altitude suppression is sea-level-referenced, not true height-above-you** — see the caveat in `config.js`.
 
 ---
 
 ## Future Extension Points
 
-- Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value the ALT button currently sets manually.
+- Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value Settings currently sets manually.
 - METAR-based QNH correction for aircraft that only report barometric altitude (no `alt_geom`) — fetch nearest METAR, parse its altimeter setting, apply the standard ~27-30ft/hPa correction. Deferred in favor of the simpler, dependency-free GPS-altitude-preference fix already in place, which covers most modern transponders.
 - Real destination search (name/address lookup) instead of tap-to-pick-a-point-on-the-map only.
 - Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
