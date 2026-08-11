@@ -56,65 +56,51 @@ const Geo = (() => {
   }
 
   /**
-   * Project a relative bearing onto the screen edge.
-   * Leverages exponential perspective scaling factors to correct for a tilted 3D map horizon.
+   * True polar plot of a relative bearing + range: angle = bearing, radius =
+   * distance, anchored at the same point the 3D camera anchors the user
+   * (cx, cy = h*anchorY) — matching how the tilted camera already treats
+   * "ahead" as most of the screen and "behind" as a small residual band,
+   * rather than a classic radar's full symmetric circle. Replaces the old
+   * edge-only projection (which placed every aircraft at the frame edge
+   * regardless of distance) with a genuine bearing-as-angle/distance-as-
+   * radius mapping — closer traffic now plots closer to the anchor, not
+   * jammed onto the edge alongside everything else.
+   *
+   * @param {number} maxRangeNm  Range (nm) that maps to the full available
+   *   radius; anything at or beyond it plots at the outer edge. Callers
+   *   should pass something meaningful to their own filtering (e.g. the
+   *   relevance teardrop's own dead-ahead range), so the plotted scale
+   *   actually corresponds to "how close to the edge of relevance is this."
    */
-  function projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, cameraPitch = 55, safeInset = 60) {
+  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, maxRangeNm, anchorY = 0.8, safeInset = 60) {
     const w = viewportWidth;
     const h = viewportHeight;
     const cx = w * 0.5;
-    
-    // Dynamically lock target Y generation base directly to the evaluated vehicle core axis
-    const cy = h * anchorY; 
+    const cy = h * anchorY;
 
     const angleRad = toRad(relativeBearing);
-    
-    // Apply 3D perspective warp compensation
-    const perspectiveCompressionFactor = (cameraPitch > 0) ? Math.cos(toRad(cameraPitch)) : 1.0;
-    
     const sinA = Math.sin(angleRad);
-    
-    // Compresses forward vectors to counteract the matrix distortion skew
-    const cosA = Math.cos(angleRad) * (1.0 / perspectiveCompressionFactor); 
+    const cosA = Math.cos(angleRad);
 
-    // Available edge boundaries respecting UI safety perimeters
+    // Available boundaries from the anchor, respecting UI safety perimeters —
+    // same asymmetric "generous ahead, tight behind" shape as before, since
+    // that already matches the relevance teardrop's own asymmetry.
     const topY    = safeInset + 20;
-    
-    // --- FIXED: SCALE BOTTOM LIMIT TO PUSH LABELS ABOVE THE RADIAL SHADOW ---
-    // Instead of computing relative to absolute screen floor, lock the bottom boundary
-    // closely to your vehicle anchor axis to prevent targets slipping down behind the HUD panels.
-    const bottomY = Math.min(h - safeInset - 20, cy + 40); 
-    
+    const bottomY = Math.min(h - safeInset - 20, cy + 40);
     const leftX   = safeInset + 20;
     const rightX  = w - safeInset - 20;
 
-    let x, y, side;
+    const maxScaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
+    const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
+    const maxRadiusPx = Math.min(maxScaleX, maxScaleY);
 
-    // Scale factors calculating the boundary intercept coordinates
-    const scaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
-    const scaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
+    const clampedNm = Math.max(0, Math.min(rangeNm, maxRangeNm));
+    const radiusPx  = maxRangeNm > 0 ? (clampedNm / maxRangeNm) * maxRadiusPx : 0;
 
-    const scale = Math.min(scaleX, scaleY);
+    const x = Math.round(cx + sinA * radiusPx);
+    const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted
 
-    x = Math.round(cx + sinA * scale);
-    y = Math.round(cy - cosA * scale); // Screen coordinates run inverted
-
-    // Enforce layout edge clamping bounds
-    x = Math.max(leftX, Math.min(rightX, x));
-    y = Math.max(topY, Math.min(bottomY, y));
-
-    // Refactored context side categorization logic to balance viewport layouts
-    if (y <= topY + 5) {
-      side = "top";
-    } else if (y >= bottomY - 5) {
-      side = "bottom";
-    } else if (x >= rightX - 5) {
-      side = "right";
-    } else {
-      side = "left";
-    }
-
-    return { x, y, side };
+    return { x, y };
   }
 
   /**
@@ -137,7 +123,7 @@ const Geo = (() => {
     calculateDistanceMeters,
     calculateDistanceNm,
     calculateRelativeBearing,
-    projectToScreenEdge,
+    projectToPolarPosition,
     projectPosition,
   };
 })();

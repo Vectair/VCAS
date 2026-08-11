@@ -559,10 +559,21 @@ html, body {
 .indicator.stale { opacity: .45; }
 
 .indicator-shape {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+}
+
+/* Direction-of-travel indicator — anchored at the shape's own centre (not
+   the whole .indicator column, which also includes the label below), then
+   rotated + pushed outward per-aircraft via inline style. */
+.direction-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
 }
 
 .indicator-label {
@@ -608,6 +619,7 @@ body[data-theme="day"] .indicator-label {
 }
 
 .air-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;

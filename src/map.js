@@ -293,6 +293,11 @@ const EosMap = (() => {
     return (day ? vis.colorDay : null) || vis.color;
   }
 
+  /** Small chevron pointing "up" before rotation — mirrors ui.js's own copy. */
+  function _directionArrowSvg(color) {
+    return `<svg width="9" height="12" viewBox="0 0 10 14" aria-hidden="true"><path d="M5 0 L10 9 L5 6.5 L0 9 Z" fill="${color}"/></svg>`;
+  }
+
   function _airMarkerHtml(aircraft, vis) {
     const callsign = aircraft.callsign || aircraft.hex;
     const type     = aircraft.type || "";
@@ -301,9 +306,16 @@ const EosMap = (() => {
     // so there's no predicted/overhead modifier here — just the tier's own
     // TCAS shape+fill, same as a NAV indicator's default state.
     const shapeSvg = AircraftSymbol.svg(vis.shape, displayColor, 18, vis.fillOpacity);
+    // AIR mode's map is always north-up (see transitionToAir), so the
+    // direction-of-travel arrow uses the aircraft's raw track directly —
+    // unlike NAV's heading-up indicators, there's no observer heading to
+    // subtract first.
+    const arrowSvg = aircraft.trackDeg != null
+      ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${aircraft.trackDeg}deg) translateY(-16px)">${_directionArrowSvg(displayColor)}</div>`
+      : "";
     return `
       <div class="air-marker-inner">
-        <div class="air-icon">${shapeSvg}</div>
+        <div class="air-icon">${arrowSvg}${shapeSvg}</div>
         <div class="air-label-box">
           <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}

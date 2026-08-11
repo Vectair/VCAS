@@ -153,6 +153,11 @@ const UI = (() => {
     return _displayColor(vis) + alpha;
   }
 
+  /** Small chevron pointing "up" before rotation — see relativeTrackDeg usage above. */
+  function _directionArrowSvg(color) {
+    return `<svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true"><path d="M5 0 L10 9 L5 6.5 L0 9 Z" fill="${color}"/></svg>`;
+  }
+
   function renderIndicators(indicators, onClickFn) {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
@@ -171,9 +176,16 @@ const UI = (() => {
         predicted: ind.relevance.reason === "predicted-entry",
         overhead:  ind.relevance.reason === "overhead",
       });
+      // Direction-of-travel indicator — the aircraft's own ground track,
+      // relative to the observer's heading-up view (0deg = travelling the
+      // same way "up"/ahead reads on this screen). Omitted when the
+      // aircraft isn't transmitting a track, rather than guessing.
+      const arrowSvg = ind.relativeTrackDeg != null
+        ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${ind.relativeTrackDeg}deg) translateY(-18px)">${_directionArrowSvg(displayColor)}</div>`
+        : "";
 
       el.innerHTML = `
-        <div class="indicator-shape">${shapeSvg}</div>
+        <div class="indicator-shape">${arrowSvg}${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
           <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}

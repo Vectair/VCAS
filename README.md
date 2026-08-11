@@ -2,7 +2,7 @@
 
 A mobile-first web app that answers: **"Which aircraft around me are likely visible, and in what direction should I look?"**
 
-VCAS runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable edge indicators over a dark, MapLibre-rendered road map — similar in spirit to Google Maps' driving mode with a layer of airspace awareness. A second mode overlays the same aircraft as plotted icons on a top-down airspace view, and a routing layer (OpenRouteService — driving/cycling/walking) can drive a Google-Maps-style tilted, route-following 3D camera.
+VCAS runs in Android Chrome (or any modern browser) and displays nearby aircraft as glanceable polar-plotted indicators — bearing as angle, distance as radius from you — over a dark, MapLibre-rendered road map, similar in spirit to Google Maps' driving mode with a layer of airspace awareness. A second mode overlays the same aircraft as plotted icons on a top-down airspace view, and a routing layer (OpenRouteService — driving/cycling/walking) can drive a Google-Maps-style tilted, route-following 3D camera.
 
 ---
 
@@ -21,7 +21,7 @@ const CONFIG = {
 
 `MAPTILER_KEY` is required for the vector road map (get a free key at
 https://cloud.maptiler.com/auth/widget?mode=add — no credit card). Without it
-the map tiles won't load, but GPS, the aircraft feed, and edge indicators
+the map tiles won't load, but GPS, the aircraft feed, and the NAV indicators
 still work against a blank background.
 
 **ADS-B aircraft data needs no key by default** — it defaults to the free
@@ -73,10 +73,10 @@ For a home-screen shortcut:
 
 | Mode | Button | Description |
 |------|--------|-------------|
-| **Driving (NAV)** | NAV | Tilted 3D road map, user position anchored near the bottom, aircraft shown as edge indicators |
+| **Driving (NAV)** | NAV | Tilted 3D road map, user position anchored near the bottom, aircraft polar-plotted by bearing/distance |
 | **Airspace (AIR)** | AIR | Top-down, north-up map with aircraft plotted directly as icons |
 
-Tap any edge indicator or aircraft icon to open a detail popup (auto-dismisses after 4 s).
+Tap any indicator or aircraft icon to open a detail popup (auto-dismisses after 4 s).
 
 The 📍 button next to the mode row arms destination-picking — the next map tap/click
 requests a route to that point, in whichever transport mode (driving/cycling/walking) is
@@ -162,6 +162,10 @@ Only relevant aircraft reach the visibility-score sort/display stage; everything
 | Overhead override | Shape replaced entirely by an upward chevron, regardless of tier — a "look up" cue, not a bearing cue |
 
 AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so every AIR marker just shows its tier shape with no dashed/overhead modifier.
+
+**Position** (`Geo.projectToPolarPosition()`, `src/logic/geo.js`): NAV indicators are a true polar plot, not an edge frame — bearing maps to angle and distance maps to radius from an anchor point near the bottom of the screen (the same anchor the 3D camera itself uses), so closer traffic plots nearer to you and farther traffic plots farther out, rather than every aircraft regardless of range being jammed onto the frame edge. The radius scale is tied to the relevance teardrop's own dead-ahead range (`Relevance.DEFAULTS.rMaxNm`), so an indicator at the outer edge of the plot really is near the edge of relevance for that bearing. `Indicators.declutter()` now resolves genuine 2D proximity (any two indicators closer than the minimum gap get pushed apart along the line between them, over a few passes) rather than only spreading indicators sharing one screen edge, since polar-plotted indicators can end up close in any direction, not just along a shared edge.
+
+**Direction of travel**: each indicator with a known ground track (`trackDeg`) also draws a small arrow showing which way that aircraft is currently moving, relative to your own heading-up view (NAV) or true north (AIR, since that map is always north-up) — a lead cue for where to keep looking next, not just where the aircraft is right now. Aircraft not transmitting a track show no arrow rather than a guessed one.
 
 **Display cap & overflow**: NAV shows at most 5/7/10 indicators depending on viewport width; AIR mode is unrestricted. When more relevant aircraft exist than fit, the aircraft-count readout becomes a tappable "X of Y shown — tap for more" control that pages through the ranked list. Manual only — no automatic rotation, since an automatically-changing display was judged a driving distraction in its own right.
 
@@ -263,7 +267,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object
     /logic
-      geo.js                        Bearing, distance, edge projection, forward-position projection
+      geo.js                        Bearing, distance, polar screen-position projection, forward-position projection
       visibility.js                 Angular size & detectability scoring
       relevance.js                  TCAS-style teardrop relevance gate (what's worth showing at all)
       indicators.js                 Driving-view aircraft ranking/filtering (relevance + suppression + sort)

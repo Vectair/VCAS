@@ -23,10 +23,20 @@ const Indicators = (() => {
   }
 
   /**
+   * True polar plot range — the distance (nm) that maps to the full
+   * available radius from the anchor. Reuses Relevance's own dead-ahead
+   * teardrop range rather than a separate made-up number, so the plotted
+   * scale actually means something: an aircraft at the plot's outer edge is
+   * an aircraft at (or beyond) the edge of relevance for that bearing.
+   */
+  const POLAR_MAX_RANGE_NM = Relevance.DEFAULTS.rMaxNm;
+
+  /**
    * Shared per-aircraft computation used by both build() and buildAll() —
-   * bearing/distance/visibility/relevance/screen-edge position, for every
-   * aircraft that passes the hard staleness cutoff. Does NOT filter by
-   * relevance or suppression; callers decide what to do with that.
+   * bearing/distance/visibility/relevance/polar screen position/direction-
+   * of-travel, for every aircraft that passes the hard staleness cutoff.
+   * Does NOT filter by relevance or suppression; callers decide what to do
+   * with that.
    */
   function _computeAll(aircraftList, userState, staleThresholdSeconds) {
     const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
@@ -39,7 +49,15 @@ const Indicators = (() => {
         const vis = Visibility.estimate(lat, lon, a);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
         const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
-        const { x, y, side } = Geo.projectToScreenEdge(relativeBearing, viewportWidth, viewportHeight);
+        // Slant range (not flat horizontal distance) — the same figure
+        // Relevance itself compares against the teardrop, so an aircraft's
+        // plotted radius agrees with whether it's near the edge of relevance.
+        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, POLAR_MAX_RANGE_NM);
+        // Direction-of-travel indicator — the aircraft's own ground track,
+        // expressed relative to the observer's heading-up view the same way
+        // relativeBearing expresses the aircraft's *position*. null when the
+        // aircraft isn't transmitting a track (no arrow drawn for those).
+        const relativeTrackDeg = a.trackDeg != null ? Geo.calculateRelativeBearing(a.trackDeg, heading) : null;
         const isStale = a.lastSeenSeconds > staleThresholdSeconds;
 
         return {
@@ -47,9 +65,10 @@ const Indicators = (() => {
           bearing,
           distanceNm,
           relativeBearing,
+          relativeTrackDeg,
           vis,
           relevance,
-          x, y, side,
+          x, y,
           isStale,
         };
       });
@@ -100,35 +119,52 @@ const Indicators = (() => {
 
   /**
    * Nudges apart indicators whose projected screen positions land too close
-   * together. Geo.projectToScreenEdge() places each aircraft purely by its
-   * own relative bearing, with no awareness of any other aircraft — a queue
-   * of planes on an approach path share nearly the same bearing from a fixed
-   * ground point, so without this they render stacked directly on top of
-   * each other (illegible, and can't be tapped individually). Mutates and
+   * together. Now that Geo.projectToPolarPosition() scatters aircraft across
+   * the whole plot by bearing AND distance rather than confining them to a
+   * shared edge, two indicators can end up close in ANY direction — not just
+   * along one shared axis — so this resolves plain 2D proximity: any pair
+   * closer than minGapPx is pushed apart along the line between their
+   * centres, split evenly between the two. A few passes handle chains (A
+   * pushed into B's space gets resolved on the next pass). Mutates and
    * returns the same array; only meant to run on the already-capped/
    * paginated subset actually being rendered, not the full relevant list.
    *
-   * @param {Array} items      Items with x/y/side, as produced by build()/buildAll().
-   * @param {number} minGapPx  Minimum spacing along the edge's running axis.
+   * @param {Array} items      Items with x/y, as produced by build()/buildAll().
+   * @param {number} minGapPx  Minimum centre-to-centre spacing.
    */
   function declutter(items, minGapPx) {
-    const bySide = {};
-    items.forEach(item => {
-      (bySide[item.side] = bySide[item.side] || []).push(item);
-    });
+    const MAX_PASSES = 4;
 
-    Object.values(bySide).forEach(group => {
-      // Vertical edges (left/right) run top-to-bottom, so spread along y;
-      // horizontal edges (top/bottom) run left-to-right, so spread along x.
-      const axis = (group[0].side === "left" || group[0].side === "right") ? "y" : "x";
-      group.sort((a, b) => a[axis] - b[axis]);
-      for (let i = 1; i < group.length; i++) {
-        const prev = group[i - 1];
-        const cur  = group[i];
-        if (cur[axis] - prev[axis] < minGapPx) {
-          cur[axis] = prev[axis] + minGapPx;
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      let movedAny = false;
+
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i], b = items[j];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist === 0) {
+            // Exactly coincident — no direction to push along, so pick one.
+            a.x -= minGapPx / 2;
+            b.x += minGapPx / 2;
+            movedAny = true;
+          } else if (dist < minGapPx) {
+            const push = (minGapPx - dist) / 2;
+            const ux = dx / dist, uy = dy / dist;
+            a.x -= ux * push; a.y -= uy * push;
+            b.x += ux * push; b.y += uy * push;
+            movedAny = true;
+          }
         }
       }
+
+      if (!movedAny) break;
+    }
+
+    items.forEach(item => {
+      item.x = Math.round(item.x);
+      item.y = Math.round(item.y);
     });
 
     return items;
