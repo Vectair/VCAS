@@ -464,6 +464,16 @@
 
     aircraftList = result.aircraft.filter(a => {
       if (a.lastSeenSeconds >= CONFIG.REMOVE_THRESHOLD_SECONDS) return false;
+
+      // Ground service vehicles and fixed obstacles (ADS-B category C1-C5)
+      // are never aircraft — unconditional, no toggle.
+      if (a.isGroundVehicleOrObstacle) return false;
+
+      // Aircraft themselves on the ground (taxiing/parked) — separate
+      // toggle from the altitude threshold below, since their altitude is
+      // usually unknown entirely (see normaliseAircraft.js), not just low.
+      if (AltitudeSuppressPanel.isGroundHidden() && a.onGround) return false;
+
       // Ground/low-altitude clutter suppression (e.g. busy airports) — only
       // suppresses aircraft with a known altitude below the threshold, never
       // ones with missing altitude data. Applies to both NAV and AIR mode

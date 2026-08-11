@@ -1194,6 +1194,14 @@ body[data-nav-state="turn_approach"] { }
 .asp-preset:hover  { background: rgba(70, 80, 140, 0.35); color: #b0c0ff; }
 .asp-preset.active { background: rgba(55, 70, 150, 0.55); color: #c8d4ff; border-color: #505aaa; }
 
+.asp-ground-toggle.active { background: rgba(76, 175, 80, .3); color: #fff; border-color: rgba(76, 175, 80, .8); }
+
+.asp-menu-sep {
+  height: 1px;
+  background: #3a3a5e;
+  margin: 4px 2px;
+}
+
 #log-panel {
   position: fixed;
   bottom: calc(14px + var(--bottom-toast-offset, 0px));

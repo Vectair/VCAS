@@ -10,11 +10,18 @@
  * needed to be adjustable without a redeploy.
  */
 const AltitudeSuppressPanel = (() => {
-  const STORAGE_KEY  = "vcas-altitude-suppress-ft";
-  const PRESETS_FT   = [200, 500, 1000, 2000, 3000];
+  const STORAGE_KEY        = "vcas-altitude-suppress-ft";
+  const GROUND_STORAGE_KEY = "vcas-hide-ground-aircraft";
+  const PRESETS_FT         = [200, 500, 1000, 2000, 3000];
 
   let _enabled   = CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED;
   let _thresholdFt = CONFIG.SUPPRESS_LOW_ALTITUDE_FT;
+  // Separate from the altitude threshold — an aircraft reported as on the
+  // ground usually has no usable altitude at all (see normaliseAircraft.js),
+  // so a numeric threshold alone can't catch it. Defaults on: the whole
+  // point of this control existing is that ground clutter near an airport
+  // was the reported problem.
+  let _hideGround = true;
   let _menuOpen  = false;
   let _onChange  = null;
 
@@ -36,11 +43,15 @@ const AltitudeSuppressPanel = (() => {
       }
     }
 
+    const storedGround = localStorage.getItem(GROUND_STORAGE_KEY);
+    if (storedGround !== null) _hideGround = storedGround !== "0";
+
     _buildPanel();
   }
 
   function isEnabled()     { return _enabled; }
   function getThresholdFt() { return _thresholdFt; }
+  function isGroundHidden() { return _hideGround; }
 
   // ---- Panel construction ----
 
@@ -73,6 +84,23 @@ const AltitudeSuppressPanel = (() => {
     const menu = document.getElementById("asp-menu");
     if (!menu) return;
     menu.innerHTML = "";
+
+    const groundBtn = document.createElement("button");
+    groundBtn.className = "asp-preset asp-ground-toggle" + (_hideGround ? " active" : "");
+    groundBtn.textContent = (_hideGround ? "✓ " : "☐ ") + "Hide aircraft on the ground";
+    groundBtn.title = "Separate from the altitude threshold below — catches aircraft with no usable altitude at all";
+    groundBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      _hideGround = !_hideGround;
+      localStorage.setItem(GROUND_STORAGE_KEY, _hideGround ? "1" : "0");
+      _renderMenu();
+      if (_onChange) _onChange();
+    });
+    menu.appendChild(groundBtn);
+
+    const sep = document.createElement("div");
+    sep.className = "asp-menu-sep";
+    menu.appendChild(sep);
 
     const offBtn = document.createElement("button");
     offBtn.className = "asp-preset" + (!_enabled ? " active" : "");
@@ -123,5 +151,5 @@ const AltitudeSuppressPanel = (() => {
     document.getElementById("asp-menu")?.classList.add("hidden");
   }
 
-  return { init, isEnabled, getThresholdFt };
+  return { init, isEnabled, getThresholdFt, isGroundHidden };
 })();
