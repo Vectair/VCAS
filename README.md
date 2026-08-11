@@ -73,10 +73,12 @@ For a home-screen shortcut:
 
 | Mode | Button | Description |
 |------|--------|-------------|
-| **Driving (NAV)** | NAV | Tilted 3D road map, user position anchored near the bottom, aircraft polar-plotted by bearing/distance |
+| **Driving (NAV)** | NAV | Road map, user position anchored near the bottom, aircraft polar-plotted by bearing/distance — tilted 3D or flat top-down, see below |
 | **Airspace (AIR)** | AIR | Top-down, north-up map with aircraft plotted directly as icons |
 
 Tap any indicator or aircraft icon to open a detail popup (auto-dismisses after 4 s).
+
+**NAV display style** (Settings → Display & Accessibility → "NAV display style"): NAV mode itself has two camera presentations, selectable independent of AIR mode. **3rd person** (default) is the tilted, speed-adaptive follow camera described above. **Top-down** borrows the overall look of a TCAS/ND traffic display instead — flat (pitch 0), heading-up (rotates with your heading, unlike AIR's fixed north-up), still anchored near the bottom of the screen at a fixed zoom sized to comfortably fit the relevance teardrop's own ~15nm dead-ahead range. It's deliberately simple ("rudimentary" navigation) — no speed-based zoom/pitch adaptation, no turn-approach camera choreography — but the route line, ETA/guidance card, and turn hints all keep working normally; only the camera framing changes. Switching styles takes effect immediately, no waiting for the next GPS update. Traffic indicators and the direction-of-travel arrows render identically in both styles — they're a screen-space polar plot layered above the map, not tied to its tilt (`src/navDisplayStyle.js`, `NAV_TOPDOWN` state in `src/navigation/navigationCameraEvaluator.js`).
 
 The 📍 button next to the mode row arms destination-picking — the next map tap/click
 requests a route to that point, in whichever transport mode (driving/cycling/walking) is
@@ -208,11 +210,11 @@ Each state has its own pitch/zoom/anchor baseline, and the camera's forward-look
 
 The **⚙** button (top-right, next to the ADS-B status pill) opens a full-screen settings overlay, separate from the primary driving/spotting view. Everything in it is a "configure occasionally" preference; everything that stays on the primary screen instead (mode switching, routing, aircraft popups, the LOG panel) is something used in-the-moment while actually driving or spotting. Current sections:
 
-- **Display & Accessibility** — Day/Auto/Night theme, colour-blind-safe palette toggle
+- **Display & Accessibility** — Day/Auto/Night theme, colour-blind-safe palette toggle, NAV display style (3rd person / top-down)
 - **Traffic Filtering** — hide-aircraft-on-the-ground toggle, low-altitude suppression threshold presets
 - **Data & Logging** — export buffered ground-truth observations
 
-All the underlying state modules (`src/altitudeSuppressPanel.js`, `src/colorblindMode.js`, `src/map/themeManager.js`) are UI-agnostic — the settings screen just renders controls against their existing `get*()`/`set*()` API, the same functions the primary screen would call if these were ever moved back.
+All the underlying state modules (`src/altitudeSuppressPanel.js`, `src/colorblindMode.js`, `src/map/themeManager.js`, `src/navDisplayStyle.js`) are UI-agnostic — the settings screen just renders controls against their existing `get*()`/`set*()` API, the same functions the primary screen would call if these were ever moved back.
 
 ---
 
@@ -263,6 +265,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
     altitudeSuppressPanel.js        In-app ALT threshold + hide-ground-aircraft control
     colorblindMode.js               Colour-blind-safe palette toggle state
     devMode.js                      Hidden VIEW/SPD unlock state (7-tap brand gesture)
+    navDisplayStyle.js              NAV display style state (3rd person / top-down)
     /data
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object

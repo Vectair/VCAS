@@ -94,6 +94,7 @@
 
     LogPanel.init();
     AltitudeSuppressPanel.init({ onChange: onAltitudeSuppressChanged });
+    NavDisplayStyle.init({ onChange: onNavDisplayStyleChanged });
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
     EosMap.onUserInteraction(onUserPannedMap);
@@ -197,6 +198,18 @@
       _refreshSettingsScreen();
     });
 
+    document.getElementById("btn-navstyle-3rdperson")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      NavDisplayStyle.set(NavDisplayStyle.THIRD_PERSON);
+      _refreshSettingsScreen();
+    });
+
+    document.getElementById("btn-navstyle-topdown")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      NavDisplayStyle.set(NavDisplayStyle.TOPDOWN);
+      _refreshSettingsScreen();
+    });
+
     document.getElementById("btn-settings-export")?.addEventListener("click", (e) => {
       e.preventDefault();
       ObservationLogger.exportFallback();
@@ -246,6 +259,10 @@
       groundBtn.textContent = on ? "On" : "Off";
       groundBtn.classList.toggle("active", on);
     }
+
+    const isTopdown = NavDisplayStyle.isTopdown();
+    document.getElementById("btn-navstyle-3rdperson")?.classList.toggle("active-theme", !isTopdown);
+    document.getElementById("btn-navstyle-topdown")?.classList.toggle("active-theme", isTopdown);
 
     const enabled     = AltitudeSuppressPanel.isEnabled();
     const thresholdFt = String(AltitudeSuppressPanel.getThresholdFt());
@@ -523,6 +540,16 @@
     // threshold can't just re-filter what's already there — re-fetch now
     // instead of waiting up to REFRESH_INTERVAL_SECONDS for it to reappear.
     if (userLat !== null) fetchAircraft();
+  }
+
+  // ---- NAV display style (3rd-person vs top-down) ----
+
+  function onNavDisplayStyleChanged() {
+    // Re-evaluate the camera immediately rather than waiting for the next
+    // GPS tick, so flipping the setting visibly takes effect right away.
+    if (mode === "nav" && userLat !== null) {
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+    }
   }
 
   // ---- Compass heading fallback (stationary/slow, where GPS course freezes) ----
