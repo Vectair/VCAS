@@ -838,6 +838,7 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 }
 
 .route-card-clear:active { background: var(--btn-hover); }
+.route-card-clear.guidance-text-off { opacity: .5; }
 
 /* Route active: hide normal bottom bar behind the ETA card */
 body.route-active[data-mode="nav"] #bottom-bar {

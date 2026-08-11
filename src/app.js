@@ -32,6 +32,10 @@
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
 
+  // Turn-by-turn text visibility — persisted, so "route line only" sticks across reloads.
+  const GUIDANCE_TEXT_KEY = "vcas-guidance-text-enabled";
+  let guidanceTextEnabled = true;
+
   // ---- Init ----
 
   function init() {
@@ -65,6 +69,10 @@
     SpeedSimPanel.init({ onChange: onSpeedSimChanged });
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
+
+    const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
+    if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
+    _updateGuidanceToggleBtn();
 
     document.body.dataset.mode = "nav";
     showConfigWarningIfNeeded();
@@ -130,6 +138,15 @@
       btnClearRoute.addEventListener("click", (e) => {
         e.preventDefault();
         clearActiveRoute();
+      });
+    }
+
+    // 5. Turn-by-turn text on/off (route line stays either way)
+    const btnToggleGuidanceText = document.getElementById("btn-toggle-guidance-text");
+    if (btnToggleGuidanceText) {
+      btnToggleGuidanceText.addEventListener("click", (e) => {
+        e.preventDefault();
+        toggleGuidanceText();
       });
     }
   }
@@ -570,7 +587,7 @@
   }
 
   function _showGuidanceCard() {
-    if (mode !== "nav" || !activeRoute) return;
+    if (mode !== "nav" || !activeRoute || !guidanceTextEnabled) return;
     const dest = routeDestName || "destination";
     document.getElementById("ngc-dest-text").textContent = "towards " + dest;
     document.getElementById("nav-guidance-card").classList.remove("hidden");
@@ -578,6 +595,26 @@
 
   function _hideGuidanceCard() {
     document.getElementById("nav-guidance-card")?.classList.add("hidden");
+  }
+
+  function toggleGuidanceText() {
+    guidanceTextEnabled = !guidanceTextEnabled;
+    localStorage.setItem(GUIDANCE_TEXT_KEY, guidanceTextEnabled ? "1" : "0");
+    _updateGuidanceToggleBtn();
+
+    if (guidanceTextEnabled) _showGuidanceCard();
+    else _hideGuidanceCard();
+
+    // Card presence changes the map's top obstruction — recalc padding once
+    // the show/hide has taken effect.
+    setTimeout(updateMapViewportPadding, 50);
+  }
+
+  function _updateGuidanceToggleBtn() {
+    const btn = document.getElementById("btn-toggle-guidance-text");
+    if (!btn) return;
+    btn.classList.toggle("guidance-text-off", !guidanceTextEnabled);
+    btn.title = guidanceTextEnabled ? "Hide turn-by-turn text" : "Show turn-by-turn text";
   }
 
   /**
