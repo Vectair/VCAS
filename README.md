@@ -98,8 +98,8 @@ All keys live in `src/config.js`.
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
 | `SUPPRESS_DURATION_SECONDS` | `180` | How long a manually-suppressed aircraft (popup's Suppress button) stays hidden from NAV |
-| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `true` | Whether ground/low-altitude clutter suppression is active (both modes) |
-| `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Altitude floor for the above — barometric (MSL), not height above you; see the caveat comment in `config.js` |
+| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `true` | Starting value only — overridden live by the ALT button (see below) once you've touched it, persisted in localStorage |
+| `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Starting value only, same as above — altitude floor is barometric (MSL), not height above you; see the caveat comment in `config.js` |
 
 NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
 
@@ -158,7 +158,7 @@ AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so ev
 
 **Suppression**: the popup's Suppress button hides an aircraft from NAV for `SUPPRESS_DURATION_SECONDS`, freeing its slot for the next-ranked one. Deliberately a separate, explicit action — not a side effect of viewing the popup — and applies uniformly; no relevance reason is exempt from being suppressed.
 
-**Ground/low-altitude clutter suppression**: aircraft with a known altitude below `SUPPRESS_LOW_ALTITUDE_FT` are dropped before either mode ever sees them (toggle via `SUPPRESS_LOW_ALTITUDE_ENABLED`). This is barometric altitude (MSL), not height above you — see the config reference above.
+**Ground/low-altitude clutter suppression**: aircraft with a known altitude below a threshold are dropped before either mode ever sees them. Adjustable live via the **ALT** button (bottom-left, stacked above LOG) — no redeploy needed, persists across reloads (`src/altitudeSuppressPanel.js`). `config.js`'s `SUPPRESS_LOW_ALTITUDE_ENABLED`/`SUPPRESS_LOW_ALTITUDE_FT` are only the out-of-the-box starting values now. This is barometric altitude (MSL), not height above you — see the config reference above.
 
 ---
 
@@ -276,9 +276,8 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
 
 ## Future Extension Points
 
-- In-app settings screen — notably to reconfigure `SUPPRESS_LOW_ALTITUDE_FT` at runtime using GPS altitude as a live local-ground-level estimate, rather than a fixed sea-level constant. Deliberately deferred rather than bundled into the relevance-filter work, since it's a distinct piece of UI.
-- Real destination search instead of the hardcoded test route.
-- Turn-by-turn instruction text/icon driven by the existing `TURN_APPROACH` detection.
+- Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value the ALT button currently sets manually.
+- Real destination search (name/address lookup) instead of tap-to-pick-a-point-on-the-map only.
 - Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
 - Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).
 - Contrail-aware visibility scoring — likely via the free, no-key [Open-Meteo](https://open-meteo.com/) pressure-level API (temperature/humidity at flight altitude) feeding a Schmidt-Appleman-criterion check into `Visibility.estimate()`, or Google's purpose-built [Contrails API](https://developers.google.com/contrails) (free but requires a Google Cloud API key) as a higher-accuracy alternative. The Ground-Truth Log Panel exists to build the evidence for whether this is worth the integration effort before committing to it.

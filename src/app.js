@@ -105,6 +105,7 @@
 
     LogPanel.init();
     SpeedSimPanel.init({ onChange: onSpeedSimChanged });
+    AltitudeSuppressPanel.init({ onChange: onAltitudeSuppressChanged });
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
     EosMap.onUserInteraction(onUserPannedMap);
@@ -333,6 +334,16 @@
     }
   }
 
+  // ---- Altitude suppression threshold (ALT panel) ----
+
+  function onAltitudeSuppressChanged() {
+    // Aircraft below the old threshold were already filtered out of
+    // aircraftList entirely (never held in memory), so a looser/disabled
+    // threshold can't just re-filter what's already there — re-fetch now
+    // instead of waiting up to REFRESH_INTERVAL_SECONDS for it to reappear.
+    if (userLat !== null) fetchAircraft();
+  }
+
   // ---- Compass heading fallback (stationary/slow, where GPS course freezes) ----
 
   function initCompassHeading() {
@@ -457,9 +468,9 @@
       // suppresses aircraft with a known altitude below the threshold, never
       // ones with missing altitude data. Applies to both NAV and AIR mode
       // since aircraftList feeds both.
-      if (CONFIG.SUPPRESS_LOW_ALTITUDE_ENABLED
+      if (AltitudeSuppressPanel.isEnabled()
           && a.altitudeFt != null
-          && a.altitudeFt < CONFIG.SUPPRESS_LOW_ALTITUDE_FT) {
+          && a.altitudeFt < AltitudeSuppressPanel.getThresholdFt()) {
         return false;
       }
       return true;

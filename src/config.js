@@ -30,8 +30,11 @@ const CONFIG = {
   // level), not height above YOUR position. There's no terrain/elevation
   // data source in this app, so this is a sea-level-referenced cutoff, not
   // true "above ground" — near a high-elevation airport it may under- or
-  // over-suppress. Adjust SUPPRESS_LOW_ALTITUDE_FT for your region if
-  // needed, or set SUPPRESS_LOW_ALTITUDE_ENABLED to false to see everything.
+  // over-suppress.
+  // These are only the STARTING values — the ALT button (bottom-left,
+  // src/altitudeSuppressPanel.js) overrides both live, persisted in
+  // localStorage, so day-to-day adjustment doesn't need a config edit/
+  // redeploy. Change these two only to shift the app's out-of-the-box default.
   SUPPRESS_LOW_ALTITUDE_ENABLED: true,
   SUPPRESS_LOW_ALTITUDE_FT: 500,
 };
