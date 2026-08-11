@@ -62,6 +62,7 @@
     CameraController.setViewportPreset(ViewportDevPanel.getCurrentPresetId());
 
     LogPanel.init();
+    SpeedSimPanel.init({ onChange: onSpeedSimChanged });
     initCompassHeading();
 
     document.body.dataset.mode = "nav";
@@ -187,6 +188,7 @@
     userLat = pos.coords.latitude;
     userLon = pos.coords.longitude;
     userSpeedMph = (pos.coords.speed || 0) * 2.23694;
+    applySpeedOverrideIfActive();
 
     if (pos.coords.heading != null && !isNaN(pos.coords.heading)
         && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
@@ -204,6 +206,25 @@
     if (mode === "nav") {
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators();
+    }
+  }
+
+  // ---- Dev speed override (SPD panel) ----
+
+  function applySpeedOverrideIfActive() {
+    if (SpeedSimPanel.isActive()) {
+      userSpeedMph = SpeedSimPanel.getSpeedMph();
+    }
+  }
+
+  function onSpeedSimChanged() {
+    if (userLat === null) return;
+    applySpeedOverrideIfActive();
+    if (mode === "nav") {
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      refreshIndicators();
+    } else {
+      refreshAirMode();
     }
   }
 
