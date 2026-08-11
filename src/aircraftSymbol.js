@@ -14,14 +14,21 @@
  */
 const AircraftSymbol = (() => {
 
+  // A fixed dark stroke around every shape — the fill color alone (especially
+  // pale/bright hues against a light day-theme map) had no crisp edge, only
+  // a soft drop-shadow from CSS, which read as blurry rather than defined.
+  // Inert-but-harmless on the night theme's dark background, where the
+  // bright fills already had good contrast on their own.
+  const STROKE = 'stroke="rgba(0,0,0,.45)" stroke-width="1.5" stroke-linejoin="round"';
+
   const SHAPES = {
     // Currently within the relevance teardrop — steady default case.
-    "in-view": color => `<path d="M12 2 L22 12 L12 22 L2 12 Z" fill="${color}"/>`,
+    "in-view": color => `<path d="M12 2 L22 12 L12 22 L2 12 Z" fill="${color}" ${STROKE}/>`,
     // Predicted to converge into view within the lookahead window.
-    "predicted-entry": color => `<circle cx="12" cy="12" r="9" fill="${color}"/>`,
+    "predicted-entry": color => `<circle cx="12" cy="12" r="9" fill="${color}" ${STROKE}/>`,
     // Overhead-override — elevation high enough that bearing doesn't apply.
     // Upward-pointing on purpose: it's a "look up" cue, not a bearing cue.
-    "overhead": color => `<path d="M12 3 L21 19 L3 19 Z" fill="${color}"/>`,
+    "overhead": color => `<path d="M12 3 L21 19 L3 19 Z" fill="${color}" ${STROKE}/>`,
   };
 
   /**

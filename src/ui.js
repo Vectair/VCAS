@@ -128,6 +128,25 @@ const UI = (() => {
 
   // ---- Edge indicators ----
 
+  /**
+   * The category `color` values are tuned for the night theme's dark
+   * background; on the day theme's light one, the same colors (especially
+   * the yellow) are a near-worst-case low-contrast pairing. `colorDay` is a
+   * darker, theme-safe variant for exactly that case — falls back to
+   * `color` if a caller ever passes a vis object without it.
+   */
+  function _displayColor(vis) {
+    return (ThemeManager.getResolved() === "day" && vis.colorDay) ? vis.colorDay : vis.color;
+  }
+
+  /** Border alpha alone (independent of colorDay) was too faint against the
+   * day theme's near-white label background — stronger on day, unchanged
+   * (still subtle, by design) on night. */
+  function _borderColor(vis) {
+    const alpha = ThemeManager.getResolved() === "day" ? "cc" : "33";
+    return _displayColor(vis) + alpha;
+  }
+
   function renderIndicators(indicators, onClickFn) {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
@@ -141,12 +160,13 @@ const UI = (() => {
 
       const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
-      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, ind.vis.color, 20);
+      const displayColor = _displayColor(ind.vis);
+      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, displayColor, 20);
 
       el.innerHTML = `
         <div class="indicator-shape">${shapeSvg}</div>
-        <div class="indicator-label" style="border-color:${ind.vis.color}33">
-          <div class="callsign" style="color:${ind.vis.color}">${callsign}</div>
+        <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
+          <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
         </div>`;
 

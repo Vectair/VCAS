@@ -41,12 +41,20 @@ const Visibility = (() => {
     UNKNOWN:      25,
   };
 
+  // color: tuned for the night theme's dark background, where these bright/
+  // saturated hues already read clearly (and for the popup badge, which
+  // uses these as a background chip behind black text in both themes).
+  // colorDay: a darker, more saturated variant for text/shape-fill/border
+  // use specifically on the day theme's light background — the plain
+  // `color` values (especially the yellow) are a near-worst-case
+  // low-contrast pairing against white/cream, which is what actually made
+  // indicators look "faint" in day theme.
   const CATEGORIES = [
-    { label: "Very likely visible", minAngle: 1.0,  color: "#4caf50", score: 100 },
-    { label: "Likely visible",      minAngle: 0.35, color: "#8bc34a", score: 75 },
-    { label: "Possible",            minAngle: 0.12, color: "#ffeb3b", score: 50 },
-    { label: "Difficult",           minAngle: 0.05, color: "#ff9800", score: 25 },
-    { label: "Unlikely",            minAngle: 0,    color: "#9e9e9e", score: 10 },
+    { label: "Very likely visible", minAngle: 1.0,  color: "#4caf50", colorDay: "#2e7d32", score: 100 },
+    { label: "Likely visible",      minAngle: 0.35, color: "#8bc34a", colorDay: "#558b2f", score: 75 },
+    { label: "Possible",            minAngle: 0.12, color: "#ffeb3b", colorDay: "#9c6500", score: 50 },
+    { label: "Difficult",           minAngle: 0.05, color: "#ff9800", colorDay: "#e65100", score: 25 },
+    { label: "Unlikely",            minAngle: 0,    color: "#9e9e9e", colorDay: "#5f5f61", score: 10 },
   ];
 
   const NM_TO_M = 1852;
@@ -117,6 +125,7 @@ const Visibility = (() => {
     return {
       label: cat.label,
       color: cat.color,
+      colorDay: cat.colorDay,
       score: cat.score,
       angularSizeDeg,
       elevationDeg,

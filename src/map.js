@@ -280,18 +280,26 @@ const EosMap = (() => {
     });
   }
 
+  // Same reasoning as UI._displayColor() — the category colors are tuned for
+  // the night theme's dark background; day theme needs the darker variant
+  // for legible text/shape-fill (colorDay falls back to color if absent).
+  function _displayColor(vis) {
+    return (ThemeManager.getResolved() === "day" && vis.colorDay) ? vis.colorDay : vis.color;
+  }
+
   function _airMarkerHtml(aircraft, vis) {
     const callsign = aircraft.callsign || aircraft.hex;
     const type     = aircraft.type || "";
+    const displayColor = _displayColor(vis);
     // AIR mode shows every aircraft unconditionally (no relevance filtering),
     // so the shape doesn't encode a relevance reason here — every marker is
     // a plain diamond, colour still carries the visibility category.
-    const shapeSvg = AircraftSymbol.svg("in-view", vis.color, 18);
+    const shapeSvg = AircraftSymbol.svg("in-view", displayColor, 18);
     return `
       <div class="air-marker-inner">
         <div class="air-icon">${shapeSvg}</div>
         <div class="air-label-box">
-          <div class="callsign" style="color:${vis.color}">${callsign}</div>
+          <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
         </div>
       </div>`;
