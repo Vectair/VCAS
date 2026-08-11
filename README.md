@@ -92,13 +92,13 @@ All keys live in `src/config.js`.
 |-----|---------|-------------|
 | `MAPTILER_KEY` | `"PASTE_YOUR_MAPTILER_KEY_HERE"` | MapTiler browser token — required for road map tiles/glyphs |
 | `ORS_API_KEY` | `"PASTE_YOUR_ORS_KEY_HERE"` | Free OpenRouteService "Standard" API key — required for routing (driving/cycling/walking) |
-| `REFRESH_INTERVAL_SECONDS` | `10` | How often to poll the ADS-B provider |
+| `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll the ADS-B provider — Airplanes.live's REST API is rate-limited to 1 req/sec, so this leaves generous headroom as a single-client app |
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
 | `SUPPRESS_DURATION_SECONDS` | `180` | How long a manually-suppressed aircraft (popup's Suppress button) stays hidden from NAV |
-| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `true` | Starting value only — overridden live by the ALT button (see below) once you've touched it, persisted in localStorage |
+| `SUPPRESS_LOW_ALTITUDE_ENABLED` | `false` | Starting value only — overridden live by the ALT button (see below) once you've touched it, persisted in localStorage |
 | `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Starting value only, same as above — altitude floor is barometric (MSL), not height above you; see the caveat comment in `config.js` |
 
 NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
@@ -158,7 +158,9 @@ AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so ev
 
 **Suppression**: the popup's Suppress button hides an aircraft from NAV for `SUPPRESS_DURATION_SECONDS`, freeing its slot for the next-ranked one. Deliberately a separate, explicit action — not a side effect of viewing the popup — and applies uniformly; no relevance reason is exempt from being suppressed.
 
-**Ground/low-altitude clutter suppression**: aircraft with a known altitude below a threshold are dropped before either mode ever sees them. Adjustable live via the **ALT** button (bottom-left, stacked above LOG) — no redeploy needed, persists across reloads (`src/altitudeSuppressPanel.js`). `config.js`'s `SUPPRESS_LOW_ALTITUDE_ENABLED`/`SUPPRESS_LOW_ALTITUDE_FT` are only the out-of-the-box starting values now. This is barometric altitude (MSL), not height above you — see the config reference above.
+**Ground/low-altitude clutter suppression**: aircraft with a known altitude below a threshold are dropped before either mode ever sees them. Adjustable live via the **ALT** button (bottom-left, stacked above LOG) — no redeploy needed, persists across reloads (`src/altitudeSuppressPanel.js`). `config.js`'s `SUPPRESS_LOW_ALTITUDE_ENABLED`/`SUPPRESS_LOW_ALTITUDE_FT` are only the out-of-the-box starting values now, defaulting off. This is barometric altitude (MSL), not height above you — see the config reference above. Prefers GPS/geometric altitude (`alt_geom`) over barometric when both are present, since `alt_geom` isn't affected by local air pressure the way barometric altitude is without a QNH correction (not implemented).
+
+**Ground traffic and non-aircraft contacts**: ADS-B reports ground status as the literal string `"ground"` in place of a numeric altitude while an aircraft is parked/taxiing (`normaliseAircraft.js` captures this explicitly as `onGround`, rather than losing it to `parseFloat`) — suppressible via a dedicated toggle in the ALT panel menu, separate from the numeric threshold above, defaulting on. Ground service vehicles and fixed obstacles (ADS-B emitter categories C1-C5) are filtered unconditionally, no toggle — they're never aircraft.
 
 ---
 
@@ -277,6 +279,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
 ## Future Extension Points
 
 - Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value the ALT button currently sets manually.
+- METAR-based QNH correction for aircraft that only report barometric altitude (no `alt_geom`) — fetch nearest METAR, parse its altimeter setting, apply the standard ~27-30ft/hPa correction. Deferred in favor of the simpler, dependency-free GPS-altitude-preference fix already in place, which covers most modern transponders.
 - Real destination search (name/address lookup) instead of tap-to-pick-a-point-on-the-map only.
 - Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
 - Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).

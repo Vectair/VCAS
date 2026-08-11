@@ -232,7 +232,7 @@
     document.body.dataset.theme = theme;
 
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = theme === "day" ? "#f5f3ee" : "#0e1117";
+    if (meta) meta.content = theme === "day" ? "#f5f3ee" : "#0a0e17";
 
     ["day", "auto", "night"].forEach(t => {
       const btn = document.getElementById(`btn-theme-${t}`);

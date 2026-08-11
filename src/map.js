@@ -196,7 +196,7 @@ const EosMap = (() => {
       <div class="user-marker-halo"></div>
       <svg class="user-marker-nav" viewBox="0 0 20 28" xmlns="http://www.w3.org/2000/svg">
         <path d="M10 1 L19 27 L10 21 L1 27 Z"
-              fill="#58a6ff" stroke="#ffffff" stroke-width="1.5"
+              fill="var(--accent-user)" stroke="#ffffff" stroke-width="1.5"
               stroke-linejoin="round"/>
       </svg>`;
 

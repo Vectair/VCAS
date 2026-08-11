@@ -1,17 +1,24 @@
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ---- Night theme (default) ---- */
+/* ---- Night theme (default) ----
+   --accent and --bg-dark are colour-matched to the VCAS logo's own blue
+   sweep (~#0086cc) and background navy (~#030a16); --accent-user is the
+   logo's lime green, taken from its car+crosshair glyph ("you, tracked") —
+   used specifically for the user-position marker, not general UI accent,
+   echoing the logo's own two-tone language (blue = system, green = you). */
 :root {
-  --bg-dark:        #0e1117;
+  --bg-dark:        #0a0e17;
   --bg-panel:       #161b22;
   --bg-panel-alt:   #1c2128;
   --border:         #30363d;
   --text-primary:   #e6edf3;
   --text-secondary: #8b949e;
   --text-muted:     #484f58;
-  --accent:         #58a6ff;
-  --accent-rgb:     88,166,255;
+  --accent:         #1191d8;
+  --accent-rgb:     17,145,216;
+  --accent-user:      #9cc828;
+  --accent-user-rgb:  156,200,40;
   --btn-bg:         #21262d;
   --btn-hover:      #30363d;
   --btn-active-bg:  #1f6feb;
@@ -24,8 +31,15 @@
   --label-bg:       rgba(14,17,23,.82);
 }
 
-/* ---- Day theme ---- */
-:root[data-theme="day"] {
+/* ---- Day theme ----
+   Matches body[data-theme="day"], not :root — _applyThemeToDom() (app.js)
+   only ever sets data-theme on <body> (also its static default in
+   index.html), never on <html>. A :root[data-theme] selector here would
+   never match, silently no-op-ing this entire block: the map tiles would
+   still switch (that's independent, driven by NavStyle/ThemeManager in JS),
+   but every panel/button/text color would stay stuck on the night values
+   regardless of theme. */
+body[data-theme="day"] {
   --bg-dark:        #f0ede8;
   --bg-panel:       #ffffff;
   --bg-panel-alt:   #f5f2ed;
@@ -35,6 +49,8 @@
   --text-muted:     #aeaeb2;
   --accent:         #1a73e8;
   --accent-rgb:     26,115,232;
+  --accent-user:      #6b9418;
+  --accent-user-rgb:  107,148,24;
   --btn-bg:         #ede9e3;
   --btn-hover:      #d8d4ce;
   --btn-active-bg:  #1a73e8;
@@ -83,8 +99,8 @@ html, body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(var(--accent-rgb),.1);
-  border: 1.5px solid rgba(var(--accent-rgb),.22);
+  background: rgba(var(--accent-user-rgb),.14);
+  border: 1.5px solid rgba(var(--accent-user-rgb),.3);
   animation: halo-pulse 2.5s ease-in-out infinite;
 }
 
@@ -94,8 +110,8 @@ html, body {
   width: 18px;
   height: 26px;
   overflow: visible;
-  color: var(--accent);
-  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),.75));
+  color: var(--accent-user);
+  filter: drop-shadow(0 0 6px rgba(var(--accent-user-rgb),.75));
   transition: transform .4s ease;
 }
 
