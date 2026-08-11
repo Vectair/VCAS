@@ -151,12 +151,27 @@ const CameraController = (() => {
 
     const targetCoords = _map.unproject(targetPoint);
 
-    // 5. Render smooth framing updates onto active map viewport canvas
-    _map.jumpTo({
+    // 5. Render smooth framing updates onto active map viewport canvas.
+    // jumpTo() here (an instant, zero-interpolation snap) used to mean every
+    // single GPS/compass tick teleported the camera straight to the new
+    // center/bearing/pitch with nothing smoothing the transition — at this
+    // camera's close, tilted zoom, ordinary GPS position noise (a few
+    // metres) and residual heading noise (heading is already EMA-smoothed
+    // upstream, but never perfectly still) read as constant visible
+    // fidgeting rather than a settled, steady view. easeTo() with a short,
+    // linear glide absorbs that per-tick jitter into smooth motion — a new
+    // call arriving before the previous ease finishes (GPS ~1/s, compass up
+    // to ~6-7/s while stationary/slow) just smoothly redirects the in-
+    // progress animation toward the newer target rather than restarting or
+    // stuttering, which is how every mainstream turn-by-turn camera tracks.
+    _map.easeTo({
       center: targetCoords,
       zoom: zoom,
       bearing: heading,
       pitch: pitch,
+      duration: 400,
+      easing: t => t,
+      essential: true, // this tracking motion is functional, not decorative — don't let prefers-reduced-motion silently revert it to instant jumps
     });
   }
 
