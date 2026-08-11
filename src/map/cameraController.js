@@ -39,6 +39,121 @@ const CameraController = (() => {
     _map = mapInstance;
   }
 
+  // ---- Per-frame anchor-preserving camera animation ----
+  //
+  // followNav() used to hand center/bearing/pitch/zoom straight to
+  // MapLibre's own easeTo(), which tweens each of those independently.
+  // That's fine for a camera that's just "moving," but our center isn't
+  // the real target — it's a screen-space anchor offset from the user's
+  // actual position. Deriving that offset once per call (via project()/
+  // unproject() against whatever the camera happened to show at that
+  // instant) and then handing MapLibre a single center+bearing to tween
+  // toward independently meant the two drifted apart mid-transition —
+  // bearing partway rotated, center partway panned, neither matching the
+  // assumption the offset was computed under — so the user's marker
+  // visibly floated near its anchor point instead of staying pinned to
+  // it. Driving the animation ourselves, frame by frame, and re-deriving
+  // the anchor-correct camera at each frame from that frame's own
+  // already-applied bearing/pitch/zoom (via jumpTo() to center exactly on
+  // the target, then panBy() to shift off-center by a plain screen-space
+  // pixel amount) keeps "user marker sits exactly at the anchor point"
+  // true at every rendered frame, not just at the start/end of a tween —
+  // panBy() always operates against whatever transform was just applied,
+  // so there's no possibility of a stale-bearing mismatch.
+  const ANIM_DURATION_MS = 400;
+
+  let _animFrameHandle = null;
+  let _animFrom = null; // { lat, lon, bearing, pitch, zoom, anchorY, startTime }
+  let _animTo   = null; // { lat, lon, bearing, pitch, zoom, anchorY }
+
+  function _lerp(a, b, t) { return a + (b - a) * t; }
+
+  // Shortest-path bearing interpolation — a naive lerp breaks at the 0/360 wrap.
+  function _lerpBearing(fromDeg, toDeg, t) {
+    const delta = ((toDeg - fromDeg + 540) % 360) - 180;
+    return fromDeg + delta * t;
+  }
+
+  function _currentAnimState(now) {
+    if (!_animFrom || !_animTo) return null;
+    const t = Math.min(1, (now - _animFrom.startTime) / ANIM_DURATION_MS);
+    return {
+      lat:     _lerp(_animFrom.lat, _animTo.lat, t),
+      lon:     _lerp(_animFrom.lon, _animTo.lon, t),
+      bearing: _lerpBearing(_animFrom.bearing, _animTo.bearing, t),
+      pitch:   _lerp(_animFrom.pitch, _animTo.pitch, t),
+      zoom:    _lerp(_animFrom.zoom, _animTo.zoom, t),
+      anchorY: _lerp(_animFrom.anchorY, _animTo.anchorY, t),
+      done: t >= 1,
+    };
+  }
+
+  function _renderAnchoredFrame(state) {
+    if (!_map) return;
+
+    // 1. Center exactly on the target coordinate under THIS frame's own
+    //    bearing/pitch/zoom — by construction it's dead-center right now.
+    _map.jumpTo({
+      center: [state.lon, state.lat],
+      bearing: state.bearing,
+      pitch: state.pitch,
+      zoom: state.zoom,
+    });
+
+    // 2. Shift it off-center by a plain screen-space pixel pan — computed
+    //    against the transform just applied above, so it's always correct
+    //    regardless of how bearing/pitch changed to get here.
+    const containerHeight = _map.getContainer().offsetHeight;
+    const offsetY = containerHeight * state.anchorY - containerHeight / 2;
+    if (offsetY !== 0) {
+      _map.panBy([0, offsetY], { animate: false });
+    }
+  }
+
+  function _stepAnimation(now) {
+    const state = _currentAnimState(now);
+    if (!state) { _animFrameHandle = null; return; }
+    _renderAnchoredFrame(state);
+    _animFrameHandle = state.done ? null : requestAnimationFrame(_stepAnimation);
+  }
+
+  /**
+   * Kick off (or smoothly redirect) the anchor-preserving camera animation
+   * toward a new target. If a segment is already in flight, resumes from
+   * wherever it currently is — not its original start, not its final
+   * target — so a new GPS/compass tick arriving mid-glide redirects
+   * smoothly instead of snapping back or restarting the clock.
+   */
+  function _startAnimTo(target) {
+    if (!_map) return;
+    const now = performance.now();
+    const inProgress = _currentAnimState(now);
+
+    let fromState;
+    if (inProgress) {
+      fromState = inProgress;
+    } else {
+      // Bootstrap from the map's actual live transform — anchorY 0.5
+      // (true center) since a not-yet-anchored map has no prior offset to
+      // inherit from.
+      const c = _map.getCenter();
+      fromState = {
+        lat: c.lat, lon: c.lng,
+        bearing: _map.getBearing(),
+        pitch: _map.getPitch(),
+        zoom: _map.getZoom(),
+        anchorY: 0.5,
+      };
+    }
+
+    _animFrom = { ...fromState, startTime: now };
+    _animTo = target;
+
+    if (_animFrameHandle == null) {
+      _animFrameHandle = requestAnimationFrame(_stepAnimation);
+    }
+  }
+
   /**
    * Set the active viewport emulation configuration profile.
    */
@@ -135,56 +250,17 @@ const CameraController = (() => {
       targetLon += (lookaheadMeters * Math.sin(headingRad)) / metersPerDegreeLon;
     }
 
-    // 4. Map calculated position to screen coordinates and apply structural anchorY offsets.
-    // _map.project()/unproject() work in the camera's CURRENT actual transform
-    // (center/bearing/pitch/zoom) — which, now that followNav() eases instead
-    // of jumping, is very often still mid-animation toward the *previous*
-    // call's target rather than sitting still at it. Rotating the screen-space
-    // offset by the incoming `heading` (the NEW target, not where the camera
-    // actually currently is) made this round-trip internally inconsistent
-    // whenever a call landed mid-ease — exactly the "marker floating near the
-    // anchor, not locked to it" symptom, since the two disagreed about which
-    // way "forward" pointed on screen right now. Using the map's own live
-    // bearing for the rotation keeps project()/unproject() and the offset
-    // self-consistent with whatever's actually on screen at this instant;
-    // catching up to the new target heading is left entirely to easeTo()'s
-    // own bearing interpolation below, not baked into this offset.
-    const centerPoint = _map.project([targetLon, targetLat]);
-    const containerHeight = _map.getContainer().offsetHeight;
-
-    // Calculate vertical offset relative to the evaluated horizon focus axis
-    const desiredY = containerHeight * anchorY;
-    const offsetY = desiredY - (containerHeight / 2);
-
-    const currentBearingRad = (_map.getBearing() * Math.PI) / 180;
-    const targetPoint = [
-      centerPoint.x + offsetY * Math.sin(currentBearingRad),
-      centerPoint.y - offsetY * Math.cos(currentBearingRad)
-    ];
-
-    const targetCoords = _map.unproject(targetPoint);
-
-    // 5. Render smooth framing updates onto active map viewport canvas.
-    // jumpTo() here (an instant, zero-interpolation snap) used to mean every
-    // single GPS/compass tick teleported the camera straight to the new
-    // center/bearing/pitch with nothing smoothing the transition — at this
-    // camera's close, tilted zoom, ordinary GPS position noise (a few
-    // metres) and residual heading noise (heading is already EMA-smoothed
-    // upstream, but never perfectly still) read as constant visible
-    // fidgeting rather than a settled, steady view. easeTo() with a short,
-    // linear glide absorbs that per-tick jitter into smooth motion — a new
-    // call arriving before the previous ease finishes (GPS ~1/s, compass up
-    // to ~6-7/s while stationary/slow) just smoothly redirects the in-
-    // progress animation toward the newer target rather than restarting or
-    // stuttering, which is how every mainstream turn-by-turn camera tracks.
-    _map.easeTo({
-      center: targetCoords,
-      zoom: zoom,
+    // 4. Hand the raw target (not yet anchor-offset — that's now done fresh
+    // every rendered frame, see _renderAnchoredFrame above) to the
+    // frame-driven animator, which smoothly carries the camera there while
+    // keeping the user's marker pinned to its anchor point throughout.
+    _startAnimTo({
+      lat: targetLat,
+      lon: targetLon,
       bearing: heading,
       pitch: pitch,
-      duration: 400,
-      easing: t => t,
-      essential: true, // this tracking motion is functional, not decorative — don't let prefers-reduced-motion silently revert it to instant jumps
+      zoom: zoom,
+      anchorY: anchorY,
     });
   }
 
