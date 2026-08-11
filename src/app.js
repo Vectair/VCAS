@@ -615,6 +615,8 @@
 
   // ---- Data fetch loop ----
 
+  let _fetchInFlight = false;
+
   function scheduleFetch() {
     fetchAircraft();
     fetchTimer = setInterval(fetchAircraft, CONFIG.REFRESH_INTERVAL_SECONDS * 1000);
@@ -623,9 +625,20 @@
   async function fetchAircraft() {
     if (userLat === null) return;
 
+    // setInterval fires on a fixed clock regardless of whether the previous
+    // call finished — on a slow connection a single fetch (up to the 8s
+    // AdsbExchangeClient timeout) can easily outlast the 3s poll interval,
+    // which without this guard stacks up overlapping in-flight requests and
+    // makes the loading spinner flicker on/off as each one resolves out of
+    // order. Skipping the tick instead lets the effective interval stretch
+    // to match how slow the connection actually is, rather than compounding it.
+    if (_fetchInFlight) return;
+    _fetchInFlight = true;
+
     UI.setLoading(true);
     const result = await AdsbExchangeClient.fetchNearby(userLat, userLon, CONFIG.DEFAULT_RANGE_NM);
     UI.setLoading(false);
+    _fetchInFlight = false;
 
     lastFetchTime = Date.now();
     lastFetchError = result.error;
