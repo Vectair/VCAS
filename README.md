@@ -131,6 +131,8 @@ Additional rules (`src/logic/visibility.js`):
 - Aircraft not updated in the last 20 seconds (fixed threshold, independent of `STALE_THRESHOLD_SECONDS` above) have their category degraded by one step.
 - Elevation > 70° is labelled "overhead" in the detail popup's bearing field — it does not change where the indicator is drawn on screen.
 
+**Colour-blind-safe mode**: the 👁 button next to the Day/Auto/Night row (`src/colorblindMode.js`) swaps the five category colours above for an Okabe-Ito-based palette (Okabe & Ito, "Color Universal Design," 2008 — the standard reference palette validated as pairwise-distinguishable under protanopia/deuteranopia), each with its own day-theme-darkened variant, same treatment as the normal palette's `colorDay`. Deliberately one toggle, not several per-deficiency-type modes — an affected user wants something that works, not a menu of subtypes to self-diagnose into. Independent of which palette is active, aircraft symbol fill opacity now also scales with visibility score (`AircraftSymbol.opacityForScore()`) — a fully solid shape at "Very likely visible" fading toward a mostly-hollow outline at "Unlikely" — a redundant, hue-independent channel covering the rarer cases a colour swap alone can't (tritanopia, full achromatopsia), and helping everyone in bright glare where hue discrimination itself degrades. Persisted in localStorage, applies to both NAV and AIR mode.
+
 ---
 
 ## Relevance Filtering (TCAS-style)
@@ -233,6 +235,8 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
     map.js                          MapLibre wrapper: init, theme, markers, route layer
     ui.js                           Rendering: indicators, popups, status pills
     aircraftSymbol.js               Shared diamond/circle/chevron SVG icon factory
+    altitudeSuppressPanel.js        In-app ALT threshold + hide-ground-aircraft control
+    colorblindMode.js               Colour-blind-safe palette toggle state
     /data
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object

@@ -316,17 +316,23 @@ html, body {
   text-underline-offset: 2px;
 }
 
-/* Theme row: Day | Auto | Night */
+/* Theme row: [ Day | Auto | Night ]  [ colour-blind toggle ] */
 #theme-row {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  align-self: center;
+}
+
+.theme-toggle-group {
+  display: flex;
+  align-items: center;
   gap: 0;
   background: var(--btn-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  align-self: center;
 }
 
 .theme-btn {
@@ -344,7 +350,24 @@ html, body {
   -webkit-appearance: none;
 }
 
-.theme-btn:last-child   { border-right: none; }
+.theme-toggle-group .theme-btn:last-child { border-right: none; }
+
+/* Standalone (not part of the Day/Auto/Night group) — needs its own pill
+   chrome rather than relying on a shared parent border/background. */
+#btn-colorblind-toggle {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+#btn-colorblind-toggle.active {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-bg);
+  color: #fff;
+}
+
 .theme-btn:active       { background: var(--btn-hover); }
 .theme-btn.active-theme {
   background: var(--btn-active-bg);

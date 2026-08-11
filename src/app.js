@@ -83,6 +83,8 @@
     // uses the correct visual style layer palette.
     const initialTheme = ThemeManager.init(_onThemeChange);
     _applyThemeToDom(initialTheme);
+    ColorblindMode.init();
+    _updateColorblindToggleBtn();
 
     // Synchronized Viewport Resize Matrix Gateway
     ViewportDevPanel.init({
@@ -219,6 +221,35 @@
         onRecenterClick();
       });
     }
+
+    // 8. Day/Auto/Night theme preference — previously rendered their active
+    // state correctly but were never actually wired to a click handler, so
+    // tapping any of them did nothing at all.
+    ["day", "auto", "night"].forEach(t => {
+      const btn = document.getElementById(`btn-theme-${t}`);
+      if (!btn) return;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const resolved = ThemeManager.setPreference(t);
+        EosMap.setTheme(resolved);
+        // setPreference() only fires the onChange callback when the
+        // *resolved* theme actually changes (e.g. Auto->Day at 3pm is a
+        // no-op resolution-wise) — but the preference itself always
+        // changed, and the button highlighting depends on that, not just
+        // the resolved value, so update it unconditionally here instead of
+        // relying on _onThemeChange.
+        _applyThemeToDom(resolved);
+      });
+    });
+
+    // 9. Colour-blind-safe visibility palette toggle
+    const btnColorblind = document.getElementById("btn-colorblind-toggle");
+    if (btnColorblind) {
+      btnColorblind.addEventListener("click", (e) => {
+        e.preventDefault();
+        onColorblindToggleClick();
+      });
+    }
   }
 
   // ---- Theme ----
@@ -240,6 +271,23 @@
       const active = (t === ThemeManager.getPreference());
       btn.classList.toggle("active-theme", active);
     });
+  }
+
+  // ---- Colour-blind-safe visibility palette ----
+
+  function onColorblindToggleClick() {
+    ColorblindMode.toggle();
+    _updateColorblindToggleBtn();
+    // Re-render immediately rather than waiting for the next GPS tick/fetch
+    // cycle, so the palette swap is visible the moment you tap it.
+    if (userLat === null) return;
+    if (mode === "nav") refreshIndicators();
+    else refreshAirMode();
+  }
+
+  function _updateColorblindToggleBtn() {
+    const btn = document.getElementById("btn-colorblind-toggle");
+    if (btn) btn.classList.toggle("active", ColorblindMode.isEnabled());
   }
 
   function showConfigWarningIfNeeded() {

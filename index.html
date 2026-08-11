@@ -117,9 +117,12 @@
           </div>
           <!-- Theme row -->
           <div id="theme-row">
-            <button class="theme-btn" id="btn-theme-day">Day</button>
-            <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
-            <button class="theme-btn" id="btn-theme-night">Night</button>
+            <div class="theme-toggle-group">
+              <button class="theme-btn" id="btn-theme-day">Day</button>
+              <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
+              <button class="theme-btn" id="btn-theme-night">Night</button>
+            </div>
+            <button class="theme-btn" id="btn-colorblind-toggle" title="Colour-blind safe palette">👁</button>
           </div>
         </div>
       </div>
@@ -161,6 +164,7 @@
   <script src="src/logic/indicators.js?v=__BUILD_ID__"></script>
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
+  <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
   <script src="src/navigation/navigationCameraEvaluator.js?v=__BUILD_ID__"></script>
   <script src="src/map/cameraController.js?v=__BUILD_ID__"></script>
   <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>

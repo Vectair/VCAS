@@ -132,11 +132,17 @@ const UI = (() => {
    * The category `color` values are tuned for the night theme's dark
    * background; on the day theme's light one, the same colors (especially
    * the yellow) are a near-worst-case low-contrast pairing. `colorDay` is a
-   * darker, theme-safe variant for exactly that case — falls back to
-   * `color` if a caller ever passes a vis object without it.
+   * darker, theme-safe variant for exactly that case. When the colorblind
+   * toggle is on, swaps to the Okabe-Ito-based colorblindSafe/
+   * colorblindSafeDay pair instead — see visibility.js for why. Falls back
+   * to `color` if a caller ever passes a vis object missing a variant.
    */
   function _displayColor(vis) {
-    return (ThemeManager.getResolved() === "day" && vis.colorDay) ? vis.colorDay : vis.color;
+    const day = ThemeManager.getResolved() === "day";
+    if (ColorblindMode.isEnabled()) {
+      return (day ? vis.colorblindSafeDay : vis.colorblindSafe) || vis.color;
+    }
+    return (day ? vis.colorDay : null) || vis.color;
   }
 
   /** Border alpha alone (independent of colorDay) was too faint against the
@@ -161,7 +167,7 @@ const UI = (() => {
       const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
       const displayColor = _displayColor(ind.vis);
-      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, displayColor, 20);
+      const shapeSvg = AircraftSymbol.svg(ind.relevance.reason, displayColor, 20, AircraftSymbol.opacityForScore(ind.vis.score));
 
       el.innerHTML = `
         <div class="indicator-shape">${shapeSvg}</div>
@@ -232,7 +238,7 @@ const UI = (() => {
       <div class="pop-row"><span class="pop-key">Bearing</span><span class="pop-val">${bearingLabel}</span></div>
       <div class="pop-row"><span class="pop-key">Updated</span><span class="pop-val">${updatedStr}</span></div>
       <div>
-        <span class="pop-vis-badge" style="background:${ind.vis.color}">${ind.vis.label}</span>
+        <span class="pop-vis-badge" style="background:${_displayColor(ind.vis)}">${ind.vis.label}</span>
       </div>
       ${onLogOutcome ? _logButtonsHtml() : ""}
       ${onSuppressClick ? `
@@ -286,7 +292,7 @@ const UI = (() => {
       <div class="pop-row"><span class="pop-key">Speed</span><span class="pop-val">${spdStr}</span></div>
       <div class="pop-row"><span class="pop-key">Updated</span><span class="pop-val">${Math.round(aircraft.lastSeenSeconds)}s ago</span></div>
       <div>
-        <span class="pop-vis-badge" style="background:${vis.color}">${vis.label}</span>
+        <span class="pop-vis-badge" style="background:${_displayColor(vis)}">${vis.label}</span>
       </div>
       ${onLogOutcome ? _logButtonsHtml() : ""}`;
 

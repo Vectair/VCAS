@@ -49,12 +49,29 @@ const Visibility = (() => {
   // `color` values (especially the yellow) are a near-worst-case
   // low-contrast pairing against white/cream, which is what actually made
   // indicators look "faint" in day theme.
+  //
+  // colorblindSafe/colorblindSafeDay: an alternate palette for the
+  // color-vision-deficiency toggle, built from the Okabe-Ito palette
+  // (Okabe & Ito, "Color Universal Design", 2008) — the standard reference
+  // palette validated as pairwise-distinguishable under protanopia and
+  // deuteranopia (the common red-green deficiencies, ~8% of men). The
+  // ordering (blue -> green -> yellow -> orange -> purple) maximizes hue
+  // separation between ADJACENT tiers specifically, since those are the
+  // ones most likely to be confused. colorblindSafeDay is the same
+  // darkening treatment as colorDay, for the same light-background reason.
+  // This is deliberately not several separate per-deficiency-type modes —
+  // an affected user wants one mode that works, not a menu of subtypes to
+  // self-diagnose into. Rarer types (tritanopia, full achromatopsia) are
+  // instead covered by a hue-independent redundant channel: fill opacity
+  // now scales with score too (see indicators.js/ui.js/map.js), so the
+  // category is legible from lightness/fill-density alone even with zero
+  // color perception.
   const CATEGORIES = [
-    { label: "Very likely visible", minAngle: 1.0,  color: "#4caf50", colorDay: "#2e7d32", score: 100 },
-    { label: "Likely visible",      minAngle: 0.35, color: "#8bc34a", colorDay: "#558b2f", score: 75 },
-    { label: "Possible",            minAngle: 0.12, color: "#ffeb3b", colorDay: "#9c6500", score: 50 },
-    { label: "Difficult",           minAngle: 0.05, color: "#ff9800", colorDay: "#e65100", score: 25 },
-    { label: "Unlikely",            minAngle: 0,    color: "#9e9e9e", colorDay: "#5f5f61", score: 10 },
+    { label: "Very likely visible", minAngle: 1.0,  color: "#4caf50", colorDay: "#2e7d32", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 100 },
+    { label: "Likely visible",      minAngle: 0.35, color: "#8bc34a", colorDay: "#558b2f", colorblindSafe: "#009e73", colorblindSafeDay: "#006147", score: 75 },
+    { label: "Possible",            minAngle: 0.12, color: "#ffeb3b", colorDay: "#9c6500", colorblindSafe: "#f0e442", colorblindSafeDay: "#948d28", score: 50 },
+    { label: "Difficult",           minAngle: 0.05, color: "#ff9800", colorDay: "#e65100", colorblindSafe: "#e69f00", colorblindSafeDay: "#8e6200", score: 25 },
+    { label: "Unlikely",            minAngle: 0,    color: "#9e9e9e", colorDay: "#5f5f61", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 10 },
   ];
 
   const NM_TO_M = 1852;
@@ -126,6 +143,8 @@ const Visibility = (() => {
       label: cat.label,
       color: cat.color,
       colorDay: cat.colorDay,
+      colorblindSafe: cat.colorblindSafe,
+      colorblindSafeDay: cat.colorblindSafeDay,
       score: cat.score,
       angularSizeDeg,
       elevationDeg,

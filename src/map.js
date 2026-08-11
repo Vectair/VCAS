@@ -282,9 +282,15 @@ const EosMap = (() => {
 
   // Same reasoning as UI._displayColor() — the category colors are tuned for
   // the night theme's dark background; day theme needs the darker variant
-  // for legible text/shape-fill (colorDay falls back to color if absent).
+  // for legible text/shape-fill. When the colorblind toggle is on, swaps to
+  // the Okabe-Ito-based colorblindSafe/colorblindSafeDay pair instead — see
+  // visibility.js for why.
   function _displayColor(vis) {
-    return (ThemeManager.getResolved() === "day" && vis.colorDay) ? vis.colorDay : vis.color;
+    const day = ThemeManager.getResolved() === "day";
+    if (ColorblindMode.isEnabled()) {
+      return (day ? vis.colorblindSafeDay : vis.colorblindSafe) || vis.color;
+    }
+    return (day ? vis.colorDay : null) || vis.color;
   }
 
   function _airMarkerHtml(aircraft, vis) {
@@ -294,7 +300,7 @@ const EosMap = (() => {
     // AIR mode shows every aircraft unconditionally (no relevance filtering),
     // so the shape doesn't encode a relevance reason here — every marker is
     // a plain diamond, colour still carries the visibility category.
-    const shapeSvg = AircraftSymbol.svg("in-view", displayColor, 18);
+    const shapeSvg = AircraftSymbol.svg("in-view", displayColor, 18, AircraftSymbol.opacityForScore(vis.score));
     return `
       <div class="air-marker-inner">
         <div class="air-icon">${shapeSvg}</div>
