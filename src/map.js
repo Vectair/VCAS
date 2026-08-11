@@ -17,6 +17,7 @@ const EosMap = (() => {
   let _mapLoaded             = false;
   let _pendingRoute          = null;  // geometry queued before first map load
   let _currentRouteGeometry  = null;  // retained so theme changes can re-apply it
+  let _clickHandler          = null;  // set via onMapClick(); read lazily by the map's own click listener
 
   // ---- Init ----
 
@@ -58,6 +59,12 @@ const EosMap = (() => {
     });
 
     _map.on("error", e => console.error("[MapLibre error]", e.error || e));
+
+    // Fires on both touch tap and mouse click, so destination-picking works
+    // identically on a phone and on a laptop with a mouse.
+    _map.on("click", e => {
+      if (_clickHandler) _clickHandler(e.lngLat.lat, e.lngLat.lng);
+    });
 
     _applySkyCss(initialTheme);
 
@@ -225,6 +232,13 @@ const EosMap = (() => {
 
   function getMap() { return _map; }
 
+  /** @param {function(number,number)} handler  Called with (lat, lon) on every map click/tap. */
+  function onMapClick(handler) { _clickHandler = handler; }
+
+  function setPickingCursor(active) {
+    if (_map) _map.getCanvas().style.cursor = active ? "crosshair" : "";
+  }
+
   // ---- AIR mode aircraft markers ----
 
   /**
@@ -283,6 +297,8 @@ const EosMap = (() => {
     updateUserPosition,
     setMode,
     getMap,
+    onMapClick,
+    setPickingCursor,
     renderAirMarkers,
     clearAirMarkers,
     flyTo,

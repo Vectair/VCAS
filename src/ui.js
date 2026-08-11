@@ -58,6 +58,18 @@ const UI = (() => {
     }
   }
 
+  // ---- Destination-pick mode (route button armed, waiting for a map tap) ----
+
+  function setDestPickMode(active) {
+    const btn = document.getElementById("btn-test-route");
+    if (btn) {
+      btn.classList.toggle("picking", active);
+      btn.title = active ? "Tap the map to set your destination (tap again to cancel)" : "Set destination";
+    }
+    const banner = document.getElementById("dest-pick-banner");
+    if (banner) banner.classList.toggle("hidden", !active);
+  }
+
   // ---- Loading pill ----
 
   function setLoading(show) {
@@ -290,6 +302,7 @@ const UI = (() => {
     showConfigBanner,
     showGpsMessage,
     showCompassPermissionBanner,
+    setDestPickMode,
     setLoading,
     setAircraftCount,
     setModeLabel,

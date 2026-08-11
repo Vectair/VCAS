@@ -409,6 +409,27 @@ html, body {
 
 #compass-permission-banner.hidden { display: none; }
 
+/* ---- Destination-pick hint ---- */
+#dest-pick-banner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+#dest-pick-banner.hidden { display: none; }
+
 #compass-permission-btn {
   flex-shrink: 0;
   padding: 5px 12px;
@@ -661,6 +682,12 @@ body[data-theme="day"] .air-label-box {
 
 .route-btn:active   { opacity: .75; }
 .route-btn:disabled { opacity: .5; pointer-events: none; }
+.route-btn.picking  { background: #ff6b6b; border-color: #ff6b6b; animation: btn-armed-pulse 1.2s ease-in-out infinite; }
+
+@keyframes btn-armed-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,.55); }
+  50%       { box-shadow: 0 0 0 8px rgba(255,107,107,0); }
+}
 
 /* ---- Navigation guidance card (Google Maps maneuver banner) ----
    Normal-flow child of #overlay, stacked directly below #top-bar — NOT
@@ -811,6 +838,7 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 }
 
 .route-card-clear:active { background: var(--btn-hover); }
+.route-card-clear.guidance-text-off { opacity: .5; }
 
 /* Route active: hide normal bottom bar behind the ETA card */
 body.route-active[data-mode="nav"] #bottom-bar {
@@ -946,6 +974,87 @@ body[data-nav-state="turn_approach"] { }
 }
 
 .vdp-preset.active {
+  background: rgba(55, 70, 150, 0.55);
+  color: #c8d4ff;
+  border-color: #505aaa;
+}
+
+/* ---- SPD button + speed override menu (stacks directly above VIEW) ---- */
+#speed-sim-panel {
+  position: fixed;
+  bottom: calc(14px + 40px + var(--bottom-toast-offset, 0px));
+  right: 14px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  pointer-events: all;
+  transition: bottom .3s;
+}
+
+#ssp-toggle {
+  background: rgba(18, 18, 36, 0.90);
+  color: #7b8cde;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background .15s, color .15s;
+  -webkit-appearance: none;
+}
+
+#ssp-toggle:hover {
+  background: rgba(36, 36, 64, 0.96);
+  color: #a0b4ff;
+}
+
+#ssp-toggle.active {
+  background: rgba(76, 175, 80, .55);
+  color: #fff;
+  border-color: rgba(76, 175, 80, .8);
+}
+
+#ssp-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(12, 12, 26, 0.96);
+  border: 1px solid #3a3a5e;
+  border-radius: 8px;
+  padding: 5px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.7);
+}
+
+#ssp-menu.hidden { display: none; }
+
+.ssp-preset {
+  background: transparent;
+  color: #7080b0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+  -webkit-appearance: none;
+}
+
+.ssp-preset:hover {
+  background: rgba(70, 80, 140, 0.35);
+  color: #b0c0ff;
+}
+
+.ssp-preset.active {
   background: rgba(55, 70, 150, 0.55);
   color: #c8d4ff;
   border-color: #505aaa;
