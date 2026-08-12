@@ -969,9 +969,13 @@ body.route-active[data-mode="nav"] #bottom-bar {
   transition: opacity .3s;
 }
 
-/* ---- NAV mode: ADS-B indicators are secondary ---- */
-body[data-mode="nav"] .indicator { opacity: 0.45; }
-body[data-mode="nav"] .indicator:hover { opacity: 0.80; }
+/* ---- NAV mode: ADS-B indicators are secondary to the road map in Hybrid
+   (where traffic is an overlay on top of real navigation), but NOT in Raw —
+   there's no map underneath Raw for traffic to be secondary to, it IS the
+   display, and dimming it there was washing out the reference-matched TCAS/
+   ND colours down to a uniform grey. ---- */
+body[data-mode="nav"]:not([data-nav-style="raw"]) .indicator { opacity: 0.45; }
+body[data-mode="nav"]:not([data-nav-style="raw"]) .indicator:hover { opacity: 0.80; }
 
 /* ---- Navigation state body attributes ---- */
 /* Used for state-driven cartography suppression and future CSS hooks. */

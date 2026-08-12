@@ -95,6 +95,7 @@
     LogPanel.init();
     AltitudeSuppressPanel.init({ onChange: onAltitudeSuppressChanged });
     NavDisplayStyle.init({ onChange: onNavDisplayStyleChanged });
+    _applyNavStyleToDom();
     WakeLock.init();
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
@@ -441,6 +442,17 @@
     });
   }
 
+  /**
+   * Reflects the active NAV display style on <body> so CSS can key off it —
+   * specifically, the "indicators are secondary" dimming below is right for
+   * Hybrid (traffic overlaid on a real road map) but wrong for Raw (traffic
+   * IS the display; there's no map to be secondary to), so it needs its own
+   * selector rather than applying unconditionally in NAV mode.
+   */
+  function _applyNavStyleToDom() {
+    document.body.dataset.navStyle = NavDisplayStyle.get();
+  }
+
   // ---- Colour-blind-safe visibility palette ----
 
   function onColorblindToggleClick() {
@@ -570,6 +582,7 @@
     // instrument-screen look (Raw), and re-evaluate the camera immediately
     // rather than waiting for the next GPS tick, so flipping the setting
     // visibly takes effect right away.
+    _applyNavStyleToDom();
     if (window._mapInitialised) {
       EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
     }
