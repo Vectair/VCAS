@@ -13,7 +13,7 @@ const NavigationCameraEvaluator = (() => {
     HIGHWAY_GUIDANCE: { pitch: 60, zoom: 14.2, anchorY: 0.85, anchorX: 0.5 },
     TURN_APPROACH:    { pitch: 35, zoom: 16.8, anchorY: 0.70, anchorX: 0.5 },
     AIR:              { pitch: 0,  zoom: 10.0, anchorY: 0.50, anchorX: 0.5 },
-    // Selectable NAV display style (NavDisplayStyle.TOPDOWN) — flat plan-
+    // Selectable NAV display style (NavDisplayStyle.RAW) — flat plan-
     // position view, heading-up (bearing still tracks the user, unlike
     // AIR's north-up), anchored low like the tilted views so ownship sits
     // near the bottom with room ahead. zoom 11.2 is sized so the relevance
@@ -21,7 +21,7 @@ const NavigationCameraEvaluator = (() => {
     // (Web Mercator ground resolution ≈156543*cos(lat)/2^zoom m/px; at
     // ~51°N that puts roughly 15nm across a typical viewport height) —
     // approximate by nature, not tied to a precise on-screen distance.
-    NAV_TOPDOWN:      { pitch: 0,  zoom: 11.2, anchorY: 0.80, anchorX: 0.5 },
+    NAV_RAW:          { pitch: 0,  zoom: 11.2, anchorY: 0.80, anchorX: 0.5 },
   };
 
   // ---- PERSISTENT CACHE CORE (Maintains memory state across frames) ---- //
@@ -140,13 +140,13 @@ const NavigationCameraEvaluator = (() => {
 
       if (mode === "air") {
         targetState = "AIR";
-      } else if (navDisplayStyle === "topdown") {
+      } else if (navDisplayStyle === "raw") {
         // A deliberate, explicit user preference — not a speed-driven
         // automatic state — so it bypasses the urban/highway/turn state
         // machine entirely, including the maneuver-driven TURN_APPROACH
         // framing. Guidance data (maneuver, below) still computes normally;
         // only the camera framing itself goes flat/rudimentary.
-        targetState = "NAV_TOPDOWN";
+        targetState = "NAV_RAW";
       } else if (!routeActive) {
         targetState = "NAV_IDLE";
       } else if (turnMetrics.exists) {
@@ -160,12 +160,12 @@ const NavigationCameraEvaluator = (() => {
         }
       }
 
-      // 4. Enforce State Dwell Lock timers — except into/out of NAV_TOPDOWN,
+      // 4. Enforce State Dwell Lock timers — except into/out of NAV_RAW,
       // which (like AIR) is a direct user choice that should apply on the
       // very next frame, not smoothed behind the same hysteresis meant for
       // noisy automatic speed-based transitions.
       if (targetState !== lastEvaluatedState) {
-        if (targetState === "NAV_TOPDOWN" || lastEvaluatedState === "NAV_TOPDOWN"
+        if (targetState === "NAV_RAW" || lastEvaluatedState === "NAV_RAW"
             || (currentTimeMs - stateDwellTimestamp) > MIN_STATE_DWELL_MS) {
           lastEvaluatedState = targetState;
           stateDwellTimestamp = currentTimeMs;
@@ -176,7 +176,7 @@ const NavigationCameraEvaluator = (() => {
 
       // 5. Compute Logarithmic Lookahead Target Vector Bounds
       let lookAheadMeters = MIN_LOOKAHEAD_M;
-      if (targetState !== "AIR" && targetState !== "NAV_TOPDOWN" && speedMs > 1.0) {
+      if (targetState !== "AIR" && targetState !== "NAV_RAW" && speedMs > 1.0) {
         const scalingExponent = (targetState === "HIGHWAY_GUIDANCE") ? 1.6 : 1.1;
         const computedMeters = speedMs * 4.0 * Math.log10(speedMs * scalingExponent);
         lookAheadMeters = Math.max(MIN_LOOKAHEAD_M, Math.min(MAX_LOOKAHEAD_M, computedMeters));

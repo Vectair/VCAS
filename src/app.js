@@ -198,15 +198,15 @@
       _refreshSettingsScreen();
     });
 
-    document.getElementById("btn-navstyle-3rdperson")?.addEventListener("click", (e) => {
+    document.getElementById("btn-navstyle-hybrid")?.addEventListener("click", (e) => {
       e.preventDefault();
-      NavDisplayStyle.set(NavDisplayStyle.THIRD_PERSON);
+      NavDisplayStyle.set(NavDisplayStyle.HYBRID);
       _refreshSettingsScreen();
     });
 
-    document.getElementById("btn-navstyle-topdown")?.addEventListener("click", (e) => {
+    document.getElementById("btn-navstyle-raw")?.addEventListener("click", (e) => {
       e.preventDefault();
-      NavDisplayStyle.set(NavDisplayStyle.TOPDOWN);
+      NavDisplayStyle.set(NavDisplayStyle.RAW);
       _refreshSettingsScreen();
     });
 
@@ -260,9 +260,9 @@
       groundBtn.classList.toggle("active", on);
     }
 
-    const isTopdown = NavDisplayStyle.isTopdown();
-    document.getElementById("btn-navstyle-3rdperson")?.classList.toggle("active-theme", !isTopdown);
-    document.getElementById("btn-navstyle-topdown")?.classList.toggle("active-theme", isTopdown);
+    const isRaw = NavDisplayStyle.isRaw();
+    document.getElementById("btn-navstyle-hybrid")?.classList.toggle("active-theme", !isRaw);
+    document.getElementById("btn-navstyle-raw")?.classList.toggle("active-theme", isRaw);
 
     const enabled     = AltitudeSuppressPanel.isEnabled();
     const thresholdFt = String(AltitudeSuppressPanel.getThresholdFt());
@@ -317,7 +317,7 @@
         document.body.dataset.mode = "air";
         UI.setModeLabel("air");
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
-        UI.clearRangeRings(); // Only ever shown in NAV's top-down style
+        UI.clearRangeRings(); // Only ever shown in NAV's Raw style
         UI.setRecenterVisible(false);
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
         if (userLat !== null && userLon !== null) {
@@ -406,15 +406,15 @@
 
   /**
    * The map basemap's actual theme, which isn't always just the resolved
-   * Day/Night/Auto preference: NAV's top-down display style overrides it
-   * to the "radar" instrument-screen look (always dark, no road/building/
-   * label detail) regardless of Day/Night/Auto — a TCAS/ND doesn't have a
-   * day mode. Only the map basemap is affected; UI chrome (settings, the
+   * Day/Night/Auto preference: NAV's Raw display style overrides it to the
+   * "raw" instrument-screen look (always dark, no road/building/label
+   * detail) regardless of Day/Night/Auto — a TCAS/ND doesn't have a day
+   * mode. Only the map basemap is affected; UI chrome (settings, the
    * status bar meta colour, etc.) still follows the real resolved theme via
    * _applyThemeToDom(), unrelated to this.
    */
   function _effectiveMapTheme(resolvedTheme) {
-    return (mode === "nav" && NavDisplayStyle.isTopdown()) ? "radar" : resolvedTheme;
+    return (mode === "nav" && NavDisplayStyle.isRaw()) ? "raw" : resolvedTheme;
   }
 
   function _onThemeChange(theme) {
@@ -558,11 +558,11 @@
     if (userLat !== null) fetchAircraft();
   }
 
-  // ---- NAV display style (3rd-person vs top-down) ----
+  // ---- NAV display style (Hybrid vs Raw) ----
 
   function onNavDisplayStyleChanged() {
-    // Swap the basemap between the normal themed map and the radar
-    // instrument-screen look, and re-evaluate the camera immediately
+    // Swap the basemap between the normal themed map (Hybrid) and the raw
+    // instrument-screen look (Raw), and re-evaluate the camera immediately
     // rather than waiting for the next GPS tick, so flipping the setting
     // visibly takes effect right away.
     if (window._mapInitialised) {
@@ -802,9 +802,9 @@
     UI.renderIndicators(shown, onIndicatorClick);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
-    // TCAS/ND-style range rings — only in the top-down NAV display style
-    // (the 3rd-person tilted view never had these, and wasn't asked to).
-    if (NavDisplayStyle.isTopdown()) {
+    // TCAS/ND-style range rings — only in the Raw NAV display style
+    // (Hybrid's tilted view never had these, and wasn't asked to).
+    if (NavDisplayStyle.isRaw()) {
       const anchorY = camConfig ? camConfig.anchorY : 0.8;
       UI.renderRangeRings(vw, usableViewportHeight, Indicators.POLAR_MAX_RANGE_NM, anchorY);
     } else {

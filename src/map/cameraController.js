@@ -207,7 +207,7 @@ const CameraController = (() => {
       routeActive: _routeActive,
       routeGeometry: _routeGeometry,
       viewportPreset: _currentPreset.id,
-      navDisplayStyle: (typeof NavDisplayStyle !== "undefined") ? NavDisplayStyle.get() : "third-person",
+      navDisplayStyle: (typeof NavDisplayStyle !== "undefined") ? NavDisplayStyle.get() : "hybrid",
     };
 
     // 2. Compute live camera values using NavigationCameraEvaluator state machine

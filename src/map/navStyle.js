@@ -135,13 +135,13 @@ const NavStyle = (() => {
       sky:               "#0e1117",
     },
 
-    // "radar" — the top-down NAV display style's instrument-screen look,
-    // as close as practical to a real TCAS/ND: near-black, no road/building/
-    // label detail at all (an ND doesn't show roads either), just the
-    // background the range rings/traffic/route line render over. Always
-    // dark regardless of the Day/Night/Auto preference — there's no such
-    // thing as a "day mode" cockpit instrument.
-    radar: {
+    // "raw" — the Raw NAV display style's instrument-screen look, as close
+    // as practical to a real TCAS/ND: near-black, no road/building/label
+    // detail at all (an ND doesn't show roads either), just the background
+    // the range rings/traffic/route line render over. Always dark
+    // regardless of the Day/Night/Auto preference — there's no such thing
+    // as a "day mode" cockpit instrument.
+    raw: {
       background: "#050608",
       sky:        "#050608",
     },
@@ -159,10 +159,10 @@ const NavStyle = (() => {
     const p   = P[theme];
     const src = SOURCE_ID;
 
-    // radar: deliberately nothing but a plain background — no vector
+    // raw: deliberately nothing but a plain background — no vector
     // source is even declared for this theme (see getStyle()), matching a
     // real TCAS/ND's total absence of road/building/label detail.
-    if (theme === "radar") {
+    if (theme === "raw") {
       return [
         { id: "background", type: "background", paint: { "background-color": p.background } },
       ];
@@ -533,13 +533,13 @@ const NavStyle = (() => {
   // ---- Public API -------------------------------------------------------- //
 
   function getStyle(theme) {
-    const t = (theme === "day") ? "day" : (theme === "radar") ? "radar" : "night";
+    const t = (theme === "day") ? "day" : (theme === "raw") ? "raw" : "night";
 
-    // radar has nothing to render from the vector tile source at all, so
+    // raw has nothing to render from the vector tile source at all, so
     // it isn't even declared here — one fewer network fetch, and it keeps
     // the intent explicit: this theme genuinely draws nothing but a flat
     // background colour.
-    if (t === "radar") {
+    if (t === "raw") {
       return { version: 8, sources: {}, layers: _layers(t) };
     }
 
@@ -560,7 +560,7 @@ const NavStyle = (() => {
   /** Resolved sky colour for a theme — used to set #map-container background. */
   function skyColor(theme) {
     if (theme === "day") return P.day.sky;
-    if (theme === "radar") return P.radar.sky;
+    if (theme === "raw") return P.raw.sky;
     return P.night.sky;
   }
 
