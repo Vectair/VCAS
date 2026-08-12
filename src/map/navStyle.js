@@ -231,10 +231,12 @@ const NavStyle = (() => {
         source: src, "source-layer": "landuse",
         filter: ["in", ["get", "class"],
           ["literal", ["residential", "suburb", "neighbourhood"]]],
-        paint: { "fill-color": p.residential, "fill-opacity": 0 },
+        paint: { "fill-color": p.residential, "fill-opacity": 0.4 },
       },
 
-      // ── Buildings — hidden; route corridor is the scene ──────────────────
+      // ── Buildings — subtle fill for real urban texture/orientation cues,
+      // not fully suppressed any more (that made NAV read as empty/bare
+      // next to a real nav app, especially away from the route itself) ────
       {
         id: "building-fill", type: "fill",
         source: src, "source-layer": "building",
@@ -242,7 +244,7 @@ const NavStyle = (() => {
         paint: {
           "fill-color": p.buildings,
           "fill-antialias": true,
-          "fill-opacity": 0,
+          "fill-opacity": 0.55,
         },
       },
 
@@ -267,7 +269,11 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.minorCasing,
           "line-width": _rampW(12, 0.8, 15, 2, 18, 4),
-          "line-opacity": 0,  // minor roads fully suppressed — route dominates
+          // Previously fully suppressed on the theory the route alone was
+          // "the scene" — in practice that made the whole map read as
+          // empty/bare away from the route line, with no street context to
+          // orient by at a glance. Local streets now render like they do
+          // in any real nav app.
         },
       },
       {
@@ -342,7 +348,6 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.minor,
           "line-width": _rampW(12, 0.5, 15, 2.5, 18, 8),
-          "line-opacity": 0,  // minor roads fully suppressed
         },
       },
       {
@@ -423,13 +428,16 @@ const NavStyle = (() => {
       },
 
       // ── Labels ───────────────────────────────────────────────────────────
-      // Road name labels — major roads only; minor street names suppressed.
+      // Road name labels — now that minor/residential streets render at all
+      // (see road-minor-fill above), label them too, the same way any real
+      // nav app names the street you're actually on.
       {
         id: "road-label", type: "symbol",
         source: src, "source-layer": "transportation_name",
         minzoom: 15,
         filter: ["in", ["get", "class"],
-          ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary"]]],
+          ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary",
+                        "minor", "residential", "unclassified", "living_street"]]],
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],

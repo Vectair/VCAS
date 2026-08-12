@@ -139,8 +139,13 @@ const UI = (() => {
    */
   function _displayColor(vis) {
     const day = ThemeManager.getResolved() === "day";
+    // Accessibility wins over reference-fidelity — colourblind-safe applies
+    // even in RAW style, checked first regardless of which style is active.
     if (ColorblindMode.isEnabled()) {
       return (day ? vis.colorblindSafeDay : vis.colorblindSafe) || vis.color;
+    }
+    if (typeof NavDisplayStyle !== "undefined" && NavDisplayStyle.isRaw()) {
+      return vis.colorRaw || vis.color;
     }
     return (day ? vis.colorDay : null) || vis.color;
   }
@@ -220,11 +225,20 @@ const UI = (() => {
    * teardrop's actual asymmetric bounds — unequal ring shapes would read as
    * a rendering glitch, not a deliberate design choice.
    *
-   * @param {number} maxRangeNm  Same range Indicators/Geo.projectToPolarPosition
-   *   use, so the outer ring lines up with where a dead-ahead aircraft at
-   *   max range would actually plot.
+   * One ring per band in `bandsNm`, each at an equal fraction of the
+   * available radius (1/N, 2/N, ... N/N) — matching how
+   * Geo.bandedRadiusFraction() allocates plot radius, so a ring genuinely
+   * marks "this band's outer edge," not a linear distance. Each ring is
+   * labelled with its own nm boundary so the compression is legible: the
+   * gaps between rings look equal on screen but represent very unequal
+   * real distances (e.g. [2, 5, 10, 15] -> rings 1nm apart in screen terms
+   * but 2, 3, 5, and 5 nm apart in reality).
+   *
+   * @param {number[]} bandsNm  Ring band boundaries in nm, ascending — see
+   *   Geo.bandedRadiusFraction(). Same array Indicators.RING_BANDS_NM /
+   *   projectToPolarPosition() use, so rings line up with plotted aircraft.
    */
-  function renderRangeRings(viewportWidth, viewportHeight, maxRangeNm, anchorY = 0.8, safeInset = 60) {
+  function renderRangeRings(viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
     const svg = document.getElementById("nav-range-rings");
     if (!svg) return;
 
@@ -232,22 +246,31 @@ const UI = (() => {
     const cy = viewportHeight * anchorY;
     const maxRadius = cy - (safeInset + 20);
 
-    if (maxRadius <= 0) {
+    if (maxRadius <= 0 || !bandsNm || bandsNm.length === 0) {
       svg.innerHTML = "";
       svg.classList.add("hidden");
       return;
     }
 
-    const RING_FRACTIONS = [0.5, 1.0]; // half-range, full-range — standard ND convention
-    const paths = RING_FRACTIONS.map(frac => {
-      const r = maxRadius * frac;
+    const n = bandsNm.length;
+    // Off dead-ahead so labels don't sit under the busiest part of the
+    // plot (straight up) or get clipped at the semicircle's flat edge.
+    const labelAngleRad = 55 * Math.PI / 180;
+
+    const parts = bandsNm.map((nm, i) => {
+      const r = maxRadius * ((i + 1) / n);
       // Semicircle: left -> top (through "ahead") -> right.
-      return `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
+      const ring = `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
                 fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
                 stroke-dasharray="5,6" opacity="0.55"/>`;
+      const lx = cx + r * Math.sin(labelAngleRad);
+      const ly = cy - r * Math.cos(labelAngleRad);
+      const label = `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
+                style="fill:var(--text-secondary); font-size:11px" opacity="0.7">${nm}</text>`;
+      return ring + label;
     }).join("");
 
-    svg.innerHTML = paths;
+    svg.innerHTML = parts;
     svg.classList.remove("hidden");
   }
 

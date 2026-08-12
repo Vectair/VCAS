@@ -32,6 +32,20 @@ const Indicators = (() => {
   const POLAR_MAX_RANGE_NM = Relevance.DEFAULTS.rMaxNm;
 
   /**
+   * Ring band boundaries (nm) for the plot's non-linear distance scale —
+   * see Geo.bandedRadiusFraction(). Each band gets an equal slice of the
+   * available radius regardless of its real nm width, so close traffic
+   * (where resolving "is this one a bit closer than that one" actually
+   * matters) gets more usable screen space than a strictly linear scale
+   * would give it, while distant traffic still visibly separates into "how
+   * far, roughly" bands instead of a single distant blob. Deliberately
+   * capped at POLAR_MAX_RANGE_NM (not the full 50nm originally proposed) —
+   * relevance itself still governs what's shown at all; this only changes
+   * how what IS shown gets spaced out within that same range.
+   */
+  const RING_BANDS_NM = [2, 5, 10, POLAR_MAX_RANGE_NM];
+
+  /**
    * Shared per-aircraft computation used by both build() and buildAll() —
    * bearing/distance/visibility/relevance/polar screen position/direction-
    * of-travel, for every aircraft that passes the hard staleness cutoff.
@@ -52,7 +66,7 @@ const Indicators = (() => {
         // Slant range (not flat horizontal distance) — the same figure
         // Relevance itself compares against the teardrop, so an aircraft's
         // plotted radius agrees with whether it's near the edge of relevance.
-        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, POLAR_MAX_RANGE_NM);
+        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM);
         // Direction-of-travel indicator — the aircraft's own ground track,
         // expressed relative to the observer's heading-up view the same way
         // relativeBearing expresses the aircraft's *position*. null when the
@@ -170,7 +184,7 @@ const Indicators = (() => {
     return items;
   }
 
-  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM };
+  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM, RING_BANDS_NM };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

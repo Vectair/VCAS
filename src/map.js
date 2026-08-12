@@ -116,11 +116,28 @@ const EosMap = (() => {
 
   // ---- Route layer ----
 
+  // Standard Google-Maps-style blue everywhere except RAW, which uses the
+  // green sampled directly from the real ND reference screenshot — real
+  // flight-deck displays conventionally draw the active flight plan/route
+  // in green, and RAW is specifically trying to match that reference as
+  // closely as practical.
+  const ROUTE_COLORS = {
+    themed: { glow: "#1A73E8", line: "#4285F4", highlight: "#ADCCFF" },
+    raw:    { glow: "#0c7a0c", line: "#2caf2c", highlight: "#a8f0a8" },
+  };
+
+  function _effectiveRouteColors() {
+    const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
+    return raw ? ROUTE_COLORS.raw : ROUTE_COLORS.themed;
+  }
+
   function _initRouteLayer() {
     _map.addSource("route", {
       type: "geojson",
       data: { type: "FeatureCollection", features: [] },
     });
+
+    const c = _effectiveRouteColors();
 
     // Layer 1 — translucent outer glow (widest, drawn first).
     _map.addLayer({
@@ -129,21 +146,21 @@ const EosMap = (() => {
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
       paint:  {
-        "line-color":   "#1A73E8",
+        "line-color":   c.glow,
         "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 18, 16, 30, 20, 44],
         "line-opacity": 0.32,
         "line-blur":    5,
       },
     });
 
-    // Layer 2 — main navigation blue.
+    // Layer 2 — main navigation line.
     _map.addLayer({
       id:     "route-line",
       type:   "line",
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
       paint:  {
-        "line-color":   "#4285F4",
+        "line-color":   c.line,
         "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 8, 16, 14, 20, 20],
         "line-opacity": 1,
       },
@@ -156,7 +173,7 @@ const EosMap = (() => {
       source: "route",
       layout: { "line-join": "round", "line-cap": "round" },
       paint:  {
-        "line-color":   "#ADCCFF",
+        "line-color":   c.highlight,
         "line-width":   ["interpolate", ["linear"], ["zoom"], 12, 3, 16, 5, 20, 8],
         "line-opacity": 0.60,
       },

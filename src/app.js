@@ -812,7 +812,7 @@
     // landmarks do — Hybrid needs this cue just as much as Raw's otherwise-
     // featureless background did.
     const anchorY = camConfig ? camConfig.anchorY : 0.8;
-    UI.renderRangeRings(vw, usableViewportHeight, Indicators.POLAR_MAX_RANGE_NM, anchorY);
+    UI.renderRangeRings(vw, usableViewportHeight, Indicators.RING_BANDS_NM, anchorY);
   }
 
   function onCycleIndicatorPage() {

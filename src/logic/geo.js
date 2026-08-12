@@ -56,23 +56,51 @@ const Geo = (() => {
   }
 
   /**
-   * True polar plot of a relative bearing + range: angle = bearing, radius =
-   * distance, anchored at the same point the 3D camera anchors the user
-   * (cx, cy = h*anchorY) — matching how the tilted camera already treats
-   * "ahead" as most of the screen and "behind" as a small residual band,
-   * rather than a classic radar's full symmetric circle. Replaces the old
-   * edge-only projection (which placed every aircraft at the frame edge
-   * regardless of distance) with a genuine bearing-as-angle/distance-as-
-   * radius mapping — closer traffic now plots closer to the anchor, not
-   * jammed onto the edge alongside everything else.
+   * Fraction (0-1) of the available radius a given range should plot at,
+   * under a piecewise-banded (non-linear) distance scale: each entry in
+   * `bandsNm` is the upper nm boundary of one ring band, and every band —
+   * regardless of how many real nm wide it is — gets an equal 1/N slice of
+   * the radius. Close bands (a couple of nm wide) get the same visual room
+   * as a much wider far band, so the plot stays legible/high-resolution for
+   * nearby traffic instead of a single distant aircraft's position being
+   * barely distinguishable from one much closer to it, the way a strictly
+   * linear scale would render them. Within a band, position is linear.
    *
-   * @param {number} maxRangeNm  Range (nm) that maps to the full available
-   *   radius; anything at or beyond it plots at the outer edge. Callers
-   *   should pass something meaningful to their own filtering (e.g. the
-   *   relevance teardrop's own dead-ahead range), so the plotted scale
-   *   actually corresponds to "how close to the edge of relevance is this."
+   * @param {number} rangeNm    Real distance.
+   * @param {number[]} bandsNm  Ascending upper boundaries, e.g. [2,5,10,15].
    */
-  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, maxRangeNm, anchorY = 0.8, safeInset = 60) {
+  function bandedRadiusFraction(rangeNm, bandsNm) {
+    const n = bandsNm.length;
+    if (n === 0) return 0;
+    const clamped = Math.max(0, Math.min(rangeNm, bandsNm[n - 1]));
+    for (let i = 0; i < n; i++) {
+      const bandStart = i === 0 ? 0 : bandsNm[i - 1];
+      const bandEnd = bandsNm[i];
+      if (clamped <= bandEnd) {
+        const withinBandFrac = bandEnd > bandStart ? (clamped - bandStart) / (bandEnd - bandStart) : 0;
+        return (i + withinBandFrac) / n;
+      }
+    }
+    return 1;
+  }
+
+  /**
+   * True polar plot of a relative bearing + range: angle = bearing, radius =
+   * a banded (non-linear) function of distance — see bandedRadiusFraction()
+   * — anchored at the same point the 3D camera anchors the user (cx, cy =
+   * h*anchorY), matching how the tilted camera already treats "ahead" as
+   * most of the screen and "behind" as a small residual band, rather than a
+   * classic radar's full symmetric circle. Replaces the old edge-only
+   * projection (which placed every aircraft at the frame edge regardless of
+   * distance) with a genuine bearing-as-angle/distance-as-radius mapping —
+   * closer traffic now plots closer to the anchor, not jammed onto the edge
+   * alongside everything else.
+   *
+   * @param {number[]} bandsNm  Ring band boundaries in nm — see
+   *   bandedRadiusFraction(). The last entry is the effective max range;
+   *   anything at or beyond it plots at the outer edge.
+   */
+  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
     const w = viewportWidth;
     const h = viewportHeight;
     const cx = w * 0.5;
@@ -94,8 +122,7 @@ const Geo = (() => {
     const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
     const maxRadiusPx = Math.min(maxScaleX, maxScaleY);
 
-    const clampedNm = Math.max(0, Math.min(rangeNm, maxRangeNm));
-    const radiusPx  = maxRangeNm > 0 ? (clampedNm / maxRangeNm) * maxRadiusPx : 0;
+    const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * maxRadiusPx;
 
     const x = Math.round(cx + sinA * radiusPx);
     const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted
@@ -123,6 +150,7 @@ const Geo = (() => {
     calculateDistanceMeters,
     calculateDistanceNm,
     calculateRelativeBearing,
+    bandedRadiusFraction,
     projectToPolarPosition,
     projectPosition,
   };
