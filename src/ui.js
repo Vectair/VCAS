@@ -227,13 +227,19 @@ const UI = (() => {
   // ---- NAV top-down range rings ----
 
   /**
-   * Dashed semicircular range rings centered on the same bottom-anchored
-   * point the polar-plotted indicators use — the TCAS/ND-style "radar
-   * screen" cue that was missing from the flat top-down view. Purely
-   * decorative distance gradations, so (unlike the indicators themselves)
-   * they use a simplified, symmetric semicircle rather than the relevance
-   * teardrop's actual asymmetric bounds — unequal ring shapes would read as
-   * a rendering glitch, not a deliberate design choice.
+   * Dashed range rings centred on the same bottom-anchored point the
+   * polar-plotted indicators use — the TCAS/ND-style "radar screen" cue
+   * that was missing from the flat top-down view.
+   *
+   * Traced from Geo.maxRadiusForBearing() at each angle, NOT drawn as
+   * plain circular arcs. The aircraft plot itself uses an asymmetric,
+   * per-bearing radius (generous ahead, clipped tighter off to the sides
+   * by the screen's safe-area margins) — a perfect circle disagrees with
+   * that everywhere except dead ahead, so an aircraft 45° off-axis could
+   * plot visibly inside a ring its own nm label put it outside of. Tracing
+   * the same per-bearing bound the aircraft itself is placed against means
+   * a ring always means exactly "this band's edge, at this bearing" —
+   * position and label always agree, at every angle, not just dead ahead.
    *
    * One ring per band in `bandsNm`, each at an equal fraction of the
    * available radius (1/N, 2/N, ... N/N) — matching how
@@ -254,34 +260,43 @@ const UI = (() => {
 
     const cx = viewportWidth * 0.5;
     const cy = viewportHeight * anchorY;
-    const maxRadius = cy - (safeInset + 20);
+    const deadAheadRadius = Geo.maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
 
-    if (maxRadius <= 0 || !bandsNm || bandsNm.length === 0) {
+    if (deadAheadRadius <= 0 || !bandsNm || bandsNm.length === 0) {
       svg.innerHTML = "";
       svg.classList.add("hidden");
       return;
     }
 
     const n = bandsNm.length;
+    // Same angular sweep the old circular arc covered (left, through dead
+    // ahead, to right) — sampled finely enough that straight segments
+    // between points read as a smooth curve.
+    const ANGLE_STEP_DEG = 5;
+    const angles = [];
+    for (let a = -90; a < 90; a += ANGLE_STEP_DEG) angles.push(a);
+    angles.push(90);
+
+    const pointAt = (angleDeg, radiusFrac) => {
+      const maxR = Geo.maxRadiusForBearing(angleDeg, viewportWidth, viewportHeight, anchorY, safeInset);
+      const r = maxR * radiusFrac;
+      const rad = angleDeg * Math.PI / 180;
+      return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
+    };
+
     // Off dead-ahead so labels don't sit under the busiest part of the
-    // plot (straight up), but at a FIXED pixel offset from centre — not an
-    // angle scaled by each ring's own radius — so the outer rings' labels
-    // land just beside their own crest instead of sliding out past the
-    // screen edge on a narrow phone (a wide constant angle pushes an outer
-    // ring's label metres past a 400px-wide viewport; a small constant
-    // offset stays on-screen for every band regardless of aspect ratio).
-    const labelDx = 22;
+    // plot, and computed the same per-bearing way as the ring itself so a
+    // label always sits right on its own ring, not floating off of it.
+    const LABEL_ANGLE_DEG = 25;
 
     const parts = bandsNm.map((nm, i) => {
-      const r = maxRadius * ((i + 1) / n);
-      // Semicircle: left -> top (through "ahead") -> right.
-      const ring = `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
-                fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
+      const frac = (i + 1) / n;
+      const pts = angles.map(a => pointAt(a, frac));
+      const d = "M " + pts.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ");
+      const ring = `<path d="${d}" fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
                 stroke-dasharray="5,6" opacity="0.55"/>`;
-      const dx = Math.min(labelDx, r);
-      const lx = cx + dx;
-      const ly = cy - Math.sqrt(Math.max(0, r * r - dx * dx));
-      const label = `<text x="${lx}" y="${ly}" text-anchor="start" dominant-baseline="middle"
+      const labelPt = pointAt(LABEL_ANGLE_DEG, frac);
+      const label = `<text x="${(labelPt.x + 6).toFixed(1)}" y="${labelPt.y.toFixed(1)}" text-anchor="start" dominant-baseline="middle"
                 style="fill:var(--text-secondary); font-size:11px" opacity="0.7">${nm}</text>`;
       return ring + label;
     }).join("");

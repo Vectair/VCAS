@@ -85,22 +85,17 @@ const Geo = (() => {
   }
 
   /**
-   * True polar plot of a relative bearing + range: angle = bearing, radius =
-   * a banded (non-linear) function of distance — see bandedRadiusFraction()
-   * — anchored at the same point the 3D camera anchors the user (cx, cy =
-   * h*anchorY), matching how the tilted camera already treats "ahead" as
-   * most of the screen and "behind" as a small residual band, rather than a
-   * classic radar's full symmetric circle. Replaces the old edge-only
-   * projection (which placed every aircraft at the frame edge regardless of
-   * distance) with a genuine bearing-as-angle/distance-as-radius mapping —
-   * closer traffic now plots closer to the anchor, not jammed onto the edge
-   * alongside everything else.
-   *
-   * @param {number[]} bandsNm  Ring band boundaries in nm — see
-   *   bandedRadiusFraction(). The last entry is the effective max range;
-   *   anything at or beyond it plots at the outer edge.
+   * The farthest radius (px) plottable at a given relative bearing before
+   * running off the safe screen area — an asymmetric "generous ahead, tight
+   * behind" teardrop, not a uniform circle, since the anchor sits near the
+   * bottom of the screen (cy = h*anchorY) with far more room above it than
+   * below or to the sides. Shared by projectToPolarPosition() (per-aircraft
+   * radius) and UI.renderRangeRings() (the reference rings drawn behind it)
+   * so a ring genuinely traces "the edge of what this bearing can show,"
+   * not an idealised circle a real off-axis aircraft's own plotted position
+   * would then disagree with.
    */
-  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
+  function maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, safeInset = 60) {
     const w = viewportWidth;
     const h = viewportHeight;
     const cx = w * 0.5;
@@ -120,8 +115,34 @@ const Geo = (() => {
 
     const maxScaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
     const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
-    const maxRadiusPx = Math.min(maxScaleX, maxScaleY);
+    return Math.min(maxScaleX, maxScaleY);
+  }
 
+  /**
+   * True polar plot of a relative bearing + range: angle = bearing, radius =
+   * a banded (non-linear) function of distance — see bandedRadiusFraction()
+   * — anchored at the same point the 3D camera anchors the user (cx, cy =
+   * h*anchorY), matching how the tilted camera already treats "ahead" as
+   * most of the screen and "behind" as a small residual band, rather than a
+   * classic radar's full symmetric circle. Replaces the old edge-only
+   * projection (which placed every aircraft at the frame edge regardless of
+   * distance) with a genuine bearing-as-angle/distance-as-radius mapping —
+   * closer traffic now plots closer to the anchor, not jammed onto the edge
+   * alongside everything else.
+   *
+   * @param {number[]} bandsNm  Ring band boundaries in nm — see
+   *   bandedRadiusFraction(). The last entry is the effective max range;
+   *   anything at or beyond it plots at the outer edge.
+   */
+  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
+    const cx = viewportWidth * 0.5;
+    const cy = viewportHeight * anchorY;
+
+    const angleRad = toRad(relativeBearing);
+    const sinA = Math.sin(angleRad);
+    const cosA = Math.cos(angleRad);
+
+    const maxRadiusPx = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
     const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * maxRadiusPx;
 
     const x = Math.round(cx + sinA * radiusPx);
@@ -151,6 +172,7 @@ const Geo = (() => {
     calculateDistanceNm,
     calculateRelativeBearing,
     bandedRadiusFraction,
+    maxRadiusForBearing,
     projectToPolarPosition,
     projectPosition,
   };
