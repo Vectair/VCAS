@@ -184,11 +184,19 @@ const UI = (() => {
         ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${ind.relativeTrackDeg}deg) translateY(-18px)">${_directionArrowSvg(displayColor)}</div>`
         : "";
 
+      // Explicit distance readout — the polar plot's radius is proportional
+      // to real distance, but a dot's screen position alone doesn't reliably
+      // read as "how far away is that" the way a real map's landmarks do;
+      // slantRangeNm (not flat horizontal distance) matches the figure that
+      // actually drives where the dot is plotted (Geo.projectToPolarPosition).
+      const distanceLabel = `${ind.vis.slantRangeNm.toFixed(1)}nm`;
+
       el.innerHTML = `
         <div class="indicator-shape">${arrowSvg}${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
           <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
+          <div class="indicator-distance">${distanceLabel}</div>
         </div>`;
 
       el.addEventListener("click", () => onClickFn(ind));

@@ -806,14 +806,13 @@
     UI.renderIndicators(shown, onIndicatorClick);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
-    // TCAS/ND-style range rings — only in the Raw NAV display style
-    // (Hybrid's tilted view never had these, and wasn't asked to).
-    if (NavDisplayStyle.isRaw()) {
-      const anchorY = camConfig ? camConfig.anchorY : 0.8;
-      UI.renderRangeRings(vw, usableViewportHeight, Indicators.POLAR_MAX_RANGE_NM, anchorY);
-    } else {
-      UI.clearRangeRings();
-    }
+    // TCAS/ND-style range rings — shown in both NAV display styles now.
+    // Without an explicit distance reference, the polar plot's dots don't
+    // reliably read as "how far away is that" the way AIR mode's real map
+    // landmarks do — Hybrid needs this cue just as much as Raw's otherwise-
+    // featureless background did.
+    const anchorY = camConfig ? camConfig.anchorY : 0.8;
+    UI.renderRangeRings(vw, usableViewportHeight, Indicators.POLAR_MAX_RANGE_NM, anchorY);
   }
 
   function onCycleIndicatorPage() {
