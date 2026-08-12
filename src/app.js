@@ -95,6 +95,7 @@
     LogPanel.init();
     AltitudeSuppressPanel.init({ onChange: onAltitudeSuppressChanged });
     NavDisplayStyle.init({ onChange: onNavDisplayStyleChanged });
+    WakeLock.init();
     initCompassHeading();
     EosMap.onMapClick(onMapClicked);
     EosMap.onUserInteraction(onUserPannedMap);
@@ -110,6 +111,7 @@
     _updateModeButtons();
 
     document.body.dataset.mode = "nav";
+    WakeLock.enable(); // NAV is the default starting mode — keep the screen on like a real nav app
     showConfigWarningIfNeeded();
     startGps();
     
@@ -299,6 +301,7 @@
         UI.setModeLabel("nav");
         navFollowSuspended = false;
         UI.setRecenterVisible(false);
+        WakeLock.enable();
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToNav(userLat, userLon, userHeading);
@@ -319,6 +322,7 @@
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
         UI.clearRangeRings(); // Only ever shown in NAV's Raw style
         UI.setRecenterVisible(false);
+        WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
         if (userLat !== null && userLon !== null) {
           CameraController.transitionToAir(userLat, userLon);

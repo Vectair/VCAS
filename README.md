@@ -78,6 +78,8 @@ For a home-screen shortcut:
 
 Tap any indicator or aircraft icon to open a detail popup (auto-dismisses after 4 s).
 
+**Screen wake lock** (`src/wakeLock.js`): the screen is kept from dimming/locking while NAV mode (Hybrid or Raw) is active, the same way any real navigation app stays on — released automatically when you switch to AIR mode, or when the browser/OS itself revokes it (tab backgrounded, low battery); re-acquired the next time the app becomes visible again if NAV is still the active mode. Uses the standard Screen Wake Lock API (`navigator.wakeLock`) and no-ops silently on browsers that don't support it.
+
 **NAV display style** (Settings → Display & Accessibility → "NAV display style"): NAV mode itself has two camera/basemap presentations, selectable independent of AIR mode. **Hybrid** (default) is the tilted, speed-adaptive follow camera described above, with the polar-plotted TCAS-style traffic overlay combined on top of the normal themed road map — a hybrid of the two. **Raw** goes for as close a match to a real TCAS/ND instrument display as practical: flat (pitch 0), heading-up (rotates with your heading, unlike AIR's fixed north-up), anchored near the bottom of the screen at a fixed zoom sized to fit the relevance teardrop's own ~15nm dead-ahead range, dashed half-range/full-range rings around that anchor, and — unlike every other view in the app — the basemap itself switches to a dedicated near-black "raw" style (`NavStyle.getStyle("raw")`) with no roads, buildings, or labels at all, the same way a real ND doesn't show streets — just the raw traffic picture. It's always dark regardless of the Day/Night/Auto preference (a cockpit instrument doesn't have a day mode); switching NAV out to AIR mode reverts to the normal themed map, and switching back re-applies the raw basemap if Raw is still the active NAV style. It's deliberately simple ("rudimentary" navigation) — no speed-based zoom/pitch adaptation, no turn-approach camera choreography — but the route line, ETA/guidance card, and turn hints all keep working normally; only the camera framing and basemap change. Switching styles takes effect immediately, no waiting for the next GPS update. Traffic indicators and the direction-of-travel arrows render identically in both styles — they're a screen-space polar plot layered above the map, not tied to its tilt (`src/navDisplayStyle.js`, `NAV_RAW` state in `src/navigation/navigationCameraEvaluator.js`, ring rendering in `UI.renderRangeRings()`, raw basemap in `src/map/navStyle.js`).
 
 The 📍 button next to the mode row arms destination-picking — the next map tap/click
@@ -266,6 +268,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
     colorblindMode.js               Colour-blind-safe palette toggle state
     devMode.js                      Hidden VIEW/SPD unlock state (7-tap brand gesture)
     navDisplayStyle.js              NAV display style state (Hybrid / Raw)
+    wakeLock.js                     Screen Wake Lock wrapper — keeps the screen on during NAV mode
     /data
       adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object
