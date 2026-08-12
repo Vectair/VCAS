@@ -227,19 +227,22 @@ const UI = (() => {
   // ---- NAV top-down range rings ----
 
   /**
-   * Dashed range rings centred on the same bottom-anchored point the
-   * polar-plotted indicators use — the TCAS/ND-style "radar screen" cue
+   * Dashed elliptical range rings centred on the same bottom-anchored point
+   * the polar-plotted indicators use — the TCAS/ND-style "radar screen" cue
    * that was missing from the flat top-down view.
    *
-   * Traced from Geo.maxRadiusForBearing() at each angle, NOT drawn as
-   * plain circular arcs. The aircraft plot itself uses an asymmetric,
-   * per-bearing radius (generous ahead, clipped tighter off to the sides
-   * by the screen's safe-area margins) — a perfect circle disagrees with
-   * that everywhere except dead ahead, so an aircraft 45° off-axis could
-   * plot visibly inside a ring its own nm label put it outside of. Tracing
-   * the same per-bearing bound the aircraft itself is placed against means
-   * a ring always means exactly "this band's edge, at this bearing" —
-   * position and label always agree, at every angle, not just dead ahead.
+   * Traced from Geo.maxRadiusForBearing() at each angle — the SAME formula
+   * projectToPolarPosition() uses for the aircraft plot itself — rather
+   * than drawn as a plain circle. See maxRadiusForBearing()'s own comment
+   * for why: a plain circle sized to the generous dead-ahead headroom
+   * physically can't be honoured off-axis on a portrait phone (the usable
+   * sideways room is a fraction of it), so an aircraft's plotted radius and
+   * a plain circular ring's radius silently disagreed the further off dead
+   * ahead an aircraft was — a 24deg-off aircraft could read a full ring
+   * band closer than its own nm label implied. Both this function and the
+   * aircraft plot itself now sample an ellipse (tall — full dead-ahead
+   * reach — but narrower sideways, matching the screen's own proportions)
+   * so ring position and nm label always agree, at every bearing.
    *
    * One ring per band in `bandsNm`, each at an equal fraction of the
    * available radius (1/N, 2/N, ... N/N) — matching how
@@ -269,9 +272,9 @@ const UI = (() => {
     }
 
     const n = bandsNm.length;
-    // Same angular sweep the old circular arc covered (left, through dead
-    // ahead, to right) — sampled finely enough that straight segments
-    // between points read as a smooth curve.
+    // Sampled finely enough that straight segments between points read as
+    // a smooth curve — same left/dead-ahead/right sweep the old circular
+    // arc covered.
     const ANGLE_STEP_DEG = 5;
     const angles = [];
     for (let a = -90; a < 90; a += ANGLE_STEP_DEG) angles.push(a);
@@ -285,8 +288,8 @@ const UI = (() => {
     };
 
     // Off dead-ahead so labels don't sit under the busiest part of the
-    // plot, and computed the same per-bearing way as the ring itself so a
-    // label always sits right on its own ring, not floating off of it.
+    // plot, computed the same per-bearing way as the ring itself so a
+    // label always sits right on its own ring.
     const LABEL_ANGLE_DEG = 25;
 
     const parts = bandsNm.map((nm, i) => {

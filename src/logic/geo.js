@@ -85,15 +85,34 @@ const Geo = (() => {
   }
 
   /**
-   * The farthest radius (px) plottable at a given relative bearing before
-   * running off the safe screen area — an asymmetric "generous ahead, tight
-   * behind" teardrop, not a uniform circle, since the anchor sits near the
-   * bottom of the screen (cy = h*anchorY) with far more room above it than
-   * below or to the sides. Shared by projectToPolarPosition() (per-aircraft
-   * radius) and UI.renderRangeRings() (the reference rings drawn behind it)
-   * so a ring genuinely traces "the edge of what this bearing can show,"
-   * not an idealised circle a real off-axis aircraft's own plotted position
-   * would then disagree with.
+   * The farthest radius (px) plottable at a given relative bearing without
+   * running off the safe screen area — traced as a true ELLIPSE (vertical
+   * semi-axis rY = full dead-ahead headroom, horizontal semi-axis rX = the
+   * narrower sideways room), not a circle and not the boxy min(horizontal,
+   * vertical) rectangle-fit shape tried and reverted before this. Both
+   * earlier attempts failed the same way for different reasons:
+   *   - A plain circle sized to the generous dead-ahead headroom (rY) is
+   *     geometrically impossible to honour off-axis on a portrait phone —
+   *     rY is typically 4-5x the actual sideways room (rX), so a circle
+   *     that size doesn't fit sideways at all. Scaling every off-axis
+   *     aircraft down to whatever DOES fit (rX/sin) fixed the physics but
+   *     broke the numbers: a 24deg-off aircraft's usable radius fell to
+   *     barely half of rY, so it plotted well inside where a plain circular
+   *     ring said its own nm value should put it.
+   *   - Tracing the ring itself through that same min()-based boundary
+   *     "fixed" the mismatch by making the ring non-circular too, but
+   *     min() has a sharp kink right at the crossover angle (~13deg on a
+   *     typical phone) — everything beyond that angle sits on a flat
+   *     vertical line, not a curve, which reads as a rendering glitch more
+   *     than a radar ring.
+   * An ellipse resolves both: it is *by construction* the largest smooth
+   * curve that reaches exactly rY dead ahead, exactly rX at the sides, and
+   * never exceeds the safe rectangle at any angle between — so it needs no
+   * separate edge clamp, no kink, and (critically) since both
+   * projectToPolarPosition() and UI.renderRangeRings() sample the identical
+   * formula, an aircraft's plotted radius and its own ring band's radius
+   * are mathematically equal at its exact bearing, not just approximately
+   * close. Reduces to a circle when rX equals rY.
    */
   function maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, safeInset = 60) {
     const w = viewportWidth;
@@ -101,34 +120,39 @@ const Geo = (() => {
     const cx = w * 0.5;
     const cy = h * anchorY;
 
+    const topY  = safeInset + 20;
+    const leftX = safeInset + 20;
+    const rightX = w - safeInset - 20;
+
+    const rY = Math.max(0, cy - topY);              // dead-ahead (vertical) reach
+    const rX = Math.max(0, Math.min(cx - leftX, rightX - cx)); // sideways reach
+
+    if (rY === 0 || rX === 0) return 0;
+
     const angleRad = toRad(relativeBearing);
     const sinA = Math.sin(angleRad);
     const cosA = Math.cos(angleRad);
 
-    // Available boundaries from the anchor, respecting UI safety perimeters —
-    // same asymmetric "generous ahead, tight behind" shape as before, since
-    // that already matches the relevance teardrop's own asymmetry.
-    const topY    = safeInset + 20;
-    const bottomY = Math.min(h - safeInset - 20, cy + 40);
-    const leftX   = safeInset + 20;
-    const rightX  = w - safeInset - 20;
-
-    const maxScaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
-    const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
-    return Math.min(maxScaleX, maxScaleY);
+    // Standard polar form of an ellipse (semi-axes rX horizontal, rY
+    // vertical), angle measured from the vertical (dead-ahead) axis.
+    return (rX * rY) / Math.sqrt((rY * sinA) ** 2 + (rX * cosA) ** 2);
   }
 
   /**
    * True polar plot of a relative bearing + range: angle = bearing, radius =
    * a banded (non-linear) function of distance — see bandedRadiusFraction()
    * — anchored at the same point the 3D camera anchors the user (cx, cy =
-   * h*anchorY), matching how the tilted camera already treats "ahead" as
-   * most of the screen and "behind" as a small residual band, rather than a
-   * classic radar's full symmetric circle. Replaces the old edge-only
-   * projection (which placed every aircraft at the frame edge regardless of
-   * distance) with a genuine bearing-as-angle/distance-as-radius mapping —
-   * closer traffic now plots closer to the anchor, not jammed onto the edge
-   * alongside everything else.
+   * h*anchorY). Replaces the old edge-only projection (which placed every
+   * aircraft at the frame edge regardless of distance) with a genuine
+   * bearing-as-angle/distance-as-radius mapping — closer traffic now plots
+   * closer to the anchor, not jammed onto the edge alongside everything
+   * else.
+   *
+   * The NM-to-pixel scale is maxRadiusForBearing() — the same elliptical
+   * boundary UI.renderRangeRings() traces its rings through — so an
+   * aircraft's plotted radius and its own ring band's radius are exactly
+   * equal at its bearing; see maxRadiusForBearing() for why this needs to
+   * be an ellipse rather than a plain circle.
    *
    * @param {number[]} bandsNm  Ring band boundaries in nm — see
    *   bandedRadiusFraction(). The last entry is the effective max range;
