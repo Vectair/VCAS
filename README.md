@@ -91,9 +91,11 @@ The rings — and the traffic plot itself — use a non-linear "banded" distance
 
 **Heading tape** (Raw only, `UI.renderCompassRing()`): matching the reference image's own top-of-screen compass display, Raw mode shows an ND-style heading tape across the top of the screen — a fixed lubber line marks dead-ahead with the current heading as a 3-digit digital readout, while tick marks (minor every 10°, labelled every 30°) slide past it as you turn, the same convention a real EFIS heading tape uses. Since Raw is already heading-up, the tape's centre always reads the aircraft's current heading. Hybrid doesn't show it — the rotating road map underneath already carries its own orientation cues, unlike Raw's otherwise bare instrument background.
 
-The 📍 button next to the mode row arms destination-picking — the next map tap/click
-requests a route to that point, in whichever transport mode (driving/cycling/walking) is
-selected in the picker banner — see [Routing & Navigation Camera](#routing--navigation-camera) below.
+The 📍 button next to the mode row arms destination-picking, opening a banner with two
+ways to supply a target: type a place name/address into its search box, or tap the map
+directly — either way, a route is requested in whichever transport mode
+(driving/cycling/walking) is selected in the same banner — see
+[Routing & Navigation Camera](#routing--navigation-camera) below.
 
 ---
 
@@ -192,7 +194,12 @@ AIR mode doesn't compute relevance at all (it's intentionally unfiltered), so ev
 
 ## Routing & Navigation Camera
 
-Tapping 📍 arms destination-picking; the next map tap/click requests a route from [OpenRouteService](https://openrouteservice.org) to that point, in the selected transport mode (🚗 driving / 🚲 cycling / 🚶 walking — chosen in the picker banner, persisted across reloads) — there's no destination *search* yet, only tap-to-pick. The route renders as a 3-layer glow/line/highlight polyline (`src/map.js`), with ETA and distance shown in a bottom card. A button on that card also toggles turn-by-turn text on/off, independent of the route line.
+Tapping 📍 arms destination-picking, opening a banner with a search box, a "tap the map" hint, and the transport-mode picker (🚗 driving / 🚲 cycling / 🚶 walking, persisted across reloads). Either path lands on the same target-acquisition step:
+
+- **Search by name/address** — `src/routing/orsGeocoder.js` queries [OpenRouteService's Geocoding API](https://openrouteservice.org/dev/#/api-docs/geocode/search/get) (Pelias-based; the same `CONFIG.ORS_API_KEY` already used for routing covers it too, no separate key needed), debounced 350ms as you type (or immediately on Enter), biased toward your current position (`focus.point`) so a same-named place near you outranks one across the country. Results render as a tappable list; picking one requests the route immediately, same as a map tap does.
+- **Tap the map** — the next click/tap on the map itself supplies the target directly.
+
+Either way, `requestRouteTo(lat, lon, label)` (`src/app.js`) requests a route from OpenRouteService to that point in the selected mode — a search result's real place name becomes the route card's destination label; a map tap falls back to raw coordinates, since it has nothing else to show. The route renders as a 3-layer glow/line/highlight polyline (`src/map.js`), with ETA and distance shown in a bottom card. A button on that card also toggles turn-by-turn text on/off, independent of the route line.
 
 While a route is active, `src/navigation/navigationCameraEvaluator.js` drives the 3D camera through a small state machine, hysteresis-gated by speed and a minimum dwell time to avoid flicker:
 
@@ -299,6 +306,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
     /routing
       routingProvider.js            Abstract routing provider interface
       orsProvider.js                OpenRouteService adapter (driving/cycling/walking profiles)
+      orsGeocoder.js                OpenRouteService geocoding (destination search by name/address)
       routeGeometry.js              Polyline nearest-point / forward-projection math
     /dev
       viewportDevPanel.js           Dev-only device-size emulator overlay
@@ -316,7 +324,6 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
 - **Heading** — uses GPS course-over-ground when moving above `GPS_HEADING_MIN_SPEED_MPH`; falls back to the device compass (`src/sensors/compassHeading.js`) below that threshold, so heading keeps updating while stopped or crawling through a junction/roundabout — exactly where the relevance filter's "reshuffle on turn" behaviour matters most. Compass heading is magnetic, not true north (a few degrees off depending on region), and phone magnetometers are prone to drift/interference; the Android landscape-mount screen-rotation correction is derived from documentation and needs real-device confirmation. iOS requires a one-tap permission grant (banner shown automatically when needed); on unsupported browsers/desktop this silently does nothing and heading behaves exactly as before.
 - **Visibility model** — flat terrain, clear sky, daylight assumptions only. No cloud, terrain, or haze modelling, and critically, **no contrail modelling** — angular size vs. slant range currently drives the score, but a high, distant aircraft trailing a contrail can be far more conspicuous than a closer one in dry air. See the Ground-Truth Log Panel section above for how this gap is being measured.
 - **ADS-B coverage** — depends on feeder network; remote areas may have gaps.
-- **No destination search by name/address** — tap-to-pick-a-point-on-the-map only.
 - **CORS** — if a chosen ADS-B provider blocks direct browser requests, a small local proxy will be needed.
 - **Relevance prediction assumes straight-line motion** — both the user's and each aircraft's projected position over the lookahead window are simple heading-based projections, not route-following (for the user) or track-curving (for aircraft). Reasonable over the short window used, but not exact through a turn.
 - **Ground/low-altitude suppression is sea-level-referenced, not true height-above-you** — see the caveat in `config.js`.
@@ -327,7 +334,6 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
 
 - Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value Settings currently sets manually.
 - METAR-based QNH correction for aircraft that only report barometric altitude (no `alt_geom`) — fetch nearest METAR, parse its altimeter setting, apply the standard ~27-30ft/hPa correction. Deferred in favor of the simpler, dependency-free GPS-altitude-preference fix already in place, which covers most modern transponders.
-- Real destination search (name/address lookup) instead of tap-to-pick-a-point-on-the-map only.
 - Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
 - Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).
 - Contrail-aware visibility scoring — likely via the free, no-key [Open-Meteo](https://open-meteo.com/) pressure-level API (temperature/humidity at flight altitude) feeding a Schmidt-Appleman-criterion check into `Visibility.estimate()`, or Google's purpose-built [Contrails API](https://developers.google.com/contrails) (free but requires a Google Cloud API key) as a higher-accuracy alternative. The Ground-Truth Log Panel exists to build the evidence for whether this is worth the integration effort before committing to it.

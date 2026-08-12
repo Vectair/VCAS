@@ -32,6 +32,11 @@
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
 
+  // Destination search-by-name — debounce timer, and a token to discard a
+  // stale response if a newer search superseded it before the fetch resolved.
+  let _destSearchDebounceTimer = null;
+  let _destSearchToken = 0;
+
   // Turn-by-turn text visibility — persisted, so "route line only" sticks across reloads.
   const GUIDANCE_TEXT_KEY = "vcas-guidance-text-enabled";
   let guidanceTextEnabled = true;
@@ -350,6 +355,23 @@
         setRouteMode(btn.dataset.mode);
       });
     });
+
+    // 6a. Destination search-by-name — debounced as-you-type; Enter forces
+    // an immediate lookup rather than waiting out the debounce.
+    const destSearchInput = document.getElementById("dpb-search-input");
+    if (destSearchInput) {
+      destSearchInput.addEventListener("input", () => {
+        clearTimeout(_destSearchDebounceTimer);
+        _destSearchDebounceTimer = setTimeout(() => _searchDestination(destSearchInput.value), 350);
+      });
+      destSearchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          clearTimeout(_destSearchDebounceTimer);
+          _searchDestination(destSearchInput.value);
+        }
+      });
+    }
 
     // 7. Recenter on your own position after a manual pan/zoom/rotate
     const btnRecenter = document.getElementById("btn-recenter");
@@ -944,7 +966,32 @@
     requestRouteTo(lat, lon);
   }
 
-  async function requestRouteTo(lat, lon) {
+  /**
+   * Debounced input handler's target — geocodes `query` via OrsGeocoder and
+   * renders whatever comes back. Guarded with a token so a slow response to
+   * an earlier keystroke can't clobber a faster response to a later one.
+   */
+  async function _searchDestination(query) {
+    const text = (query || "").trim();
+    if (text.length < 3) {
+      UI.clearDestSearchResults();
+      return;
+    }
+
+    const token = ++_destSearchToken;
+    const focus = (userLat !== null) ? { lat: userLat, lon: userLon } : null;
+    const results = await OrsGeocoder.search(text, focus);
+    if (token !== _destSearchToken) return; // superseded by a newer search
+
+    UI.renderDestSearchResults(results, _onDestSearchResultSelected);
+  }
+
+  function _onDestSearchResultSelected(result) {
+    if (destPickActive) toggleDestPickMode(); // disarms + resets the search UI
+    requestRouteTo(result.lat, result.lon, result.label);
+  }
+
+  async function requestRouteTo(lat, lon, label) {
     if (!userLat) return;
 
     const btn = document.getElementById("btn-test-route");
@@ -964,7 +1011,9 @@
     }
 
     activeRoute   = route;
-    routeDestName = `${MODE_ICONS[routeMode]} ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    // A search result already has a real place name — much more useful on
+    // the route card than raw coordinates, which is all tap-to-pick has.
+    routeDestName = `${MODE_ICONS[routeMode]} ${label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`}`;
 
     EosMap.showRoute(route.geometry);
     CameraController.setRouteActive(route.geometry);

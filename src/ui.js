@@ -68,6 +68,44 @@ const UI = (() => {
     }
     const banner = document.getElementById("dest-pick-banner");
     if (banner) banner.classList.toggle("hidden", !active);
+
+    // Fresh slate every time the banner opens OR closes — a re-armed
+    // search shouldn't show whatever was typed/found last time, and a
+    // closed one shouldn't leave stale results sitting in the DOM.
+    const input = document.getElementById("dpb-search-input");
+    if (input) input.value = "";
+    clearDestSearchResults();
+  }
+
+  /**
+   * @param {Array<{label:string, lat:number, lon:number}>} results
+   * @param {function} onSelect  Called with the chosen result on tap.
+   */
+  function renderDestSearchResults(results, onSelect) {
+    const container = document.getElementById("dpb-search-results");
+    if (!container) return;
+
+    if (!results || results.length === 0) {
+      container.innerHTML = `<div class="dpb-result-empty">No matches found</div>`;
+      container.classList.remove("hidden");
+      return;
+    }
+
+    container.innerHTML = "";
+    results.forEach(result => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dpb-result-btn";
+      btn.textContent = result.label;
+      btn.addEventListener("click", () => onSelect(result));
+      container.appendChild(btn);
+    });
+    container.classList.remove("hidden");
+  }
+
+  function clearDestSearchResults() {
+    const container = document.getElementById("dpb-search-results");
+    if (container) { container.innerHTML = ""; container.classList.add("hidden"); }
   }
 
   // ---- Recenter button (shown after the user manually pans/zooms/rotates) ----
@@ -530,6 +568,8 @@ const UI = (() => {
     showGpsMessage,
     showCompassPermissionBanner,
     setDestPickMode,
+    renderDestSearchResults,
+    clearDestSearchResults,
     setRecenterVisible,
     setLoading,
     setAircraftCount,
