@@ -227,22 +227,20 @@ const UI = (() => {
   // ---- NAV top-down range rings ----
 
   /**
-   * Dashed elliptical range rings centred on the same bottom-anchored point
-   * the polar-plotted indicators use — the TCAS/ND-style "radar screen" cue
-   * that was missing from the flat top-down view.
+   * Dashed, plain-circular range rings centred on the same bottom-anchored
+   * point the polar-plotted indicators use — the TCAS/ND-style "radar
+   * screen" cue that was missing from the flat top-down view, matching a
+   * real ND's own plain circular rings.
    *
-   * Traced from Geo.maxRadiusForBearing() at each angle — the SAME formula
-   * projectToPolarPosition() uses for the aircraft plot itself — rather
-   * than drawn as a plain circle. See maxRadiusForBearing()'s own comment
-   * for why: a plain circle sized to the generous dead-ahead headroom
-   * physically can't be honoured off-axis on a portrait phone (the usable
-   * sideways room is a fraction of it), so an aircraft's plotted radius and
-   * a plain circular ring's radius silently disagreed the further off dead
-   * ahead an aircraft was — a 24deg-off aircraft could read a full ring
-   * band closer than its own nm label implied. Both this function and the
-   * aircraft plot itself now sample an ellipse (tall — full dead-ahead
-   * reach — but narrower sideways, matching the screen's own proportions)
-   * so ring position and nm label always agree, at every bearing.
+   * (Two non-circular versions were tried in between and both reverted: an
+   * "archway" shape and an ellipse, each meant to make an off-axis
+   * aircraft's plotted radius exactly equal its own ring band's radius at
+   * every bearing — mathematically sound, but visibly not a circle, which
+   * mattered more. Geo.projectToPolarPosition() keeps a uniform circular
+   * NM-to-pixel scale and only clamps individual points right at the true
+   * screen edge — see its own comment — so this plain circle is close to,
+   * not exactly, where a wide-angle aircraft plots; the trade-off is
+   * deliberate.)
    *
    * One ring per band in `bandsNm`, each at an equal fraction of the
    * available radius (1/N, 2/N, ... N/N) — matching how
@@ -263,43 +261,32 @@ const UI = (() => {
 
     const cx = viewportWidth * 0.5;
     const cy = viewportHeight * anchorY;
-    const deadAheadRadius = Geo.maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
+    const maxRadius = Geo.maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
 
-    if (deadAheadRadius <= 0 || !bandsNm || bandsNm.length === 0) {
+    if (maxRadius <= 0 || !bandsNm || bandsNm.length === 0) {
       svg.innerHTML = "";
       svg.classList.add("hidden");
       return;
     }
 
     const n = bandsNm.length;
-    // Sampled finely enough that straight segments between points read as
-    // a smooth curve — same left/dead-ahead/right sweep the old circular
-    // arc covered.
-    const ANGLE_STEP_DEG = 5;
-    const angles = [];
-    for (let a = -90; a < 90; a += ANGLE_STEP_DEG) angles.push(a);
-    angles.push(90);
-
-    const pointAt = (angleDeg, radiusFrac) => {
-      const maxR = Geo.maxRadiusForBearing(angleDeg, viewportWidth, viewportHeight, anchorY, safeInset);
-      const r = maxR * radiusFrac;
-      const rad = angleDeg * Math.PI / 180;
-      return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
-    };
-
     // Off dead-ahead so labels don't sit under the busiest part of the
-    // plot, computed the same per-bearing way as the ring itself so a
-    // label always sits right on its own ring.
-    const LABEL_ANGLE_DEG = 25;
+    // plot (straight up), at a fixed pixel offset from centre — not an
+    // angle scaled by each ring's own radius — so the outer rings' labels
+    // land just beside their own crest instead of sliding out past the
+    // screen edge on a narrow phone.
+    const labelDx = 22;
 
     const parts = bandsNm.map((nm, i) => {
-      const frac = (i + 1) / n;
-      const pts = angles.map(a => pointAt(a, frac));
-      const d = "M " + pts.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ");
-      const ring = `<path d="${d}" fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
+      const r = maxRadius * ((i + 1) / n);
+      // Semicircle: left -> top (through "ahead") -> right.
+      const ring = `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
+                fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
                 stroke-dasharray="5,6" opacity="0.55"/>`;
-      const labelPt = pointAt(LABEL_ANGLE_DEG, frac);
-      const label = `<text x="${(labelPt.x + 6).toFixed(1)}" y="${labelPt.y.toFixed(1)}" text-anchor="start" dominant-baseline="middle"
+      const dx = Math.min(labelDx, r);
+      const lx = cx + dx;
+      const ly = cy - Math.sqrt(Math.max(0, r * r - dx * dx));
+      const label = `<text x="${lx}" y="${ly}" text-anchor="start" dominant-baseline="middle"
                 style="fill:var(--text-secondary); font-size:11px" opacity="0.7">${nm}</text>`;
       return ring + label;
     }).join("");

@@ -85,34 +85,19 @@ const Geo = (() => {
   }
 
   /**
-   * The farthest radius (px) plottable at a given relative bearing without
-   * running off the safe screen area — traced as a true ELLIPSE (vertical
-   * semi-axis rY = full dead-ahead headroom, horizontal semi-axis rX = the
-   * narrower sideways room), not a circle and not the boxy min(horizontal,
-   * vertical) rectangle-fit shape tried and reverted before this. Both
-   * earlier attempts failed the same way for different reasons:
-   *   - A plain circle sized to the generous dead-ahead headroom (rY) is
-   *     geometrically impossible to honour off-axis on a portrait phone —
-   *     rY is typically 4-5x the actual sideways room (rX), so a circle
-   *     that size doesn't fit sideways at all. Scaling every off-axis
-   *     aircraft down to whatever DOES fit (rX/sin) fixed the physics but
-   *     broke the numbers: a 24deg-off aircraft's usable radius fell to
-   *     barely half of rY, so it plotted well inside where a plain circular
-   *     ring said its own nm value should put it.
-   *   - Tracing the ring itself through that same min()-based boundary
-   *     "fixed" the mismatch by making the ring non-circular too, but
-   *     min() has a sharp kink right at the crossover angle (~13deg on a
-   *     typical phone) — everything beyond that angle sits on a flat
-   *     vertical line, not a curve, which reads as a rendering glitch more
-   *     than a radar ring.
-   * An ellipse resolves both: it is *by construction* the largest smooth
-   * curve that reaches exactly rY dead ahead, exactly rX at the sides, and
-   * never exceeds the safe rectangle at any angle between — so it needs no
-   * separate edge clamp, no kink, and (critically) since both
-   * projectToPolarPosition() and UI.renderRangeRings() sample the identical
-   * formula, an aircraft's plotted radius and its own ring band's radius
-   * are mathematically equal at its exact bearing, not just approximately
-   * close. Reduces to a circle when rX equals rY.
+   * The dead-ahead radius (px) available above the anchor before the safe
+   * screen area runs out — the single, uniform NM-to-pixel scale used at
+   * EVERY bearing (see projectToPolarPosition()), matching a plain circular
+   * range ring. Two earlier, more "geometrically correct" attempts were
+   * both reverted: shrinking this per-bearing to whatever fits sideways
+   * kept aircraft on-screen but broke the numbers (a 24deg-off aircraft's
+   * radius fell to barely a third of dead-ahead's); tracing an ellipse
+   * fixed the numbers exactly but visibly wasn't a circle either. A plain
+   * phone is narrower than the anchor's dead-ahead headroom, so a circle
+   * this size genuinely cannot fit sideways without SOME compromise —
+   * projectToPolarPosition() clamps individual points at the true edge
+   * only when they'd actually run off-screen, rather than warping the
+   * scale (or the ring) everywhere to avoid that.
    */
   function maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY = 0.8, safeInset = 60) {
     const w = viewportWidth;
@@ -120,22 +105,19 @@ const Geo = (() => {
     const cx = w * 0.5;
     const cy = h * anchorY;
 
-    const topY  = safeInset + 20;
-    const leftX = safeInset + 20;
-    const rightX = w - safeInset - 20;
-
-    const rY = Math.max(0, cy - topY);              // dead-ahead (vertical) reach
-    const rX = Math.max(0, Math.min(cx - leftX, rightX - cx)); // sideways reach
-
-    if (rY === 0 || rX === 0) return 0;
-
     const angleRad = toRad(relativeBearing);
     const sinA = Math.sin(angleRad);
     const cosA = Math.cos(angleRad);
 
-    // Standard polar form of an ellipse (semi-axes rX horizontal, rY
-    // vertical), angle measured from the vertical (dead-ahead) axis.
-    return (rX * rY) / Math.sqrt((rY * sinA) ** 2 + (rX * cosA) ** 2);
+    // Available boundaries from the anchor, respecting UI safety perimeters.
+    const topY    = safeInset + 20;
+    const bottomY = Math.min(h - safeInset - 20, cy + 40);
+    const leftX   = safeInset + 20;
+    const rightX  = w - safeInset - 20;
+
+    const maxScaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
+    const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
+    return Math.min(maxScaleX, maxScaleY);
   }
 
   /**
@@ -148,11 +130,13 @@ const Geo = (() => {
    * closer to the anchor, not jammed onto the edge alongside everything
    * else.
    *
-   * The NM-to-pixel scale is maxRadiusForBearing() — the same elliptical
-   * boundary UI.renderRangeRings() traces its rings through — so an
-   * aircraft's plotted radius and its own ring band's radius are exactly
-   * equal at its bearing; see maxRadiusForBearing() for why this needs to
-   * be an ellipse rather than a plain circle.
+   * The NM-to-pixel scale is uniform (the dead-ahead radius, same at every
+   * bearing) — matching the plain circular range rings UI.renderRangeRings()
+   * draws — with maxRadiusForBearing() used only as a last-resort clamp so
+   * a point doesn't run off-screen at wide angles. That clamp only bites
+   * right at the true display edge (a large radius AND a wide angle at
+   * once) — most aircraft never hit it, so nm value and ring position
+   * agree for anything short of the extreme edge.
    *
    * @param {number[]} bandsNm  Ring band boundaries in nm — see
    *   bandedRadiusFraction(). The last entry is the effective max range;
@@ -166,8 +150,9 @@ const Geo = (() => {
     const sinA = Math.sin(angleRad);
     const cosA = Math.cos(angleRad);
 
-    const maxRadiusPx = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
-    const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * maxRadiusPx;
+    const deadAheadRadius = maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
+    const edgeRadius = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
+    const radiusPx = Math.min(bandedRadiusFraction(rangeNm, bandsNm) * deadAheadRadius, edgeRadius);
 
     const x = Math.round(cx + sinA * radiusPx);
     const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted
