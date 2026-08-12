@@ -254,8 +254,13 @@ const UI = (() => {
 
     const n = bandsNm.length;
     // Off dead-ahead so labels don't sit under the busiest part of the
-    // plot (straight up) or get clipped at the semicircle's flat edge.
-    const labelAngleRad = 55 * Math.PI / 180;
+    // plot (straight up), but at a FIXED pixel offset from centre — not an
+    // angle scaled by each ring's own radius — so the outer rings' labels
+    // land just beside their own crest instead of sliding out past the
+    // screen edge on a narrow phone (a wide constant angle pushes an outer
+    // ring's label metres past a 400px-wide viewport; a small constant
+    // offset stays on-screen for every band regardless of aspect ratio).
+    const labelDx = 22;
 
     const parts = bandsNm.map((nm, i) => {
       const r = maxRadius * ((i + 1) / n);
@@ -263,9 +268,10 @@ const UI = (() => {
       const ring = `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
                 fill="none" style="stroke:var(--text-secondary)" stroke-width="1.5"
                 stroke-dasharray="5,6" opacity="0.55"/>`;
-      const lx = cx + r * Math.sin(labelAngleRad);
-      const ly = cy - r * Math.cos(labelAngleRad);
-      const label = `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
+      const dx = Math.min(labelDx, r);
+      const lx = cx + dx;
+      const ly = cy - Math.sqrt(Math.max(0, r * r - dx * dx));
+      const label = `<text x="${lx}" y="${ly}" text-anchor="start" dominant-baseline="middle"
                 style="fill:var(--text-secondary); font-size:11px" opacity="0.7">${nm}</text>`;
       return ring + label;
     }).join("");
