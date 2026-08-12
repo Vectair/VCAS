@@ -108,6 +108,7 @@ const Visibility = (() => {
   ];
 
   const NM_TO_M = 1852;
+  const NM_PER_SM = 0.868976;
 
   function _sizeForType(typeCode) {
     if (!typeCode) return FALLBACK_SIZES.UNKNOWN;
@@ -129,11 +130,90 @@ const Visibility = (() => {
   }
 
   /**
+   * The lowest cloud layer that could actually occlude an aircraft at
+   * `altitudeFt` — only BKN/OVC/VV layers whose base sits below it (see
+   * MetarProvider, which drops FEW/SCT before this ever runs, since a
+   * mostly-clear sky barely matters). Only the LOWEST such layer matters:
+   * once line of sight hits a broken/overcast/obscured layer, whatever's
+   * above it is moot regardless of how many more layers are reported
+   * higher up.
+   */
+  function _lowestOccludingLayer(clouds, altitudeFt) {
+    if (!Array.isArray(clouds) || altitudeFt == null) return null;
+    let lowest = null;
+    for (const layer of clouds) {
+      if (layer.baseFt == null || layer.baseFt >= altitudeFt) continue;
+      if (!lowest || layer.baseFt < lowest.baseFt) lowest = layer;
+    }
+    return lowest;
+  }
+
+  /**
+   * Caps a category at "Possibly visible" — used for both partial cloud
+   * occlusion (BKN) and reduced reported ground visibility, neither of
+   * which should ever make an already-worse tier (e.g. a stale-degraded
+   * one) read as better.
+   */
+  function _capAtPossiblyVisible(cat) {
+    const possiblyIdx = CATEGORIES.findIndex(c => c.label === "Possibly visible");
+    const curIdx = CATEGORIES.indexOf(cat);
+    return CATEGORIES[Math.max(curIdx, possiblyIdx)];
+  }
+
+  /**
+   * Adjusts a base angular-size category using current METAR conditions —
+   * strictly a scoring input (see MetarProvider's own docstring for why:
+   * this app's two principles are navigation and identification, not a
+   * weather display). Two independent mechanisms:
+   *
+   *  1. Cloud occlusion (vertical): an OVC/VV layer below the aircraft is
+   *     treated as a near-total block on line of sight — not a dimmer, a
+   *     wall — dropping straight to the bottom tier regardless of how
+   *     large/close the aircraft would otherwise read. BKN (broken, real
+   *     gaps but contested LOS) gets a partial cap instead of a full drop.
+   *  2. Reported prevailing visibility (horizontal/slant haze): replaces
+   *     the generic, always-on 40NM cap in the base estimate with the
+   *     day's actual reported figure, but only when it's meaningfully
+   *     below "good" (<10SM) — many stations cap their reportable value at
+   *     10SM even on much clearer days, so treating that as a real limit
+   *     would make ordinary good-visibility days needlessly pessimistic.
+   *
+   * No-ops entirely (returns `cat` unchanged) when `metar` is null/absent,
+   * so this is fully opt-in from the caller's side.
+   */
+  function _applyMetarAdjustment(cat, altitudeFt, slantNm, metar) {
+    if (!metar) return cat;
+
+    const occluding = _lowestOccludingLayer(metar.clouds, altitudeFt);
+    if (occluding) {
+      if (occluding.cover === "OVC" || occluding.cover === "VV") {
+        return CATEGORIES[CATEGORIES.length - 1]; // "Very unlikely/not visible"
+      }
+      if (occluding.cover === "BKN") {
+        cat = _capAtPossiblyVisible(cat);
+      }
+    }
+
+    if (metar.visibilitySm != null && metar.visibilitySm < 10) {
+      const visNm = metar.visibilitySm * NM_PER_SM;
+      if (slantNm > visNm) {
+        cat = _capAtPossiblyVisible(cat);
+      }
+    }
+
+    return cat;
+  }
+
+  /**
    * Estimate visual detectability of an aircraft.
+   *
+   * @param {object} [metar]  Current METAR context from MetarProvider.getCached()
+   *   — { clouds: [{cover, baseFt}], visibilitySm }. Omit/null for no adjustment
+   *   (matches all prior behaviour exactly).
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
-  function estimate(userLat, userLon, aircraft) {
+  function estimate(userLat, userLon, aircraft, metar) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
 
     const horizNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
@@ -173,6 +253,8 @@ const Visibility = (() => {
       const idx = CATEGORIES.indexOf(cat);
       cat = CATEGORIES[Math.min(idx + 1, CATEGORIES.length - 1)];
     }
+
+    cat = _applyMetarAdjustment(cat, altitudeFt, slantNm, metar);
 
     return {
       label: cat.label,

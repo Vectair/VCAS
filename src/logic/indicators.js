@@ -53,14 +53,14 @@ const Indicators = (() => {
    * with that.
    */
   function _computeAll(aircraftList, userState, staleThresholdSeconds) {
-    const { lat, lon, heading, viewportWidth, viewportHeight } = userState;
+    const { lat, lon, heading, viewportWidth, viewportHeight, metar } = userState;
 
     return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
-        const vis = Visibility.estimate(lat, lon, a);
+        const vis = Visibility.estimate(lat, lon, a, metar);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
         const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         // Slant range (not flat horizontal distance) — the same figure
@@ -99,7 +99,9 @@ const Indicators = (() => {
    * display (via capForViewportWidth) and which page, since that's
    * display/interaction state, not something this pure function should own.
    *
-   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight }
+   * userState: { lat, lon, heading, speedMph, viewportWidth, viewportHeight, metar }
+   *   metar (optional): current MetarProvider.getCached() snapshot, passed
+   *   straight through to Visibility.estimate() — see there for what it does.
    * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
    *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
    *   there's no relevance reason exempt from suppression, including overhead/close cases.

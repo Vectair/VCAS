@@ -734,6 +734,13 @@
   async function fetchAircraft() {
     if (userLat === null) return;
 
+    // Cheap to call every tick — MetarProvider internally no-ops until its
+    // own ~15min interval elapses, so this just piggybacks on the existing
+    // poll loop rather than needing a separate timer. Fire-and-forget: the
+    // very next refreshIndicators()/refreshAirMode() call just reads
+    // whatever's cached (possibly still null on the first few ticks).
+    MetarProvider.refresh(userLat, userLon);
+
     // setInterval fires on a fixed clock regardless of whether the previous
     // call finished — on a slow connection a single fetch (up to the 8s
     // AdsbExchangeClient timeout) can easily outlast the 3s poll interval,
@@ -823,6 +830,7 @@
       speedMph: userSpeedMph,
       viewportWidth: vw,
       viewportHeight: usableViewportHeight,
+      metar: MetarProvider.getCached(),
     };
 
     const camConfig = CameraController.getLastEvaluated();
@@ -906,6 +914,7 @@
       lat: userLat, lon: userLon,
       heading: userHeading, speedMph: userSpeedMph,
       viewportWidth: vw, viewportHeight: vh,
+      metar: MetarProvider.getCached(),
     };
 
     // AIR mode stays unfiltered (buildAll, not build) — everything in range
