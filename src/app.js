@@ -1108,28 +1108,74 @@
     btn.title = guidanceTextEnabled ? "Hide turn-by-turn text" : "Show turn-by-turn text";
   }
 
+  // ORS maneuver type code -> guidance-card icon. See maneuverTracker.js's
+  // own comment for the full caveat: this schema is ORS's long-stable
+  // public one, but wasn't verified against a live response from this
+  // sandbox (network access to api.openrouteservice.org is blocked here).
+  // An unrecognised/missing code falls back to a plain unrotated arrow
+  // rather than guessing, so a schema surprise degrades quietly.
+  const MANEUVER_ICONS = {
+    0:  { rotation: -90,  glyph: "↑" }, // turn left
+    1:  { rotation: 90,   glyph: "↑" }, // turn right
+    2:  { rotation: -135, glyph: "↑" }, // sharp left
+    3:  { rotation: 135,  glyph: "↑" }, // sharp right
+    4:  { rotation: -45,  glyph: "↑" }, // slight left
+    5:  { rotation: 45,   glyph: "↑" }, // slight right
+    6:  { rotation: 0,    glyph: "↑" }, // continue straight
+    7:  { rotation: 0,    glyph: "⟳" }, // enter roundabout
+    8:  { rotation: 0,    glyph: "⟳" }, // exit roundabout
+    9:  { rotation: 180,  glyph: "↑" }, // u-turn
+    10: { rotation: 0,    glyph: "📍" }, // arrive
+    11: { rotation: 0,    glyph: "↑" }, // depart
+    12: { rotation: -30,  glyph: "↑" }, // keep left
+    13: { rotation: 30,   glyph: "↑" }, // keep right
+  };
+  const DEFAULT_MANEUVER_ICON = { rotation: 0, glyph: "↑" };
+
   /**
-   * Live turn instruction, driven by NavigationCameraEvaluator's maneuver
-   * detection (via CameraController.getLastEvaluated()) — replaces the old
-   * static "Continue"/↑ placeholder. Called on every refresh, not just when
-   * the route first activates, so the distance countdown and left/right
-   * call actually update as you drive.
+   * Live turn instruction. Primary source is ManeuverTracker against ORS's
+   * own turn-by-turn steps (real street names, real maneuver types,
+   * roundabout/arrival detection) — falls back to NavigationCameraEvaluator's
+   * geometric bearing-delta detector (via CameraController.getLastEvaluated())
+   * only when a route has no usable steps (an older/unexpected ORS response
+   * shape), so the card still shows *something* rather than going blank.
+   * Called on every refresh, not just when the route first activates, so
+   * the distance countdown and instruction actually update as you drive.
    */
-  function _updateGuidanceCard(maneuver) {
+  function _updateGuidanceCard(fallbackManeuver) {
     if (!activeRoute) return;
     const actionEl = document.getElementById("ngc-action-text");
     const iconEl   = document.getElementById("ngc-maneuver-icon");
     if (!actionEl || !iconEl) return;
 
-    if (maneuver && maneuver.exists) {
-      const direction = maneuver.bearingDeltaDeg > 0 ? "right" : "left";
-      actionEl.textContent = `Turn ${direction} in ${_fmtDistance(maneuver.distanceMeters)}`;
-      const iconRotation = Math.max(-120, Math.min(120, maneuver.bearingDeltaDeg));
-      iconEl.style.transform = `rotate(${iconRotation}deg)`;
-    } else {
-      actionEl.textContent = "Continue";
-      iconEl.style.transform = "rotate(0deg)";
+    const hasSteps = Array.isArray(activeRoute.steps) && activeRoute.steps.length > 0;
+    const routeManeuver = (hasSteps && userLat !== null && userLon !== null)
+      ? ManeuverTracker.nextManeuver(activeRoute.geometry.coordinates, activeRoute.steps, userLon, userLat)
+      : { exists: false };
+
+    if (routeManeuver.exists) {
+      const icon = MANEUVER_ICONS[routeManeuver.type] || DEFAULT_MANEUVER_ICON;
+      const instruction = routeManeuver.instruction || (routeManeuver.isArrival ? "Arrive at destination" : "Continue");
+      actionEl.textContent = routeManeuver.isArrival
+        ? instruction
+        : `${instruction} — ${_fmtDistance(routeManeuver.distanceMeters)}`;
+      iconEl.textContent = icon.glyph;
+      iconEl.style.transform = `rotate(${icon.rotation}deg)`;
+      return;
     }
+
+    if (fallbackManeuver && fallbackManeuver.exists) {
+      const direction = fallbackManeuver.bearingDeltaDeg > 0 ? "right" : "left";
+      actionEl.textContent = `Turn ${direction} in ${_fmtDistance(fallbackManeuver.distanceMeters)}`;
+      iconEl.textContent = "↑";
+      const iconRotation = Math.max(-120, Math.min(120, fallbackManeuver.bearingDeltaDeg));
+      iconEl.style.transform = `rotate(${iconRotation}deg)`;
+      return;
+    }
+
+    actionEl.textContent = "Continue";
+    iconEl.textContent = "↑";
+    iconEl.style.transform = "rotate(0deg)";
   }
 
   // ---- Numerical Utilities ----

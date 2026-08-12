@@ -49,10 +49,23 @@ const OrsProvider = (() => {
       if (!feature) return null;
 
       const summary = feature.properties.summary;
+      // Turn-by-turn steps, when ORS includes them — properties.segments is
+      // one entry per requested leg (always one leg here, a single start/end
+      // pair), each with its own .steps[] array. See maneuverTracker.js for
+      // how these get turned into the guidance card's live instruction.
+      // Defensive: an unexpected/older response shape just yields no steps,
+      // not a crash — the guidance card falls back to its own geometry-only
+      // detection when that happens.
+      const segments = feature.properties.segments;
+      const steps = (Array.isArray(segments) && segments[0] && Array.isArray(segments[0].steps))
+        ? segments[0].steps
+        : [];
+
       return {
         geometry:        feature.geometry, // GeoJSON LineString
         distanceMeters:  summary.distance,
         durationSeconds: summary.duration,
+        steps,
       };
     } catch (err) {
       clearTimeout(timer);

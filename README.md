@@ -214,7 +214,7 @@ Each state has its own pitch/zoom/anchor baseline, and the camera's forward-look
 
 **Caveat**: these speed thresholds (and `GPS_HEADING_MIN_SPEED_MPH`) were tuned around driving. Now that cycling/walking routing exists, walking-pace testing may show `NAV_IDLE`/`URBAN_GUIDANCE` behaving oddly at single-digit mph — likely needs its own tuning pass once there's real walking-speed field data.
 
-**Known gap:** the guidance card's turn instruction text and arrow icon are static placeholders ("Continue" / ↑) — they aren't yet derived from the real upcoming maneuver, even though `TURN_APPROACH` detection already exists internally.
+**Guidance card text** (`src/navigation/maneuverTracker.js`): live turn-by-turn instruction, not a placeholder — `ManeuverTracker.nextManeuver()` reads OpenRouteService's own turn-by-turn steps (`orsProvider.js` now keeps `properties.segments[].steps[]` from the Directions response, previously discarded) to find which step the user is currently on and announce the *next* one: real instruction text and street name from ORS itself (e.g. "Turn right onto Oak Avenue"), with a live distance countdown computed from the user's actual snapped position via `RouteGeometry.distanceToIndex()` — not ORS's own per-step distance, which is static from route-request time. The maneuver icon rotates/swaps per ORS's numeric maneuver type code (left/right/sharp/slight/roundabout/u-turn/arrive), independent of `NavigationCameraEvaluator`'s own bearing-delta turn detector, which still drives the camera's `TURN_APPROACH` zoom-in — that one only decides *when the camera frames a turn*, not what the card says. If a route somehow has no usable steps (an unexpected ORS response shape), the card falls back to the camera's own geometric left/right detection rather than going blank. **Caveat**: ORS's steps schema (maneuver type codes, `way_points` indexing) is long-stable and well-documented, but this implementation could not be verified against a *live* ORS response — the sandbox it was built in has no network path to `api.openrouteservice.org` — so it's worth confirming instruction text and street names actually appear correctly on a real route before trusting it fully.
 
 ---
 
@@ -301,6 +301,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
       themeManager.js               Day/Night/Auto resolution
     /navigation
       navigationCameraEvaluator.js  Pure state machine: driving context → camera targets
+      maneuverTracker.js            ORS turn-by-turn steps → guidance card's live instruction/distance
     /sensors
       compassHeading.js             Device-compass heading fallback for stationary/slow GPS
     /routing
