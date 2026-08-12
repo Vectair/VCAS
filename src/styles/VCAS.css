@@ -276,7 +276,7 @@ html, body {
   background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
 }
 
-/* Mode row: [NAV|AIR toggle] | count | route */
+/* Mode row: [Hybrid|Raw|Air toggle] | count | route */
 #mode-row {
   display: flex;
   align-items: center;
@@ -304,10 +304,13 @@ html, body {
 .mode-btn:active       { background: var(--btn-hover); }
 .mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
 
-/* NAV/AIR co-located as one segmented control (same pattern as
-   .theme-toggle-group in the settings screen) rather than two independent
+/* Hybrid/Raw/Air co-located as one segmented control (same pattern as
+   .theme-toggle-group in the settings screen) rather than independent
    buttons at opposite ends of the bar — switching modes on a touchscreen
-   shouldn't mean reaching across the width of the screen. */
+   shouldn't mean reaching across the width of the screen. Tighter padding/
+   font than the base .mode-btn (which the standalone route-pin button also
+   uses) — three labels including "HYBRID" need to fit one row alongside
+   the aircraft count and route button on a narrow phone. */
 .mode-toggle {
   display: flex;
   align-items: center;
@@ -322,6 +325,8 @@ html, body {
   border: none;
   border-right: 1px solid var(--border);
   border-radius: 0;
+  padding: 10px 12px;
+  font-size: 11px;
 }
 
 .mode-toggle .mode-btn:last-child { border-right: none; }

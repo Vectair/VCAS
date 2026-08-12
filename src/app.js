@@ -119,7 +119,7 @@
     // Core Fix: Localised assignment execution handles the button setup cleanly
     bindButtons(); 
     
-    UI.setModeLabel("nav");
+    UI.setModeLabel(_activeDisplayMode());
     UI.setAdsbStatus("error", "ADS-B");
     UI.setLoading(false);
 
@@ -201,18 +201,6 @@
       _refreshSettingsScreen();
     });
 
-    document.getElementById("btn-navstyle-hybrid")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      NavDisplayStyle.set(NavDisplayStyle.HYBRID);
-      _refreshSettingsScreen();
-    });
-
-    document.getElementById("btn-navstyle-raw")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      NavDisplayStyle.set(NavDisplayStyle.RAW);
-      _refreshSettingsScreen();
-    });
-
     document.getElementById("btn-settings-export")?.addEventListener("click", (e) => {
       e.preventDefault();
       ObservationLogger.exportFallback();
@@ -263,10 +251,6 @@
       groundBtn.classList.toggle("active", on);
     }
 
-    const isRaw = NavDisplayStyle.isRaw();
-    document.getElementById("btn-navstyle-hybrid")?.classList.toggle("active-theme", !isRaw);
-    document.getElementById("btn-navstyle-raw")?.classList.toggle("active-theme", isRaw);
-
     const enabled     = AltitudeSuppressPanel.isEnabled();
     const thresholdFt = String(AltitudeSuppressPanel.getThresholdFt());
     document.querySelectorAll("#settings-alt-presets .settings-preset-btn").forEach(btn => {
@@ -290,28 +274,26 @@
   // ---- Core Interface Event Listeners Matrix ---- //
 
   function bindButtons() {
-    // 1. Navigation View Selection Tracking Mode Toggle
-    const btnNav = document.getElementById("btn-nav");
-    if (btnNav) {
-      btnNav.addEventListener("click", (e) => {
+    // 1 & 2. Hybrid / Raw — both enter NAV mode, just with a different
+    // NavDisplayStyle; surfaced as two peer main-screen buttons rather than
+    // one NAV button plus a buried Settings sub-toggle.
+    const btnHybrid = document.getElementById("btn-hybrid");
+    if (btnHybrid) {
+      btnHybrid.addEventListener("click", (e) => {
         e.preventDefault();
-        if (mode === "nav") return;
-        mode = "nav";
-        indicatorPage = 0; // fresh start when re-entering NAV mode
-        document.body.dataset.mode = "nav";
-        UI.setModeLabel("nav");
-        navFollowSuspended = false;
-        UI.setRecenterVisible(false);
-        WakeLock.enable();
-        if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
-        if (userLat !== null && userLon !== null) {
-          CameraController.transitionToNav(userLat, userLon, userHeading);
-          refreshIndicators();
-        }
+        _enterNavMode(NavDisplayStyle.HYBRID);
       });
     }
 
-    // 2. Airspace View Overview Strategic Selection Toggle
+    const btnRaw = document.getElementById("btn-raw");
+    if (btnRaw) {
+      btnRaw.addEventListener("click", (e) => {
+        e.preventDefault();
+        _enterNavMode(NavDisplayStyle.RAW);
+      });
+    }
+
+    // 3. Airspace View Overview Strategic Selection Toggle
     const btnAir = document.getElementById("btn-air");
     if (btnAir) {
       btnAir.addEventListener("click", (e) => {
@@ -577,18 +559,56 @@
 
   // ---- NAV display style (Hybrid vs Raw) ----
 
+  /** Which of the three main-screen buttons should read "active" right now. */
+  function _activeDisplayMode() {
+    return mode === "air" ? "air" : (NavDisplayStyle.isRaw() ? "raw" : "hybrid");
+  }
+
   function onNavDisplayStyleChanged() {
     // Swap the basemap between the normal themed map (Hybrid) and the raw
     // instrument-screen look (Raw), and re-evaluate the camera immediately
     // rather than waiting for the next GPS tick, so flipping the setting
     // visibly takes effect right away.
     _applyNavStyleToDom();
+    UI.setModeLabel(_activeDisplayMode());
     if (window._mapInitialised) {
       EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
     }
     if (mode === "nav" && userLat !== null) {
       CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
       refreshIndicators(); // range rings appear/disappear immediately too
+    }
+  }
+
+  /**
+   * Shared entry point for the Hybrid and Raw main-screen buttons — both are
+   * NAV mode under the hood (see `mode`), just a different NavDisplayStyle.
+   * Setting the style BEFORE doing any camera/mode work (rather than relying
+   * solely on onNavDisplayStyleChanged's side effects) means a same-tap
+   * AIR->Raw jump picks up the right camera preset on its very first
+   * transitionToNav() call, not a Hybrid one corrected a frame later.
+   */
+  function _enterNavMode(style) {
+    const styleChanging = NavDisplayStyle.get() !== style;
+    const modeChanging = mode !== "nav";
+
+    if (!styleChanging && !modeChanging) return; // already exactly this view
+
+    if (styleChanging) NavDisplayStyle.set(style); // fires onNavDisplayStyleChanged
+
+    if (!modeChanging) return; // style-only change: onNavDisplayStyleChanged already handled it
+
+    mode = "nav";
+    indicatorPage = 0; // fresh start when re-entering NAV mode
+    document.body.dataset.mode = "nav";
+    UI.setModeLabel(_activeDisplayMode());
+    navFollowSuspended = false;
+    UI.setRecenterVisible(false);
+    WakeLock.enable();
+    if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
+    if (userLat !== null && userLon !== null) {
+      CameraController.transitionToNav(userLat, userLon, userHeading);
+      refreshIndicators();
     }
   }
 

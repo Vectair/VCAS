@@ -117,13 +117,23 @@ const UI = (() => {
 
   // ---- Mode label ----
 
-  function setModeLabel(mode) {
+  const MODE_LABELS = { hybrid: "DRIVING VIEW", raw: "RAW VIEW", air: "AIRSPACE VIEW" };
+
+  /**
+   * @param {"hybrid"|"raw"|"air"} displayMode  The active one of the three
+   *   main-screen buttons — Hybrid/Raw are both NAV mode under the hood
+   *   (see NavDisplayStyle), just different basemaps/cameras, but they're
+   *   now surfaced as three peer choices rather than NAV/AIR plus a
+   *   buried Settings sub-toggle.
+   */
+  function setModeLabel(displayMode) {
     const el = document.getElementById("mode-label");
     if (!el) return;
-    el.textContent = mode === "nav" ? "DRIVING VIEW" : "AIRSPACE VIEW";
+    el.textContent = MODE_LABELS[displayMode] || MODE_LABELS.hybrid;
 
-    document.getElementById("btn-nav")?.classList.toggle("active-mode", mode === "nav");
-    document.getElementById("btn-air")?.classList.toggle("active-mode", mode === "air");
+    document.getElementById("btn-hybrid")?.classList.toggle("active-mode", displayMode === "hybrid");
+    document.getElementById("btn-raw")?.classList.toggle("active-mode", displayMode === "raw");
+    document.getElementById("btn-air")?.classList.toggle("active-mode", displayMode === "air");
   }
 
   // ---- Edge indicators ----
