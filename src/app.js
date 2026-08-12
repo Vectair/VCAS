@@ -320,7 +320,8 @@
         document.body.dataset.mode = "air";
         UI.setModeLabel("air");
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
-        UI.clearRangeRings(); // Only ever shown in NAV's Raw style
+        UI.clearRangeRings(); // Only ever shown in NAV mode
+        UI.clearCompassRing(); // Only ever shown in NAV's Raw style
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -813,6 +814,14 @@
     // featureless background did.
     const anchorY = camConfig ? camConfig.anchorY : 0.8;
     UI.renderRangeRings(vw, usableViewportHeight, Indicators.RING_BANDS_NM, anchorY);
+
+    // ND-style heading tape — Raw only, matching the reference image; Hybrid's
+    // rotating road map already carries its own orientation cues.
+    if (NavDisplayStyle.isRaw()) {
+      UI.renderCompassRing(vw, userHeading);
+    } else {
+      UI.clearCompassRing();
+    }
   }
 
   function onCycleIndicatorPage() {

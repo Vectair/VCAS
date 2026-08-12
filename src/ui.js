@@ -279,6 +279,68 @@ const UI = (() => {
     if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
   }
 
+  // ---- NAV Raw-mode heading/compass tape ----
+
+  /**
+   * ND-style heading tape across the top of the screen — Raw mode only
+   * (per the reference image), since Hybrid's rotating road map already
+   * carries its own orientation cues a bare basemap doesn't have. A fixed
+   * lubber line marks dead-ahead (the current heading, always centred,
+   * since Raw is heading-up); tick marks and 3-digit heading labels slide
+   * past it as the aircraft turns, same convention as a real EFIS heading
+   * tape. Minor ticks every 10°, labelled major ticks every 30°.
+   *
+   * @param {number} viewportWidth
+   * @param {number} headingDeg    Current true heading, any real number
+   *   (wrapped to [0, 360) internally).
+   * @param {number} safeInset     Top clearance to draw below (matches the
+   *   same safe-area constant used for range rings/indicator plotting).
+   */
+  function renderCompassRing(viewportWidth, headingDeg, safeInset = 60) {
+    const svg = document.getElementById("nav-compass-ring");
+    if (!svg) return;
+
+    const cx = viewportWidth * 0.5;
+    const tickTopY = safeInset;
+    const PX_PER_DEG = 6;
+    const halfSpanDeg = Math.min(60, viewportWidth / (2 * PX_PER_DEG));
+    const heading = ((headingDeg % 360) + 360) % 360;
+
+    const startDeg = Math.ceil((heading - halfSpanDeg) / 10) * 10;
+    const endDeg = heading + halfSpanDeg;
+
+    let ticks = "";
+    for (let deg = startDeg; deg <= endDeg; deg += 10) {
+      const wrapped = ((deg % 360) + 360) % 360;
+      const x = cx + (deg - heading) * PX_PER_DEG;
+      const isMajor = wrapped % 30 === 0;
+      const tickH = isMajor ? 14 : 8;
+      ticks += `<line x1="${x}" y1="${tickTopY}" x2="${x}" y2="${tickTopY + tickH}"
+                  style="stroke:var(--text-secondary)" stroke-width="1.5" opacity="0.7"/>`;
+      if (isMajor) {
+        const label = String(wrapped).padStart(3, "0");
+        ticks += `<text x="${x}" y="${tickTopY + tickH + 14}" text-anchor="middle"
+                    style="fill:var(--text-secondary); font-size:12px" opacity="0.85">${label}</text>`;
+      }
+    }
+
+    // Fixed lubber line — points down at the tick baseline, always centred.
+    const pointer = `<path d="M ${cx - 7} ${tickTopY - 16} L ${cx + 7} ${tickTopY - 16} L ${cx} ${tickTopY - 2} Z"
+                fill="var(--accent)" opacity="0.9"/>`;
+
+    const hdgRounded = Math.round(heading) % 360;
+    const digital = `<text x="${cx}" y="${tickTopY - 22}" text-anchor="middle"
+                style="fill:var(--text-primary); font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
+
+    svg.innerHTML = ticks + pointer + digital;
+    svg.classList.remove("hidden");
+  }
+
+  function clearCompassRing() {
+    const svg = document.getElementById("nav-compass-ring");
+    if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
+  }
+
   // ---- Popup ----
 
   /** Shared row of ground-truth log buttons, embedded in both popups below. */
@@ -437,6 +499,8 @@ const UI = (() => {
     clearIndicators,
     renderRangeRings,
     clearRangeRings,
+    renderCompassRing,
+    clearCompassRing,
     showPopup,
     showAirPopup,
     hidePopup,
