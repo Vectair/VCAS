@@ -104,6 +104,24 @@ html, body {
   animation: halo-pulse 2.5s ease-in-out infinite;
 }
 
+/* RAW's basemap is always near-black regardless of Day/Night/Auto, but the
+   user marker's own colour still followed the resolved theme — Day's
+   duller olive green (tuned for a pale road-map background) read as dim
+   and low-contrast against RAW's black, same problem as the indicator
+   labels and range rings below. Forces the brighter night-theme green
+   RAW's black background actually needs, matching how colorRaw already
+   does this for traffic symbols. */
+body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
+  background: rgba(156,200,40,.14);
+  border-color: rgba(156,200,40,.3);
+}
+body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
+  filter: drop-shadow(0 0 6px rgba(156,200,40,.75));
+}
+body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
+  fill: #9cc828;
+}
+
 .user-marker-nav {
   position: relative;
   z-index: 1;
@@ -597,6 +615,24 @@ html, body {
 
 body[data-theme="day"] .indicator-label {
   background: rgba(245,243,238,.88);
+}
+
+/* RAW's map/traffic colours are always forced dark regardless of Day/
+   Night/Auto (see colorRaw in visibility.js), but the label BOX itself
+   still followed the resolved theme — Day's near-white background behind
+   a white diamond icon, both rendered over RAW's forced-black map, is
+   illegible in every direction at once. Wins over the Day override above
+   via source order (this rule comes later) even though data-theme="day"
+   and data-nav-style="raw" are both present on <body> simultaneously.
+   (Border colour isn't set here — .indicator-label's border-color is
+   inline per-element, from _borderColor() in ui.js, which is RAW-aware
+   for the same reason.) */
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label {
+  background: rgba(14,17,23,.88);
+}
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label .actype,
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-distance {
+  color: #8b949e;
 }
 
 .indicator-label .callsign {
