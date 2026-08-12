@@ -2,17 +2,23 @@
  * ObservationLogger — records ground-truth "was this actually visible"
  * observations, logged via the dev log panel (src/dev/logPanel.js).
  *
- * Primary path: POST to the local logging server (logServer.py), which
- * appends each observation as one line to logs/observations.jsonl on disk —
- * a real, inspectable file, not just browser-local state.
+ * Primary path: POST to CONFIG.LOG_ENDPOINT — a real internet endpoint
+ * (see logs/README or the deploy notes for the Bluehost PHP script this
+ * points at) so every device logs to the same central place automatically.
+ * Falls back to the relative "/api/log" when LOG_ENDPOINT isn't configured,
+ * which only resolves to anything when running logServer.py locally — kept
+ * for local dev without needing config.js changes.
  *
- * Fallback: if that POST fails (e.g. the plain `python -m http.server` is
- * running instead of logServer.py, so there's no /api/log endpoint), the
- * observation is kept in localStorage instead of being silently dropped,
- * with an export() to pull it out as a downloadable file later.
+ * Fallback: if that POST fails (offline, endpoint down, or nothing
+ * configured and logServer.py isn't running), the observation is kept in
+ * localStorage instead of being silently dropped, with an export() to pull
+ * it out as a downloadable file later.
  */
 const ObservationLogger = (() => {
-  const LOG_ENDPOINT      = "/api/log";
+  const LOG_ENDPOINT =
+    (typeof CONFIG !== "undefined" && CONFIG.LOG_ENDPOINT) ? CONFIG.LOG_ENDPOINT : "/api/log";
+  const LOG_ENDPOINT_KEY =
+    (typeof CONFIG !== "undefined" && CONFIG.LOG_ENDPOINT_KEY) ? CONFIG.LOG_ENDPOINT_KEY : "";
   const LOCAL_STORAGE_KEY = "vcas-observation-log-fallback";
 
   // Shared outcome vocabulary — used by the LOG panel's per-row buttons and
@@ -87,9 +93,12 @@ const ObservationLogger = (() => {
    */
   async function record(observation) {
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (LOG_ENDPOINT_KEY) headers["X-VCAS-Key"] = LOG_ENDPOINT_KEY;
+
       const res = await fetch(LOG_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(observation),
       });
       if (!res.ok) throw new Error("log server responded " + res.status);

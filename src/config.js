@@ -45,6 +45,24 @@ const CONFIG = {
   // shift the app's out-of-the-box starting state.
   SUPPRESS_LOW_ALTITUDE_ENABLED: false,
   SUPPRESS_LOW_ALTITUDE_FT: 500,
+
+  // ---- Central Observation Log ----
+  // Ground-truth "was this actually visible" log (src/dev/observationLogger.js,
+  // logged via the dev LOG panel/popup buttons). Points at a real internet
+  // endpoint so every device — phone, PC, whatever — logs to the SAME place
+  // automatically, instead of each device only having its own local
+  // logServer.py / localStorage fallback. Leave blank ("") to fall back to
+  // the old relative "/api/log" behaviour (only works when running
+  // logServer.py locally) — useful for local dev without touching this file.
+  //
+  // LOG_ENDPOINT_KEY is sent as the X-VCAS-Key header on every request. It's
+  // NOT a real secret — this is a static site, so anything here ships to
+  // every visitor's browser and can be read from the deployed JS. Treat it
+  // as a low-effort deterrent against random bots hitting the endpoint
+  // blindly, not as actual access control; the endpoint's own server-side
+  // logic is what should enforce anything that actually matters.
+  LOG_ENDPOINT: "",
+  LOG_ENDPOINT_KEY: "",
 };
 
 if (typeof module !== "undefined") module.exports = CONFIG;

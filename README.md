@@ -248,9 +248,11 @@ The **LOG** button (bottom-left, always visible) opens a list of *every* current
 | ▨ | Not visible — obstruction (building/terrain in the way) |
 | ✕ | Not visible — just not seen |
 
-Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in `logs/observations.jsonl` (JSON Lines: one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later). Requires running `logServer.py` instead of a plain static server (see Quick Start above); you can browse the accumulated log directly at `http://localhost:8080/api/log`.
+Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in a JSON Lines log (one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later).
 
-If the log server isn't running (e.g. you're using plain `python -m http.server`, or the GitHub Pages deployment, which has no backend at all), observations aren't lost — `src/dev/observationLogger.js` falls back to buffering them in `localStorage`. Exporting those buffered observations as a downloadable `.jsonl` file is in the **Settings** screen (see below), not this panel — logging a sighting is an in-the-moment action, exporting the backlog is an occasional/administrative one.
+**Where it goes**: `src/dev/observationLogger.js` POSTs to `CONFIG.LOG_ENDPOINT` (`src/config.js`) when one is configured — a real internet endpoint, so every device (phone, PC, whatever's actually running the deployed GitHub Pages app) logs to the exact same central place automatically, no manual export/sync between devices. `CONFIG.LOG_ENDPOINT_KEY` is sent as an `X-VCAS-Key` header on every request; it's a low-effort filter against random bots hitting the endpoint blindly, not real security — this is a static site, so both values ship to every visitor's browser and can be read from the deployed JS. When `LOG_ENDPOINT` is left blank, it falls back to the old relative `/api/log`, which only resolves to anything when running `logServer.py` locally instead of a plain static server (see Quick Start above) — useful for local dev without touching config.js.
+
+If neither is reachable (offline, endpoint down, or nothing configured and `logServer.py` isn't running), observations aren't lost — `ObservationLogger` falls back to buffering them in `localStorage`. Exporting those buffered observations as a downloadable `.jsonl` file is in the **Settings** screen (see below), not this panel — logging a sighting is an in-the-moment action, exporting the backlog is an occasional/administrative one.
 
 **Why this exists:** the current visibility model is angular-size-only and has no concept of contrails, cloud, haze, or terrain occlusion — real spotting can diverge from what the app predicts in ways the model can't currently explain (e.g. a high, distant aircraft trailing a contrail being far more conspicuous than a closer one in dry air). This panel is how that gap gets measured before it gets modelled.
 
@@ -265,7 +267,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
   index.html                        Entry point — script load order matters
   README.md
   generate_tree.py                  Local dev utility (not part of the app)
-  logServer.py                      Static server + POST/GET /api/log (ground-truth observation persistence)
+  logServer.py                      Static server + POST/GET /api/log — local-dev fallback when CONFIG.LOG_ENDPOINT isn't set
   .gitignore                        Excludes logs/ (real GPS data) and OS/Python cruft
   /src
     app.js                          Main controller: GPS loop, mode switching, fetch loop, routing UI
@@ -300,7 +302,7 @@ If the log server isn't running (e.g. you're using plain `python -m http.server`
       routeGeometry.js              Polyline nearest-point / forward-projection math
     /dev
       viewportDevPanel.js           Dev-only device-size emulator overlay
-      observationLogger.js          POSTs to /api/log, falls back to localStorage if unavailable
+      observationLogger.js          POSTs to CONFIG.LOG_ENDPOINT (falls back to /api/log, then localStorage)
       logPanel.js                   Dev-only ground-truth logging UI (LOG button)
     /styles
       VCAS.css                      All styles
