@@ -81,10 +81,12 @@ const Visibility = (() => {
   //
   // colorRaw: RAW display style is meant to be as close a match to a real
   // TCAS/ND instrument screen as practical (Settings -> NAV display style),
-  // so rather than approximate further, these are sampled directly from a
-  // real ND reference screenshot (red square ~#fd0000, amber circle
-  // ~#fc9800, white diamond) — not darkened/adapted at all, since RAW's
-  // basemap is always the same near-black regardless of Day/Night/Auto.
+  // so rather than approximate further, these are pixel-sampled directly
+  // from a real ND reference photo (red square peak (251,0,10), amber
+  // circle peak (255,155,20), white diamond peak ~(248,248,248)) — not
+  // darkened/adapted at all, since RAW's basemap is always the same black
+  // regardless of Day/Night/Auto. (The literal colorRaw values below had
+  // drifted slightly off this comment's own stated sample — realigned.)
   // Overridden by colorblindSafe when the colour-blind toggle is on, same
   // as every other style — accessibility wins over reference-fidelity.
   //
@@ -101,8 +103,8 @@ const Visibility = (() => {
   // shape+fillOpacity channel, so the tier is legible from outline/fill
   // alone even with zero colour perception.
   const CATEGORIES = [
-    { label: "Certainly visible",         minAngle: 0.5,   shape: "square",  fillOpacity: 1, color: "#e53935", colorDay: "#a3221d", colorRaw: "#ff2020", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 100 },
-    { label: "Likely visible",            minAngle: 0.167, shape: "circle",  fillOpacity: 1, color: "#ffd400", colorDay: "#8a6d00", colorRaw: "#ff9800", colorblindSafe: "#f0e442", colorblindSafeDay: "#948d28", score: 66 },
+    { label: "Certainly visible",         minAngle: 0.5,   shape: "square",  fillOpacity: 1, color: "#e53935", colorDay: "#a3221d", colorRaw: "#fb000a", colorblindSafe: "#cc79a7", colorblindSafeDay: "#7e4b67", score: 100 },
+    { label: "Likely visible",            minAngle: 0.167, shape: "circle",  fillOpacity: 1, color: "#ffd400", colorDay: "#8a6d00", colorRaw: "#ff9b14", colorblindSafe: "#f0e442", colorblindSafeDay: "#948d28", score: 66 },
     { label: "Possibly visible",          minAngle: 0.05,  shape: "diamond", fillOpacity: 1, color: "#2dd4bf", colorDay: "#0e6a7d", colorRaw: "#ffffff", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 33 },
     { label: "Very unlikely/not visible", minAngle: 0,     shape: "diamond", fillOpacity: 0, color: "#2dd4bf", colorDay: "#0e6a7d", colorRaw: "#ffffff", colorblindSafe: "#0072b2", colorblindSafeDay: "#00466e", score: 10 },
   ];

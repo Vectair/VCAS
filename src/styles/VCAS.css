@@ -105,21 +105,22 @@ html, body {
 }
 
 /* RAW's basemap is always near-black regardless of Day/Night/Auto, but the
-   user marker's own colour still followed the resolved theme — Day's
-   duller olive green (tuned for a pale road-map background) read as dim
-   and low-contrast against RAW's black, same problem as the indicator
-   labels and range rings below. Forces the brighter night-theme green
-   RAW's black background actually needs, matching how colorRaw already
-   does this for traffic symbols. */
+   user marker's own colour still followed the resolved theme, which read as
+   dim/low-contrast against RAW's black, same problem as the indicator
+   labels and range rings below — so it's forced here instead, same as
+   colorRaw already does for traffic symbols. Colour is pure yellow
+   (255,255,0), pixel-sampled directly from a real ND reference photo's own
+   ownship symbol (measured peak (254,254,18)) — not the olive/yellow-green
+   this used to be. */
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
-  background: rgba(156,200,40,.14);
-  border-color: rgba(156,200,40,.3);
+  background: rgba(255,255,0,.14);
+  border-color: rgba(255,255,0,.3);
 }
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
-  filter: drop-shadow(0 0 6px rgba(156,200,40,.75));
+  filter: drop-shadow(0 0 6px rgba(255,255,0,.75));
 }
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
-  fill: #9cc828;
+  fill: #ffff00;
 }
 
 .user-marker-nav {
@@ -692,7 +693,7 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label {
 }
 body[data-mode="nav"][data-nav-style="raw"] .indicator-label .actype,
 body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-distance {
-  color: #8b949e;
+  color: #f0f0f0;
 }
 
 .indicator-label .callsign {

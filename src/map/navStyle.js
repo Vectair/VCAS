@@ -136,14 +136,16 @@ const NavStyle = (() => {
     },
 
     // "raw" — the Raw NAV display style's instrument-screen look, as close
-    // as practical to a real TCAS/ND: near-black, no road/building/label
-    // detail at all (an ND doesn't show roads either), just the background
-    // the range rings/traffic/route line render over. Always dark
-    // regardless of the Day/Night/Auto preference — there's no such thing
-    // as a "day mode" cockpit instrument.
+    // as practical to a real TCAS/ND: no road/building/label detail at all
+    // (an ND doesn't show roads either), just the background the range
+    // rings/traffic/route line render over. Always dark regardless of the
+    // Day/Night/Auto preference — there's no such thing as a "day mode"
+    // cockpit instrument. Pure black — sampled directly from a real ND
+    // reference photo (the display background measured as flat (0,0,0),
+    // not the near-black-with-a-hint-of-blue this used to be).
     raw: {
-      background: "#050608",
-      sky:        "#050608",
+      background: "#000000",
+      sky:        "#000000",
     },
   };
 

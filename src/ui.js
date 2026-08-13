@@ -307,6 +307,8 @@ const UI = (() => {
     // Raw's basemap is always forced near-black regardless of Day/Night/
     // Auto — fixed dark-appropriate colours here, not var(--text-secondary)
     // etc., which would follow the resolved theme and wash out on Day.
+    // Near-white ticks/labels and a yellow lubber line are pixel-sampled
+    // straight from a real ND reference photo's own heading tape.
     let ticks = "";
     for (let deg = startDeg; deg <= endDeg; deg += 10) {
       const wrapped = ((deg % 360) + 360) % 360;
@@ -314,21 +316,21 @@ const UI = (() => {
       const isMajor = wrapped % 30 === 0;
       const tickH = isMajor ? 14 : 8;
       ticks += `<line x1="${x}" y1="${tickTopY}" x2="${x}" y2="${tickTopY + tickH}"
-                  style="stroke:#8b949e" stroke-width="1.5" opacity="0.7"/>`;
+                  style="stroke:#f0f0f0" stroke-width="1.5" opacity="0.7"/>`;
       if (isMajor) {
         const label = String(wrapped).padStart(3, "0");
         ticks += `<text x="${x}" y="${tickTopY + tickH + 14}" text-anchor="middle"
-                    style="fill:#8b949e; font-size:12px" opacity="0.85">${label}</text>`;
+                    style="fill:#f0f0f0; font-size:12px" opacity="0.85">${label}</text>`;
       }
     }
 
     // Fixed lubber line — points down at the tick baseline, always centred.
     const pointer = `<path d="M ${cx - 7} ${tickTopY - 16} L ${cx + 7} ${tickTopY - 16} L ${cx} ${tickTopY - 2} Z"
-                fill="#1191d8" opacity="0.9"/>`;
+                fill="#ffff00" opacity="0.9"/>`;
 
     const hdgRounded = Math.round(heading) % 360;
     const digital = `<text x="${cx}" y="${tickTopY - 22}" text-anchor="middle"
-                style="fill:#e6edf3; font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
+                style="fill:#f0f0f0; font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
 
     svg.innerHTML = ticks + pointer + digital;
     svg.classList.remove("hidden");

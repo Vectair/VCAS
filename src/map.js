@@ -136,13 +136,15 @@ const EosMap = (() => {
   // ---- Route layer ----
 
   // Standard Google-Maps-style blue everywhere except RAW, which uses the
-  // green sampled directly from the real ND reference screenshot — real
-  // flight-deck displays conventionally draw the active flight plan/route
-  // in green, and RAW is specifically trying to match that reference as
-  // closely as practical.
+  // green sampled directly from the real ND reference photo (pixel-sampled:
+  // the route line's brightest pixels measured ~(0-20, 210-225, 10-30) — a
+  // clean, almost pure green with next to no red/blue) — real flight-deck
+  // displays conventionally draw the active flight plan/route in green, and
+  // RAW is specifically trying to match that reference as closely as
+  // practical.
   const ROUTE_COLORS = {
     themed: { glow: "#1A73E8", line: "#4285F4", highlight: "#ADCCFF" },
-    raw:    { glow: "#0c7a0c", line: "#2caf2c", highlight: "#a8f0a8" },
+    raw:    { glow: "#006600", line: "#00c800", highlight: "#b3ffb3" },
   };
 
   function _effectiveRouteColors() {
@@ -234,7 +236,11 @@ const EosMap = (() => {
   // tuned to keep the full ~15nm span on screen, so it's unaffected.
 
   const NM_TO_M = 1852;
-  const RING_COLOR = { raw: "#8b949e", day: "#636366", night: "#8b949e" };
+  // raw: near-white, pixel-sampled from the reference photo's own dashed
+  // range rings (~(248,248,248) — the same near-white used throughout its
+  // display for ticks/labels/non-threat traffic), not the muted blue-grey
+  // this used to be.
+  const RING_COLOR = { raw: "#f0f0f0", day: "#636366", night: "#8b949e" };
   let _lastRingPosition = null; // { lat, lon, bandsNm } — reapplied after a setStyle-triggered re-init
 
   function _effectiveRingColor() {
