@@ -90,6 +90,8 @@
     _applyThemeToDom(initialTheme);
     ColorblindMode.init();
     _updateColorblindToggleBtn();
+    AirRangeRingsOption.init();
+    _updateAirRingsToggleBtn();
 
     DevMode.init();
     _initDevTools();
@@ -308,7 +310,9 @@
         document.body.dataset.mode = "air";
         UI.setModeLabel("air");
         UI.clearIndicators(); // Clear screen edge markers inside 2D views
-        EosMap.clearRangeRings(); // Only ever shown in NAV mode
+        // Cleared unconditionally here; refreshAirMode() below repopulates
+        // them immediately if the AIR rings option (settings) is on.
+        EosMap.clearRangeRings();
         UI.clearCompassRing(); // Only ever shown in NAV's Raw style
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
@@ -410,6 +414,15 @@
         onColorblindToggleClick();
       });
     }
+
+    // 10. Range rings in Air view toggle
+    const btnAirRings = document.getElementById("btn-air-rings-toggle");
+    if (btnAirRings) {
+      btnAirRings.addEventListener("click", (e) => {
+        e.preventDefault();
+        onAirRingsToggleClick();
+      });
+    }
   }
 
   // ---- Theme ----
@@ -473,6 +486,26 @@
     const btn = document.getElementById("btn-colorblind-toggle");
     if (!btn) return;
     const on = ColorblindMode.isEnabled();
+    btn.textContent = on ? "On" : "Off";
+    btn.classList.toggle("active", on);
+  }
+
+  // ---- Range rings in Air view ----
+
+  function onAirRingsToggleClick() {
+    const enabled = AirRangeRingsOption.toggle();
+    _updateAirRingsToggleBtn();
+    // Re-render immediately if already in AIR mode, same as the colour-blind
+    // toggle — otherwise it only takes effect the next time AIR is entered.
+    if (mode !== "air" || userLat === null) return;
+    if (enabled) refreshAirMode();
+    else EosMap.clearRangeRings();
+  }
+
+  function _updateAirRingsToggleBtn() {
+    const btn = document.getElementById("btn-air-rings-toggle");
+    if (!btn) return;
+    const on = AirRangeRingsOption.isEnabled();
     btn.textContent = on ? "On" : "Off";
     btn.classList.toggle("active", on);
   }
@@ -877,16 +910,16 @@
     UI.renderIndicators(shown, onIndicatorClick);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
-    // TCAS/ND-style range rings — shown in both NAV display styles now.
-    // Without an explicit distance reference, the polar plot's dots don't
-    // reliably read as "how far away is that" the way AIR mode's real map
-    // landmarks do — Hybrid needs this cue just as much as Raw's otherwise-
-    // featureless background did.
-    // Real map layer, centred on the user's actual lat/lon (see
-    // EosMap.updateRangeRings) — MapLibre repositions it correctly on every
-    // pan/zoom/rotate on its own, unlike the old screen-space overlay which
-    // only ever matched the camera at the instant it was last drawn.
-    EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM);
+    // TCAS/ND-style range rings — Raw only. They're real geo-referenced
+    // circles now (see EosMap.updateRangeRings) at literal nm radii, which
+    // reads naturally on Raw's plain instrument-style background but
+    // competes with Hybrid's own real road/building detail rather than
+    // aiding it, so Hybrid goes without rather than showing both.
+    if (NavDisplayStyle.isRaw()) {
+      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM);
+    } else {
+      EosMap.clearRangeRings();
+    }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
     // rotating road map already carries its own orientation cues.
@@ -935,6 +968,15 @@
 
     EosMap.renderAirMarkers(allTracked, onAirMarkerClick);
     LogPanel.update(allTracked, userState);
+
+    // Range rings in AIR are opt-in (see settings) — at AIR's real map
+    // scale a true nm circle is a much bigger, more legitimate reference
+    // than in NAV, but it's still an extra layer of clutter over an already
+    // map-native view some people won't want by default.
+    if (AirRangeRingsOption.isEnabled()) {
+      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM);
+    }
+
     // fetchAircraft()'s own setAircraftCount() uses aircraftList.length directly
     // and runs on every poll regardless of mode, but switching NAV -> AIR mid-
     // cycle (or the colour-blind toggle's immediate re-render) calls this

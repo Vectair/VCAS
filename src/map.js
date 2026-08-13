@@ -19,6 +19,7 @@ const EosMap = (() => {
   let _currentRouteGeometry  = null;  // retained so theme changes can re-apply it
   let _clickHandler          = null;  // set via onMapClick(); read lazily by the map's own click listener
   let _interactionHandler    = null;  // set via onUserInteraction(); fires on real drag/zoom/rotate, not programmatic camera moves
+  let _currentTheme          = "night"; // last theme passed to init()/setTheme() — "day" | "night" | "raw"
 
   // ---- Init ----
 
@@ -30,6 +31,7 @@ const EosMap = (() => {
    */
   function init(containerId, lat, lon, theme) {
     const initialTheme = theme || "night";
+    _currentTheme = initialTheme;
 
     _map = new maplibregl.Map({
       container:        containerId,
@@ -105,6 +107,7 @@ const EosMap = (() => {
    */
   function setTheme(theme) {
     if (!_map) return;
+    _currentTheme = theme;
     _map.setStyle(NavStyle.getStyle(theme), { diff: true });
     _applySkyCss(theme);
     // setStyle({diff:true}) only patches layers/sources present in the style JSON;
@@ -235,10 +238,13 @@ const EosMap = (() => {
   let _lastRingPosition = null; // { lat, lon, bandsNm } — reapplied after a setStyle-triggered re-init
 
   function _effectiveRingColor() {
-    const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
-    if (raw) return RING_COLOR.raw;
-    const theme = (typeof ThemeManager !== "undefined") ? ThemeManager.getResolved() : "night";
-    return RING_COLOR[theme] || RING_COLOR.night;
+    // Driven by the same effective theme setTheme() was last called with —
+    // callers (app.js's _effectiveMapTheme) already resolve "raw" only for
+    // NAV's Raw style specifically, never for AIR, even if Raw happens to be
+    // the last-selected NAV preference — checking NavDisplayStyle.isRaw()
+    // directly here instead would get that wrong the moment AIR rings ship,
+    // since that preference isn't itself mode-scoped.
+    return RING_COLOR[_currentTheme] || RING_COLOR.night;
   }
 
   function _applyRangeRingColor() {
