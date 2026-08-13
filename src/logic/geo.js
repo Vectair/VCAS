@@ -131,12 +131,13 @@ const Geo = (() => {
    * else.
    *
    * The NM-to-pixel scale is uniform (the dead-ahead radius, same at every
-   * bearing) — matching the plain circular range rings UI.renderRangeRings()
-   * draws — with maxRadiusForBearing() used only as a last-resort clamp so
-   * a point doesn't run off-screen at wide angles. That clamp only bites
-   * right at the true display edge (a large radius AND a wide angle at
-   * once) — most aircraft never hit it, so nm value and ring position
-   * agree for anything short of the extreme edge.
+   * bearing), with maxRadiusForBearing() used only as a last-resort clamp so
+   * a point doesn't run off-screen at wide angles. This banded screen-space
+   * scale is deliberately compressed (see bandedRadiusFraction()) and is
+   * independent of the range rings, which are real geo-referenced circles
+   * at their literal nm radius (see EosMap.updateRangeRings in map.js) — an
+   * aircraft dot at this band's edge is a decluttering aid, not a claim
+   * that it sits exactly on that real-world ring.
    *
    * @param {number[]} bandsNm  Ring band boundaries in nm — see
    *   bandedRadiusFraction(). The last entry is the effective max range;
@@ -175,6 +176,46 @@ const Geo = (() => {
     };
   }
 
+  /**
+   * Project a point from (lat, lon) by `distanceMeters` along a true bearing,
+   * using the proper spherical-earth destination formula (not the flat-earth
+   * approximation projectPosition() uses) — needed for the range rings' 2 to
+   * 15nm (up to ~28km) radii, where flat-earth error starts to matter,
+   * unlike projectPosition()'s tens-to-hundreds-of-metres use cases.
+   */
+  function destinationPoint(lat, lon, bearingDeg, distanceMeters) {
+    const δ = distanceMeters / R_M;
+    const θ = toRad(bearingDeg);
+    const φ1 = toRad(lat), λ1 = toRad(lon);
+
+    const φ2 = Math.asin(
+      Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
+    );
+    const λ2 = λ1 + Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
+    );
+
+    return { lat: toDeg(φ2), lon: ((toDeg(λ2) + 540) % 360) - 180 };
+  }
+
+  /**
+   * Closed ring of [lon, lat] coordinates tracing a true circle of
+   * `radiusMeters` around (lat, lon) — GeoJSON LineString-ready (first and
+   * last points coincide). Used to draw range rings as real map layers
+   * anchored to the user's actual position, rather than a screen-space
+   * overlay recomputed only on GPS ticks.
+   */
+  function circleCoordinates(lat, lon, radiusMeters, numPoints = 72) {
+    const coords = [];
+    for (let i = 0; i <= numPoints; i++) {
+      const bearing = (360 * i) / numPoints;
+      const pt = destinationPoint(lat, lon, bearing, radiusMeters);
+      coords.push([pt.lon, pt.lat]);
+    }
+    return coords;
+  }
+
   return {
     calculateBearing,
     calculateDistanceMeters,
@@ -184,6 +225,8 @@ const Geo = (() => {
     maxRadiusForBearing,
     projectToPolarPosition,
     projectPosition,
+    destinationPoint,
+    circleCoordinates,
   };
 })();
 

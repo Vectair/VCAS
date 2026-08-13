@@ -432,8 +432,6 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 
 #gps-message.hidden { display: none; }
 
-#nav-range-rings.hidden { display: none; }
-
 /* ---- Config missing banner ---- */
 #config-banner {
   position: fixed;

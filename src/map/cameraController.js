@@ -283,11 +283,11 @@ const CameraController = (() => {
     };
 
     // 3. The anchor target is always the user's own true GPS position — never
-    // a lookahead-projected point. Both the range rings (ui.js renderRangeRings,
-    // drawn purely in screen space assuming ownship sits at the anchor) and the
-    // user marker (map.js, placed at the literal lat/lon) treat the anchor as
-    // the true position, so the camera has to match that or the two visibly
-    // diverge. This used to shift the center ahead by evaluator.lookAheadMeters/
+    // a lookahead-projected point. The user marker (map.js, placed at the
+    // literal lat/lon) is drawn wherever that true position actually
+    // projects on screen, so the camera has to land it exactly at the
+    // anchor point or the two visibly diverge. This used to shift the
+    // center ahead by evaluator.lookAheadMeters/
     // routeTarget to "lead" the view, but that broke the anchor guarantee: at
     // RAW's flat pitch/zoomed-out framing the resulting few-pixel offset was
     // invisible, but in Hybrid's pitched, tighter-zoom views the same offset —

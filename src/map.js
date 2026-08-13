@@ -53,6 +53,7 @@ const EosMap = (() => {
       CameraController.init(_map);
       CameraController.followNav(lat, lon, 0, 0);
       _initRouteLayer();
+      _initRangeRingsLayer();
       if (_pendingRoute) {
         _applyRoute(_pendingRoute);
         _pendingRoute = null;
@@ -107,11 +108,17 @@ const EosMap = (() => {
     _map.setStyle(NavStyle.getStyle(theme), { diff: true });
     _applySkyCss(theme);
     // setStyle({diff:true}) only patches layers/sources present in the style JSON;
-    // dynamically added route layers survive in practice, but guard anyway.
+    // dynamically added route/range-ring layers survive in practice, but guard anyway.
     _map.once("styledata", () => {
       if (!_map.getSource("route")) {
         _initRouteLayer();
         if (_currentRouteGeometry) _applyRoute(_currentRouteGeometry);
+      }
+      if (!_map.getSource("range-rings")) {
+        _initRangeRingsLayer();
+        if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm);
+      } else {
+        _applyRangeRingColor();
       }
     });
   }
@@ -203,6 +210,119 @@ const EosMap = (() => {
     if (!_mapLoaded) { _pendingRoute = geometry; return; }
     if (!_map.getSource("route")) _initRouteLayer();
     _applyRoute(geometry);
+  }
+
+  // ---- Range rings ----
+  //
+  // Drawn as real geo-referenced map layers (true circles around the user's
+  // actual lat/lon, dashed like the reference ND/TCAS display) instead of a
+  // screen-space SVG overlay recomputed only on GPS ticks — the previous
+  // approach visibly detached from the map whenever the user panned/zoomed
+  // manually between ticks, since nothing re-rendered it against the new
+  // camera transform. As real map content, MapLibre repositions them
+  // correctly on every pan/zoom/rotate/tilt for free, the same way it
+  // already does for the route line — no per-frame JS needed.
+  //
+  // Radii are literal real-world nm (matching the reference distances a
+  // pilot would actually read them as), not the old screen-space "banded"
+  // compression — worth knowing: at Hybrid's typical driving zoom the outer
+  // (10/15nm) rings will often extend past the visible screen, same as any
+  // other real map feature at that distance would. RAW's zoom is already
+  // tuned to keep the full ~15nm span on screen, so it's unaffected.
+
+  const NM_TO_M = 1852;
+  const RING_COLOR = { raw: "#8b949e", day: "#636366", night: "#8b949e" };
+  let _lastRingPosition = null; // { lat, lon, bandsNm } — reapplied after a setStyle-triggered re-init
+
+  function _effectiveRingColor() {
+    const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
+    if (raw) return RING_COLOR.raw;
+    const theme = (typeof ThemeManager !== "undefined") ? ThemeManager.getResolved() : "night";
+    return RING_COLOR[theme] || RING_COLOR.night;
+  }
+
+  function _applyRangeRingColor() {
+    if (!_map || !_map.getLayer("range-rings-line")) return;
+    const color = _effectiveRingColor();
+    _map.setPaintProperty("range-rings-line", "line-color", color);
+    _map.setPaintProperty("range-rings-labels", "text-color", color);
+  }
+
+  function _initRangeRingsLayer() {
+    _map.addSource("range-rings", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    _map.addSource("range-ring-labels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+
+    const color = _effectiveRingColor();
+
+    _map.addLayer({
+      id:     "range-rings-line",
+      type:   "line",
+      source: "range-rings",
+      layout: { "line-join": "round" },
+      paint:  {
+        "line-color":     color,
+        "line-width":     1.5,
+        "line-dasharray": [2, 2.5],
+        "line-opacity":   0.55,
+      },
+    });
+
+    _map.addLayer({
+      id:     "range-rings-labels",
+      type:   "symbol",
+      source: "range-ring-labels",
+      layout: {
+        "text-field":            ["get", "label"],
+        // Matching NavStyle's own basemap label font — the style's `glyphs`
+        // URL only serves the font stacks it's asked for, and an unlisted
+        // one silently fails to fetch (no text renders, no error thrown).
+        "text-font":             ["Noto Sans Regular", "Noto Sans Bold"],
+        "text-size":             11,
+        "text-offset":           [0, -0.6],
+        "text-anchor":           "bottom",
+        "text-allow-overlap":    true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color":   color,
+        "text-opacity": 0.7,
+      },
+    });
+  }
+
+  /**
+   * Redraw the range rings centred on the user's true position. Call on
+   * every position update while in NAV mode — cheap (a handful of geodesic
+   * point calculations plus a setData()), same as the route line's own
+   * per-update cost.
+   */
+  function updateRangeRings(lat, lon, bandsNm) {
+    if (!_map || !_map.getSource("range-rings")) return;
+    _lastRingPosition = { lat, lon, bandsNm };
+
+    const ringFeatures = bandsNm.map(nm => ({
+      type:       "Feature",
+      properties: { nm },
+      geometry:   { type: "LineString", coordinates: Geo.circleCoordinates(lat, lon, nm * NM_TO_M) },
+    }));
+    _map.getSource("range-rings").setData({ type: "FeatureCollection", features: ringFeatures });
+
+    const labelFeatures = bandsNm.map(nm => {
+      const pt = Geo.destinationPoint(lat, lon, 0, nm * NM_TO_M); // true-north point on each ring
+      return {
+        type:       "Feature",
+        properties: { label: String(nm) },
+        geometry:   { type: "Point", coordinates: [pt.lon, pt.lat] },
+      };
+    });
+    _map.getSource("range-ring-labels").setData({ type: "FeatureCollection", features: labelFeatures });
+  }
+
+  function clearRangeRings() {
+    _lastRingPosition = null;
+    if (!_map) return;
+    _map.getSource("range-rings")?.setData({ type: "FeatureCollection", features: [] });
+    _map.getSource("range-ring-labels")?.setData({ type: "FeatureCollection", features: [] });
   }
 
   function clearRoute() {
@@ -372,6 +492,8 @@ const EosMap = (() => {
     flyTo,
     showRoute,
     clearRoute,
+    updateRangeRings,
+    clearRangeRings,
   };
 })();
 

@@ -268,89 +268,10 @@ const UI = (() => {
     if (container) container.innerHTML = "";
   }
 
-  // ---- NAV top-down range rings ----
-
-  /**
-   * Dashed, plain-circular range rings centred on the same bottom-anchored
-   * point the polar-plotted indicators use — the TCAS/ND-style "radar
-   * screen" cue that was missing from the flat top-down view, matching a
-   * real ND's own plain circular rings.
-   *
-   * (Two non-circular versions were tried in between and both reverted: an
-   * "archway" shape and an ellipse, each meant to make an off-axis
-   * aircraft's plotted radius exactly equal its own ring band's radius at
-   * every bearing — mathematically sound, but visibly not a circle, which
-   * mattered more. Geo.projectToPolarPosition() keeps a uniform circular
-   * NM-to-pixel scale and only clamps individual points right at the true
-   * screen edge — see its own comment — so this plain circle is close to,
-   * not exactly, where a wide-angle aircraft plots; the trade-off is
-   * deliberate.)
-   *
-   * One ring per band in `bandsNm`, each at an equal fraction of the
-   * available radius (1/N, 2/N, ... N/N) — matching how
-   * Geo.bandedRadiusFraction() allocates plot radius, so a ring genuinely
-   * marks "this band's outer edge," not a linear distance. Each ring is
-   * labelled with its own nm boundary so the compression is legible: the
-   * gaps between rings look equal on screen but represent very unequal
-   * real distances (e.g. [2, 5, 10, 15] -> rings 1nm apart in screen terms
-   * but 2, 3, 5, and 5 nm apart in reality).
-   *
-   * @param {number[]} bandsNm  Ring band boundaries in nm, ascending — see
-   *   Geo.bandedRadiusFraction(). Same array Indicators.RING_BANDS_NM /
-   *   projectToPolarPosition() use, so rings line up with plotted aircraft.
-   */
-  function renderRangeRings(viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
-    const svg = document.getElementById("nav-range-rings");
-    if (!svg) return;
-
-    const cx = viewportWidth * 0.5;
-    const cy = viewportHeight * anchorY;
-    const maxRadius = Geo.maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
-
-    if (maxRadius <= 0 || !bandsNm || bandsNm.length === 0) {
-      svg.innerHTML = "";
-      svg.classList.add("hidden");
-      return;
-    }
-
-    const n = bandsNm.length;
-    // Off dead-ahead so labels don't sit under the busiest part of the
-    // plot (straight up), at a fixed pixel offset from centre — not an
-    // angle scaled by each ring's own radius — so the outer rings' labels
-    // land just beside their own crest instead of sliding out past the
-    // screen edge on a narrow phone.
-    const labelDx = 22;
-
-    // Raw's basemap is always forced near-black regardless of Day/Night/
-    // Auto (see NavStyle's "raw" theme) — var(--text-secondary) is the
-    // resolved theme's OWN colour, which washes out badly when that
-    // resolves to Day (a mid-grey tuned for a pale background, not black).
-    // Hybrid keeps following the real theme since its basemap does too.
-    const isRaw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
-    const ringColor = isRaw ? "#8b949e" : "var(--text-secondary)";
-
-    const parts = bandsNm.map((nm, i) => {
-      const r = maxRadius * ((i + 1) / n);
-      // Semicircle: left -> top (through "ahead") -> right.
-      const ring = `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}"
-                fill="none" style="stroke:${ringColor}" stroke-width="1.5"
-                stroke-dasharray="5,6" opacity="0.55"/>`;
-      const dx = Math.min(labelDx, r);
-      const lx = cx + dx;
-      const ly = cy - Math.sqrt(Math.max(0, r * r - dx * dx));
-      const label = `<text x="${lx}" y="${ly}" text-anchor="start" dominant-baseline="middle"
-                style="fill:${ringColor}; font-size:11px" opacity="0.7">${nm}</text>`;
-      return ring + label;
-    }).join("");
-
-    svg.innerHTML = parts;
-    svg.classList.remove("hidden");
-  }
-
-  function clearRangeRings() {
-    const svg = document.getElementById("nav-range-rings");
-    if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
-  }
+  // Range rings are now real map layers (see map.js's EosMap.updateRangeRings/
+  // clearRangeRings) instead of a screen-space SVG overlay here — drawn as
+  // true circles around the user's actual lat/lon so panning/zooming/rotating
+  // the map carries them along naturally, the same as the route line.
 
   // ---- NAV Raw-mode heading/compass tape ----
 
@@ -576,8 +497,6 @@ const UI = (() => {
     setModeLabel,
     renderIndicators,
     clearIndicators,
-    renderRangeRings,
-    clearRangeRings,
     renderCompassRing,
     clearCompassRing,
     showPopup,
