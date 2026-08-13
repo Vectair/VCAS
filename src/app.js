@@ -725,6 +725,8 @@
   // ---- Data fetch loop ----
 
   let _fetchInFlight = false;
+  let _loadingIndicatorTimer = null;
+  const LOADING_INDICATOR_DELAY_MS = 500;
 
   function scheduleFetch() {
     fetchAircraft();
@@ -751,8 +753,13 @@
     if (_fetchInFlight) return;
     _fetchInFlight = true;
 
-    UI.setLoading(true);
+    // Most polls resolve in well under a second — showing "Fetching
+    // aircraft…" on every single one flashed it on/off roughly every 3s,
+    // distracting rather than useful. Only actually show it if THIS fetch
+    // is taking a while; a fast one never triggers the timer at all.
+    _loadingIndicatorTimer = setTimeout(() => UI.setLoading(true), LOADING_INDICATOR_DELAY_MS);
     const result = await AdsbExchangeClient.fetchNearby(userLat, userLon, CONFIG.DEFAULT_RANGE_NM);
+    clearTimeout(_loadingIndicatorTimer);
     UI.setLoading(false);
     _fetchInFlight = false;
 
