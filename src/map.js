@@ -74,7 +74,16 @@ const EosMap = (() => {
     // zoom/rotate, which is exactly when a "recenter" affordance is needed.
     ["dragstart", "zoomstart", "rotatestart", "pitchstart"].forEach(evt => {
       _map.on(evt, e => {
-        if (e.originalEvent && _interactionHandler) _interactionHandler();
+        if (!e.originalEvent) return;
+        // CameraController's frame-driven follow animation calls jumpTo()
+        // on every rendered frame for up to ~400ms after each GPS/heading
+        // tick — MapLibre has no idea that's "an animation" (unlike its own
+        // easeTo/flyTo, which it auto-cancels on user input), so left alone
+        // it keeps overwriting this gesture's delta every frame, making the
+        // drag/zoom/rotate effectively do nothing. Stop it the instant a
+        // real gesture starts, before the next frame can fight it.
+        if (typeof CameraController !== "undefined") CameraController.cancelFollow();
+        if (_interactionHandler) _interactionHandler();
       });
     });
 

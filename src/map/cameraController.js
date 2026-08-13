@@ -113,11 +113,54 @@ const CameraController = (() => {
     //    below undoes MapLibre's own negation. Without it, anchorY 0.8
     //    was rendering the user's own position in the upper third of the
     //    screen instead of near the bottom.
+    //
+    //    jumpTo({center}) does NOT put the target at the container's raw
+    //    geometric middle when the map has non-zero setPadding() (set by
+    //    setViewportPadding() below to clear the top/bottom UI chrome) — it
+    //    places it at the *padded*-center instead (verified against a real
+    //    MapLibre instance: with a 200px bottom pad on an 800px container,
+    //    jumpTo alone put the target at y=300, not y=400). Panning by the
+    //    unpadded offset on top of that lands anchorY 0.8 at 67.5% of the
+    //    screen instead of 80% — exactly the gap between the range rings
+    //    (ui.js, which assumes a plain anchorY*containerHeight) and the
+    //    marker's real position that showed up as a Hybrid/RAW mismatch
+    //    (RAW carries much less bottom padding than Hybrid's guidance
+    //    card + bottom bar, so its error was smaller and easy to miss).
+    //    Deriving the pan from the padded-center jumpTo actually produced,
+    //    rather than assuming it's the raw center, keeps anchorY*containerHeight
+    //    true regardless of how much padding is currently set.
     const containerHeight = _map.getContainer().offsetHeight;
-    const offsetY = containerHeight * state.anchorY - containerHeight / 2;
+    const pad = _map.getPadding();
+    const paddedCenterY = (containerHeight + pad.top - pad.bottom) / 2;
+    const offsetY = containerHeight * state.anchorY - paddedCenterY;
     if (offsetY !== 0) {
       _map.panBy([0, -offsetY], { animate: false });
     }
+  }
+
+  /**
+   * Halt any in-flight anchor-preserving animation immediately.
+   *
+   * MapLibre's own camera methods (easeTo/flyTo) are auto-cancelled the
+   * moment the user starts a manual drag/zoom/rotate/pitch gesture — the
+   * library recognizes its own animations and steps aside. Our per-frame
+   * jumpTo()+panBy() loop is invisible to MapLibre in exactly that way: it's
+   * not "an animation" as far as the library is concerned, just a sequence
+   * of instant transform-sets, so it never yields to a gesture on its own.
+   * Left unchecked, a followNav() animation still mid-flight when a drag
+   * starts keeps calling jumpTo() every rendered frame for the remainder of
+   * its ~400ms, silently overwriting the drag delta before it ever paints —
+   * net effect: the gesture does nothing. Call this the instant a real user
+   * gesture begins (see map.js's dragstart/zoomstart/rotatestart/pitchstart
+   * wiring) so the loop stops before it can fight the next input frame.
+   */
+  function cancelFollow() {
+    if (_animFrameHandle != null) {
+      cancelAnimationFrame(_animFrameHandle);
+      _animFrameHandle = null;
+    }
+    _animFrom = null;
+    _animTo = null;
   }
 
   function _stepAnimation(now) {
@@ -323,6 +366,7 @@ const CameraController = (() => {
     setViewportPreset,
     setViewportPadding,
     followNav,
+    cancelFollow,
     transitionToNav,
     transitionToAir,
     setRouteActive,

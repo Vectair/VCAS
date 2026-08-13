@@ -882,8 +882,15 @@
     // reliably read as "how far away is that" the way AIR mode's real map
     // landmarks do — Hybrid needs this cue just as much as Raw's otherwise-
     // featureless background did.
+    // Rings are centered at anchorY * (full map container height) — that's
+    // what the camera itself anchors the user's real position to (see
+    // cameraController.js's _renderAnchoredFrame). Passing usableViewportHeight
+    // here instead (window height minus bottom chrome) used a shorter
+    // reference than the camera's own, so the rings' center never actually
+    // matched the marker's real on-screen position — worse in Hybrid, whose
+    // bottom chrome (guidance card, bottom bar) is taller than RAW's.
     const anchorY = camConfig ? camConfig.anchorY : 0.8;
-    UI.renderRangeRings(vw, usableViewportHeight, Indicators.RING_BANDS_NM, anchorY);
+    UI.renderRangeRings(vw, vh, Indicators.RING_BANDS_NM, anchorY);
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
     // rotating road map already carries its own orientation cues.
