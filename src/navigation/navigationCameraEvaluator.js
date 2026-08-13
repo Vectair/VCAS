@@ -39,9 +39,6 @@ const NavigationCameraEvaluator = (() => {
   const T_IMPACT_APPROACH_S = 18.0; // Start turn transition 18 seconds before arrival
   const TURN_THRESH_DEG     = 25;   // Angular trajectory deviation threshold
 
-  const MIN_LOOKAHEAD_M  = 80;
-  const MAX_LOOKAHEAD_M  = 1200;
-
   // Viewport structural bias presets
   const VIEWPORT_BIASES = {
     "full":    { pitchBias: 0,  anchorYBias: 0,     anchorXOverride: null, anchorYOverride: null, maxPitch: null },
@@ -174,27 +171,6 @@ const NavigationCameraEvaluator = (() => {
         }
       }
 
-      // 5. Compute Logarithmic Lookahead Target Vector Bounds
-      let lookAheadMeters = MIN_LOOKAHEAD_M;
-      if (targetState !== "AIR" && targetState !== "NAV_RAW" && speedMs > 1.0) {
-        const scalingExponent = (targetState === "HIGHWAY_GUIDANCE") ? 1.6 : 1.1;
-        const computedMeters = speedMs * 4.0 * Math.log10(speedMs * scalingExponent);
-        lookAheadMeters = Math.max(MIN_LOOKAHEAD_M, Math.min(MAX_LOOKAHEAD_M, computedMeters));
-      }
-
-      if (targetState === "TURN_APPROACH") {
-        // Force lookahead vector mapping to focus directly on upcoming vertex nodes
-        lookAheadMeters = Math.max(MIN_LOOKAHEAD_M, turnMetrics.distance);
-      }
-
-      // 6. Trace coordinates down active line path
-      let routeTarget = null;
-      if (routeActive && coords && coords.length >= 2) {
-        const nearest = RouteGeometry.nearestOnLine(coords, userLon, userLat);
-        const ahead   = RouteGeometry.projectAlong(coords, nearest.segIdx, nearest.t, lookAheadMeters);
-        if (ahead) routeTarget = { lat: ahead.lat, lon: ahead.lon };
-      }
-
       // 7. Base Camera Param Extraction
       const basePreset = STATE_PRESETS[targetState] || STATE_PRESETS.URBAN_GUIDANCE;
       let { pitch, zoom, anchorY, anchorX } = basePreset;
@@ -238,8 +214,6 @@ const NavigationCameraEvaluator = (() => {
         zoom,
         anchorY,
         anchorX,
-        lookAheadMeters,
-        routeTarget,
         suppressionLevel,
         transitionProfile,
         bearingMode: (targetState === "TURN_APPROACH") ? "DECOUPLED_MANEUVER" : "VEHICLE_TRACKING",

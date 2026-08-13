@@ -220,8 +220,6 @@ const CameraController = (() => {
         pitch: _currentPreset.pitch,
         zoom: _currentPreset.zoom,
         anchorY: _currentPreset.anchorY,
-        lookAheadMeters: _routeActive ? 150 : 0,
-        routeTarget: null,
         maneuver: { exists: false, distanceMeters: 0, bearingDeltaDeg: 0 },
       };
     }
@@ -230,7 +228,6 @@ const CameraController = (() => {
     const pitch = cameraState.pitch;
     const zoom  = cameraState.zoom;
     const anchorY = cameraState.anchorY;
-    const lookaheadMeters = cameraState.lookAheadMeters || 0;
 
     // Save evaluation snapshot for downstream data layers (e.g. frozen indicator pipelines)
     _lastEvaluated = {
@@ -242,32 +239,28 @@ const CameraController = (() => {
       timestamp: Date.now()
     };
 
-    // 3. Process dynamic lookahead projection tracking along current vector.
-    // When a route is active, trace forward along the actual route geometry
-    // (curves/turns) instead of a straight line off raw heading.
-    let targetLat = lat;
-    let targetLon = lon;
-
-    if (cameraState.routeTarget) {
-      targetLat = cameraState.routeTarget.lat;
-      targetLon = cameraState.routeTarget.lon;
-    } else if (lookaheadMeters > 0) {
-      // Simple geodesic approximations for computing projection lookahead coordinate offsets
-      const metersPerDegreeLat = 111111;
-      const metersPerDegreeLon = 111111 * Math.cos((lat * Math.PI) / 180);
-      const headingRad = (heading * Math.PI) / 180;
-
-      targetLat += (lookaheadMeters * Math.cos(headingRad)) / metersPerDegreeLat;
-      targetLon += (lookaheadMeters * Math.sin(headingRad)) / metersPerDegreeLon;
-    }
-
-    // 4. Hand the raw target (not yet anchor-offset — that's now done fresh
+    // 3. The anchor target is always the user's own true GPS position — never
+    // a lookahead-projected point. Both the range rings (ui.js renderRangeRings,
+    // drawn purely in screen space assuming ownship sits at the anchor) and the
+    // user marker (map.js, placed at the literal lat/lon) treat the anchor as
+    // the true position, so the camera has to match that or the two visibly
+    // diverge. This used to shift the center ahead by evaluator.lookAheadMeters/
+    // routeTarget to "lead" the view, but that broke the anchor guarantee: at
+    // RAW's flat pitch/zoomed-out framing the resulting few-pixel offset was
+    // invisible, but in Hybrid's pitched, tighter-zoom views the same offset —
+    // amplified by ground-plane perspective foreshortening — pushed the real
+    // marker well off its anchor point, sometimes off the bottom of the screen
+    // entirely. "More room ahead" is already delivered by anchorY alone
+    // (pushing the anchor toward the bottom leaves the top of the screen free
+    // for what's ahead), so no separate center shift is needed.
+    //
+    // 4. Hand the true position (not yet anchor-offset — that's done fresh
     // every rendered frame, see _renderAnchoredFrame above) to the
     // frame-driven animator, which smoothly carries the camera there while
     // keeping the user's marker pinned to its anchor point throughout.
     _startAnimTo({
-      lat: targetLat,
-      lon: targetLon,
+      lat: lat,
+      lon: lon,
       bearing: heading,
       pitch: pitch,
       zoom: zoom,
