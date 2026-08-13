@@ -805,7 +805,13 @@
       } else if (result.error === "auth_failed") {
         UI.setAdsbStatus("error", "Auth error");
       } else {
-        UI.setAdsbStatus("stale", "No data");
+        // Surface the actual failure reason (timeout / network / http_xxx —
+        // see AdsbExchangeClient.fetchNearby) directly in the pill instead
+        // of a bare "No data" — this is the only diagnostic signal visible
+        // from a screenshot on a phone, where opening dev tools isn't
+        // practical, and "no data" alone doesn't distinguish a dead
+        // connection from the provider itself rejecting/erroring requests.
+        UI.setAdsbStatus("stale", `No data (${result.error})`);
       }
     } else {
       UI.setAdsbStatus("active", "ADS-B");

@@ -29,6 +29,15 @@
   --bar-bg-rgb:     14,17,23;
   --overlay-bg-rgb: 14,17,23;
   --label-bg:       rgba(14,17,23,.82);
+  /* #bottom-bar's own fade gradient — was referencing this same variable
+     name before it existed anywhere in the stylesheet, so the gradient
+     silently never applied (an invalid var() with no fallback makes the
+     whole `background` declaration invalid, not just that one stop) and
+     the bar rendered with no fade at all. Derived from --bar-bg-rgb so it
+     automatically follows the same Day/Night/RAW-forced value as the rest
+     of the chrome, resolved at each element's own cascade rather than
+     baked in here. */
+  --bar-bot-grad:   rgba(var(--bar-bg-rgb), .92);
 }
 
 /* ---- Day theme ----
@@ -58,6 +67,38 @@ body[data-theme="day"] {
   --bar-bg-rgb:     240,237,232;
   --overlay-bg-rgb: 240,237,232;
   --label-bg:       rgba(255,255,255,.92);
+}
+
+/* RAW's map content (background, traffic, rings, tape, route, user marker)
+   is already forced dark regardless of Day/Night/Auto — but the app CHROME
+   around it (top/bottom bars, mode buttons, "NO DATA" pill) was still
+   following the resolved theme's own variables, so a Day-resolved RAW view
+   showed a black instrument display with a light bottom bar floating on
+   top of it: not remotely how a real cockpit instrument reads, where the
+   whole panel — chrome included — is uniformly dark. Re-declaring the
+   theme variables here wins over the Day block above via source order
+   (same technique the .indicator-label override below already uses) even
+   though data-theme="day" and data-nav-style="raw" can both be present on
+   <body> at once. Scoped to data-mode="nav" too, not data-nav-style alone —
+   that preference isn't mode-scoped and can still read "raw" after
+   switching to AIR, which must keep following the real resolved theme. */
+body[data-mode="nav"][data-nav-style="raw"] {
+  --bg-dark:        #0a0e17;
+  --bg-panel:       #161b22;
+  --bg-panel-alt:   #1c2128;
+  --border:         #30363d;
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
+  --accent:         #1191d8;
+  --accent-rgb:     17,145,216;
+  --btn-bg:         #21262d;
+  --btn-hover:      #30363d;
+  --btn-active-bg:  #1f6feb;
+  --shadow:         0 4px 20px rgba(0,0,0,.6);
+  --bar-bg-rgb:     14,17,23;
+  --overlay-bg-rgb: 14,17,23;
+  --label-bg:       rgba(14,17,23,.82);
 }
 
 html, body {
