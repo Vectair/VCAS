@@ -24,12 +24,18 @@ https://cloud.maptiler.com/auth/widget?mode=add — no credit card). Without it
 the map tiles won't load, but GPS, the aircraft feed, and the NAV indicators
 still work against a blank background.
 
-**ADS-B aircraft data needs no key by default** — it defaults to the free
-[airplanes.live](https://airplanes.live) API. To use ADS-B Exchange's paid
-API instead, add to `config.js`:
+**ADS-B aircraft data needs no key by default** — it round-robins across two
+free community APIs, [adsb.fi](https://adsb.fi) and [ADSB.lol](https://adsb.lol)
+(`CONFIG.DATA_PROVIDERS`, see `src/data/adsbExchangeClient.js`), splitting
+requests between them rather than pointing the app's whole polling load at
+just one. ([airplanes.live](https://airplanes.live) was the original default
+but withdrew free anonymous access in Aug 2026 due to hosting costs — its
+provider code is still there in case that ever changes, just not in the
+default rotation.) To use ADS-B Exchange's paid API instead (or in addition —
+`DATA_PROVIDERS` accepts any mix of provider ids), add to `config.js`:
 
 ```js
-DATA_PROVIDER:  "adsb_exchange",
+DATA_PROVIDERS: ["adsb_exchange"],
 ADSB_API_KEY:   "your-key-here",
 ADSB_API_HOST:  "adsbexchange.com",
 ```
@@ -107,7 +113,8 @@ All keys live in `src/config.js`.
 |-----|---------|-------------|
 | `MAPTILER_KEY` | `"PASTE_YOUR_MAPTILER_KEY_HERE"` | MapTiler browser token — required for road map tiles/glyphs |
 | `ORS_API_KEY` | `"PASTE_YOUR_ORS_KEY_HERE"` | Free OpenRouteService "Standard" API key — required for routing (driving/cycling/walking) |
-| `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll the ADS-B provider — Airplanes.live's REST API is rate-limited to 1 req/sec, so this leaves generous headroom as a single-client app |
+| `DATA_PROVIDERS` | `["adsb_fi", "adsb_lol"]` | ADS-B provider(s) to round-robin across — see `src/data/adsbExchangeClient.js` for available ids and what each needs |
+| `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll — each provider in `DATA_PROVIDERS` is individually rate-limited to ~1 req/sec, and round-robining across two already halves what any one sees from this single client |
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
@@ -118,13 +125,12 @@ All keys live in `src/config.js`.
 
 NAV indicator count isn't a fixed config value — it's viewport-tiered via `Indicators.capForViewportWidth()` (`src/logic/indicators.js`): under 500px wide shows 5, 500–900px shows 7, above 900px shows 10. AIR mode is unrestricted (see below).
 
-Optional — only needed to switch ADS-B providers (not present in `config.js` by default):
+Optional — only needed if `DATA_PROVIDERS` includes `"adsb_exchange"` (not present in `config.js` by default):
 
 | Key | Description |
 |-----|-------------|
-| `DATA_PROVIDER` | `"airplanes_live"` (default, free, no key) or `"adsb_exchange"` (paid) |
-| `ADSB_API_KEY` | Required if `DATA_PROVIDER` is `"adsb_exchange"` |
-| `ADSB_API_HOST` | Required if `DATA_PROVIDER` is `"adsb_exchange"` (e.g. `"adsbexchange.com"`) |
+| `ADSB_API_KEY` | Required for the paid `"adsb_exchange"` provider |
+| `ADSB_API_HOST` | Required for the paid `"adsb_exchange"` provider (e.g. `"adsbexchange.com"`) |
 
 ---
 
@@ -294,7 +300,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
     navDisplayStyle.js              NAV display style state (Hybrid / Raw)
     wakeLock.js                     Screen Wake Lock wrapper — keeps the screen on during NAV mode
     /data
-      adsbExchangeClient.js         ADS-B provider adapter (airplanes.live / ADS-B Exchange)
+      adsbExchangeClient.js         ADS-B provider adapter, round-robined (adsb.fi / ADSB.lol / ADS-B Exchange)
       normaliseAircraft.js          Raw provider response → internal aircraft object
     /logic
       geo.js                        Bearing, distance, polar screen-position projection, forward-position projection

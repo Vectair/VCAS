@@ -1545,6 +1545,16 @@ body[data-nav-state="turn_approach"] { }
 
 .settings-row:last-child { border-bottom: none; }
 
+.settings-credit {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 10px;
+}
+
+.settings-credit a {
+  color: var(--text-secondary);
+}
+
 .settings-label {
   font-size: 14px;
   color: var(--text-primary);
