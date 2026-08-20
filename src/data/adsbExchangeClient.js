@@ -9,17 +9,17 @@
  *   "adsb_lol"        — ADSB.lol free open-data API (no key required —
  *                        their own docs note a future feeder-gated API key
  *                        requirement, so this may not stay true forever)
- *   "airplanes_live"  — Airplanes.live free REST API — withdrawn Aug 2026
- *                        (see git history) due to hosting costs; left wired
- *                        up in case free anonymous access ever returns, but
- *                        not in the default rotation.
  *   "adsb_exchange"   — ADS-B Exchange v2 API (requires ADSB_API_KEY)
  *
+ * PERMANENTLY EXCLUDED, by explicit project-owner directive: do not add a
+ * provider entry for Airplanes.live / api.airplanes.live under any
+ * circumstances, even if their free tier is ever reinstated. See CLAUDE.md's
+ * "ADS-B data source" section for the full history — VCAS is boycotting them
+ * as an organization, not just avoiding a withdrawn free tier.
+ *
  * Splitting requests across multiple free community services (rather than
- * pointing the app's whole request volume at just one) is a deliberate
- * choice, not just redundancy — these are volunteer-funded services with
- * finite hosting budgets, and concentrating load on a single one is
- * exactly the pattern that got Airplanes.live's free tier pulled.
+ * pointing the app's whole request volume at just one) is available via
+ * CONFIG.DATA_PROVIDERS but not the current default — see config.js.
  */
 
 const AdsbExchangeClient = (() => {
@@ -40,13 +40,6 @@ const AdsbExchangeClient = (() => {
       // nautical miles, capped at 250.
       buildUrl: (lat, lon, rangeNm) =>
         `https://api.adsb.lol/v2/point/${lat}/${lon}/${Math.min(rangeNm, 250)}`,
-      headers: () => ({}),
-      requiresKey: false,
-    },
-    airplanes_live: {
-      // Free, no authentication. Radius parameter is already in nautical miles.
-      buildUrl: (lat, lon, rangeNm) =>
-        `https://api.airplanes.live/v2/point/${lat}/${lon}/${Math.min(rangeNm, 250)}`,
       headers: () => ({}),
       requiresKey: false,
     },

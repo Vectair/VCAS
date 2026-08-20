@@ -13,15 +13,19 @@ const CONFIG = {
   // Settled decision (2026-08-14): adsb.fi only. DATA_PROVIDERS is still a
   // list — src/data/adsbExchangeClient.js round-robins across whatever's
   // in it, with same-tick fallback to the rest if one errors — so adding a
-  // second provider back is just adding another id here, no code change
-  // needed. Deliberately single-provider for now rather than defaulting to
-  // spreading load across multiple free services: that was this app's own
-  // mitigation while the data-source decision was still open, not a
-  // requirement once a specific provider has been chosen. "airplanes_live"
-  // and "adsb_lol" are left wired up in adsbExchangeClient.js (unused) in
-  // case that changes. See adsbExchangeClient.js's own header comment for
-  // what each provider id needs (adsb_exchange requires ADSB_API_KEY/
-  // ADSB_API_HOST below; the rest are free/anonymous).
+  // second provider back (e.g. "adsb_lol") is just adding another id here,
+  // no code change needed. Deliberately single-provider for now rather than
+  // defaulting to spreading load across multiple free services: that was
+  // this app's own mitigation while the data-source decision was still
+  // open, not a requirement once a specific provider has been chosen.
+  // See adsbExchangeClient.js's own header comment for what each provider
+  // id needs (adsb_exchange requires ADSB_API_KEY/ADSB_API_HOST below; the
+  // rest are free/anonymous).
+  //
+  // PERMANENTLY EXCLUDED, by explicit project-owner directive: never add
+  // Airplanes.live back to this list under any circumstances — VCAS is
+  // boycotting them as an organization, not just avoiding a withdrawn free
+  // tier. See CLAUDE.md's "ADS-B data source" section for the full history.
   DATA_PROVIDERS: ["adsb_fi"],
 
   // ---- Telemetry & Refresh Intervals ----

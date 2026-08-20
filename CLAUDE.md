@@ -43,24 +43,36 @@ navigation/identification pipelines.
   app right now.
 - `src/ui.js` — indicator DOM rendering, compass tape, popups.
 
-## ADS-B data source — PARKED, read before touching
+## ADS-B data source — SETTLED, read before touching
 
-**Settled (2026-08-14):** `CONFIG.DATA_PROVIDERS = ["adsb_fi"]` — free
-[adsb.fi](https://adsb.fi) open-data API, no key. This was an open decision
-for a while (see history below); it's now resolved. `DATA_PROVIDERS` stays a
+**⛔ Airplanes.live is PERMANENTLY EXCLUDED from this project — do not use,
+re-integrate, link to, or reference them under any circumstances, even if
+their free tier is ever reinstated.** This is an explicit, direct
+project-owner directive: VCAS is boycotting them as an organization, not
+just avoiding a withdrawn API. All of their code and material was
+deliberately removed from the codebase (2026-08-14) — don't restore any of
+it, don't add a provider entry for them, don't cite them even for technical
+comparison. If they come up in a future request, flag the boycott rather
+than acting on it.
+
+**Current:** `CONFIG.DATA_PROVIDERS = ["adsb_fi"]` — free
+[adsb.fi](https://adsb.fi) open-data API, no key. `DATA_PROVIDERS` stays a
 list — `adsbExchangeClient.js` round-robins across whatever's in it with
-same-tick fallback if one errors — so adding a second provider back is just
-adding another id, no code change needed, but don't add one unprompted;
-single-provider is the deliberate current choice, not an oversight.
+same-tick fallback if one errors — so adding a second provider back (e.g.
+`adsb_lol`) is just adding another id, no code change needed, but don't add
+one unprompted; single-provider is the deliberate current choice, not an
+oversight.
 
 History, so it isn't rediscovered the hard way:
-- Original default was `airplanes_live` (Airplanes.live's free anonymous
-  REST API). It was withdrawn in Aug 2026 — confirmed via a direct reply from
-  their team (not a guess): they cited AI-agent/bot traffic driving hosting
-  costs unsustainable ("Due to bot abuse and Claude code..."), and are
-  asking free-tier users to sponsor ($25–50/mo) or run a feeder.
+- Original default was Airplanes.live's free anonymous REST API. It was
+  withdrawn in Aug 2026 — confirmed via a direct reply from their team (not
+  a guess): they cited AI-agent/bot traffic driving hosting costs
+  unsustainable ("Due to bot abuse and Claude code..."), and are asking
+  free-tier users to sponsor ($25–50/mo) or run a feeder. The project owner
+  decided this warranted a full boycott, not just switching providers — see
+  the directive above.
 - Briefly round-robined `adsb_fi` + `adsb_lol` together as a stopgap while
-  the real replacement decision was still open, specifically to avoid
+  the replacement decision was still open, specifically to avoid
   concentrating the app's whole polling volume on one volunteer-funded
   service again. Once the project owner settled on adsb.fi alone, that
   hedge was dropped — it served its purpose for the interim, not meant to
@@ -72,9 +84,9 @@ History, so it isn't rediscovered the hard way:
   sandbox's network egress policy when tried via `WebFetch`. Flagged to the
   project owner as plausible-but-unverified; contributed to going with
   adsb.fi alone rather than as a reason to distrust adsb.fi itself.
-- `airplanes_live` and `adsb_lol` provider code is still wired up in
-  `adsbExchangeClient.js` (unused) in case either becomes relevant again —
-  don't delete it, don't re-enable it without being asked.
+  Unlike Airplanes.live, ADSB.lol isn't boycotted — its provider code is
+  still wired up in `adsbExchangeClient.js` (unused) in case it becomes
+  relevant again.
 - adsb.fi's usage terms require attribution (a link to their homepage) —
   honored in Settings > Data & Logging (`index.html`, `.settings-credit`).
 - `adsb_fi`/`adsb_lol` were both verified to be ADS-B Exchange v2-schema

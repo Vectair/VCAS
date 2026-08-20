@@ -29,14 +29,14 @@ still work against a blank background.
 `src/data/adsbExchangeClient.js`). `DATA_PROVIDERS` is a list — the client
 round-robins across whatever's in it with same-tick fallback if one errors —
 but it's just adsb.fi alone for now, a settled choice rather than the
-multi-provider hedge used while that decision was still open.
-([airplanes.live](https://airplanes.live) was the original default but
-withdrew free anonymous access in Aug 2026 due to hosting costs; ADSB.lol was
-evaluated as a second option but not adopted. Both providers' code is still
-there in `adsbExchangeClient.js` in case that ever changes, just not in the
-default rotation.) To use ADS-B Exchange's paid API instead (or add a second
-provider back — `DATA_PROVIDERS` accepts any mix of provider ids), add to
-`config.js`:
+multi-provider hedge used while that decision was still open. (ADSB.lol was
+evaluated as a second option but not adopted, though its provider code is
+still there in `adsbExchangeClient.js` in case that changes, just not in the
+default rotation. An earlier free provider was dropped entirely after
+withdrawing free anonymous access and is permanently excluded — see
+`CLAUDE.md` if picking this back up.) To use ADS-B Exchange's paid API
+instead (or add a second provider back — `DATA_PROVIDERS` accepts any mix of
+provider ids), add to `config.js`:
 
 ```js
 DATA_PROVIDERS: ["adsb_exchange"],
@@ -304,7 +304,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
     navDisplayStyle.js              NAV display style state (Hybrid / Raw)
     wakeLock.js                     Screen Wake Lock wrapper — keeps the screen on during NAV mode
     /data
-      adsbExchangeClient.js         ADS-B provider adapter (adsb.fi; ADSB.lol/ADS-B Exchange/airplanes.live also wired up)
+      adsbExchangeClient.js         ADS-B provider adapter (adsb.fi; ADSB.lol/ADS-B Exchange also wired up)
       normaliseAircraft.js          Raw provider response → internal aircraft object
     /logic
       geo.js                        Bearing, distance, polar screen-position projection, forward-position projection
