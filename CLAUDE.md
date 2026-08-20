@@ -18,6 +18,19 @@ rejected even when technically interesting, per direct instruction: "we don't
 need to display any additional information" beyond what feeds the
 navigation/identification pipelines.
 
+## Pre-V1 release checklist
+
+Things that are deliberately fine for now (personal use, single user) but
+**must** be addressed before VCAS goes out to anyone else:
+
+- **adsb.fi attribution needs to be more prominent.** Their usage terms
+  require citing them with a link to their homepage — currently satisfied
+  minimally (Settings > Data & Logging, `index.html`'s `.settings-credit`),
+  which is compliant but easy to miss since it's buried in a settings
+  sub-screen. Explicit instruction from the project owner (2026-08-20):
+  leave it as-is for now, but move it somewhere actually visible in the
+  main UI before release.
+
 ## Architecture map
 
 - `src/app.js` — orchestration/glue: GPS watch, mode state (nav/air,
