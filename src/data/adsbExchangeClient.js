@@ -30,9 +30,23 @@ const AdsbExchangeClient = (() => {
     adsb_fi: {
       // Free, no authentication. v3 endpoint, radius already in nautical
       // miles, capped at 250 (their own documented max).
-      buildUrl: (lat, lon, rangeNm) =>
-        `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${Math.min(rangeNm, 250)}`,
-      headers: () => ({}),
+      //
+      // adsb.fi's API doesn't send a CORS header, so a browser can't read
+      // the response of a direct call — confirmed via a real device test
+      // (the same URL works fine typed straight into a browser; only
+      // VCAS's own in-page fetch() fails) and independently corroborated
+      // by a Windy.com plugin-dev thread hitting the identical wall.
+      // Routes through CONFIG.ADSB_RELAY_URL when set (see config.js's own
+      // comment for what that is and why); falls back to calling adsb.fi
+      // directly when it isn't, which still works outside a browser.
+      buildUrl: (lat, lon, rangeNm, cfg) => {
+        const dist = Math.min(rangeNm, 250);
+        if (cfg.ADSB_RELAY_URL) {
+          return `${cfg.ADSB_RELAY_URL}?lat=${lat}&lon=${lon}&dist=${dist}`;
+        }
+        return `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${dist}`;
+      },
+      headers: (cfg) => cfg.ADSB_RELAY_URL ? { "X-VCAS-Key": cfg.ADSB_RELAY_KEY } : {},
       requiresKey: false,
     },
     adsb_lol: {

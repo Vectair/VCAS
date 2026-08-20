@@ -28,6 +28,25 @@ const CONFIG = {
   // tier. See CLAUDE.md's "ADS-B data source" section for the full history.
   DATA_PROVIDERS: ["adsb_fi"],
 
+  // adsb.fi's API doesn't send the CORS header a browser needs to read its
+  // response directly — confirmed via a real device test: the exact same
+  // URL works fine typed straight into a browser (proving the API and the
+  // data are healthy), but VCAS's own in-page fetch() fails, because that's
+  // subject to the browser's cross-origin restriction and plain navigation
+  // isn't. Independently corroborated by a Windy.com plugin-dev thread
+  // hitting the identical wall with adsb.fi and concluding a browser-side
+  // integration wasn't feasible. Routes adsb_fi's requests through a small
+  // server-side relay (deploy/adsb-relay.php, not committed to this repo —
+  // handed to the project owner directly, same pattern as LOG_ENDPOINT
+  // below) when set — the relay does the actual request server-to-server,
+  // which isn't subject to the browser restriction, and returns the result
+  // with the header VCAS's browser needs. Leave both blank to fall back to
+  // calling adsb.fi directly, which still works outside a browser context
+  // (e.g. curl/Node) but will fail with a generic "network" error in the
+  // deployed app until the relay is set up.
+  ADSB_RELAY_URL: "",
+  ADSB_RELAY_KEY: "",
+
   // ---- Telemetry & Refresh Intervals ----
   // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
   // leaves generous headroom below that ceiling for a single client while
