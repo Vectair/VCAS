@@ -94,32 +94,33 @@ same-tick fallback if one errors — so adding a second provider back (e.g.
 one unprompted; single-provider is the deliberate current choice, not an
 oversight.
 
-**⏳ PARKED, awaiting deployment: adsb.fi CORS relay.** adsb.fi's API
-doesn't send a CORS header, so a browser's own `fetch()` can't read the
-response even though the request itself succeeds — confirmed via a real
-device test (the exact same URL works fine typed directly into a phone
-browser; only VCAS's in-page `fetch()` fails with a generic "network"
-error) and independently corroborated by a Windy.com plugin-dev thread
-hitting the identical wall. This is not a VCAS bug and not (as far as
-thorough doc/issue searching found) a deliberate anti-abuse measure — just
-an API that was never given CORS headers. Fix: a small server-side PHP
-relay (`deploy/adsb-relay.php` pattern — not committed to this repo, same
-handoff approach as the parked central log below) that fetches from
-adsb.fi server-to-server (no browser restriction applies there) and
-re-serves the result with the `Access-Control-Allow-Origin` header VCAS's
-browser needs. Built and fully tested locally (`php -l` + a live
-`php -S` server exercising auth success/failure, input validation,
-CORS preflight, and the upstream-error path) — handed to the project
-owner as a deploy package (`relay.php` + `DEPLOY_INSTRUCTIONS.md`) via
-`SendUserFile`, not yet deployed. `src/config.js`'s `ADSB_RELAY_URL` /
-`ADSB_RELAY_KEY` and `adsbExchangeClient.js`'s `adsb_fi` provider are
-already relay-aware (route through the relay when those are set; fall
-back to calling adsb.fi directly — which still works outside a browser,
-e.g. curl/Node, but not in the deployed app — when they're blank). Don't
-restart this design from scratch if asked to pick it back up — ask
-whether the owner still has the handoff files first, then just fill in
-`ADSB_RELAY_URL`/`ADSB_RELAY_KEY` once they give you the deployed URL and
-secret.
+**✅ DEPLOYED (2026-08-20): adsb.fi CORS relay.** adsb.fi's API doesn't
+send a CORS header, so a browser's own `fetch()` can't read the response
+even though the request itself succeeds — confirmed via a real device
+test (the exact same URL works fine typed directly into a phone browser;
+only VCAS's in-page `fetch()` fails with a generic "network" error) and
+independently corroborated by a Windy.com plugin-dev thread hitting the
+identical wall. This is not a VCAS bug and not (as far as thorough
+doc/issue searching found) a deliberate anti-abuse measure — just an API
+that was never given CORS headers. Fix: a small server-side PHP relay
+that fetches from adsb.fi server-to-server (no browser restriction
+applies there) and re-serves the result with the
+`Access-Control-Allow-Origin` header VCAS's browser needs. Built and
+fully tested locally (`php -l` + a live `php -S` server exercising auth
+success/failure, input validation, CORS preflight, and the
+upstream-error path), then handed to the project owner as a deploy
+package (`relay.php` + `DEPLOY_INSTRUCTIONS.md`) via `SendUserFile` — the
+random shared secret was generated on this side (owner was on a phone)
+and baked directly into `relay.php` before handoff rather than asking
+them to pick one. Owner deployed it to their existing Bluehost hosting at
+`https://vectair.org/adsb-relay/relay.php` (not committed to this repo —
+same handoff-file pattern as the parked central log below; ask whether
+the owner still has it if this ever needs touching again). `src/config.js`
+now has `ADSB_RELAY_URL`/`ADSB_RELAY_KEY` filled in with that URL and the
+matching secret, and `adsbExchangeClient.js`'s `adsb_fi` provider routes
+through it automatically (falls back to calling adsb.fi directly — which
+still works outside a browser, e.g. curl/Node, but not in the deployed
+app — only if those config values are ever blanked out).
 
 Also worth remembering for whenever the native-app transition (see top of
 this file) actually happens: a real native app's HTTP requests aren't

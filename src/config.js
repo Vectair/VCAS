@@ -44,8 +44,8 @@ const CONFIG = {
   // calling adsb.fi directly, which still works outside a browser context
   // (e.g. curl/Node) but will fail with a generic "network" error in the
   // deployed app until the relay is set up.
-  ADSB_RELAY_URL: "",
-  ADSB_RELAY_KEY: "",
+  ADSB_RELAY_URL: "https://vectair.org/adsb-relay/relay.php",
+  ADSB_RELAY_KEY: "D5ed4yHUumftDFscQpLb2xN5H8v-Ylnb5jud5o61scs",
 
   // ---- Telemetry & Refresh Intervals ----
   // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
