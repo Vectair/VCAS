@@ -69,6 +69,21 @@ Things that are deliberately fine for now (personal use, single user) but
 - `src/logic/indicators.js` / `src/logic/relevance.js` — what's shown and
   where (polar/edge projection), independent of the range rings' own
   now-separate real-geo positioning.
+- `src/logic/aircraftExtrapolation.js` — dead-reckons aircraft lat/lon
+  between actual ADS-B polls using each aircraft's own reported speed/track
+  (Geo.destinationPoint), capped at STALE_THRESHOLD_SECONDS. Driven by a
+  separate 500ms render-tick timer in app.js (`_extrapolationRenderTick`,
+  decoupled from CONFIG.REFRESH_INTERVAL_SECONDS's actual fetch cadence) —
+  `_currentAircraftList()` is what NAV indicators and AIR markers read,
+  never the raw last-fetched `aircraftList` directly. Added 2026-08-20 so a
+  fast/close aircraft glides between the 3s polls instead of visibly
+  teleporting; a distant one barely moves either way, which was the whole
+  motivation (no benefit to polling a 50nm-away aircraft any more often,
+  every benefit to smoothing a 1nm-away one). This is *why*
+  `EosMap.renderAirMarkers` diffs markers by hex (reuses/`setLngLat()`s
+  existing `maplibregl.Marker` DOM elements) instead of tearing all of them
+  down every call, the way it used to — at a 3s cadence full rebuild was
+  fine; at 500ms it'd have meant constant marker/click-listener churn.
 - `src/data/adsbExchangeClient.js` — ADS-B provider adapter, round-robined.
   See "ADS-B data source" below — this is the most volatile part of the
   app right now.

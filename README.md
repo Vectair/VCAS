@@ -312,6 +312,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
       metarProvider.js              Nearest-METAR fetch/cache — feeds visibility.js only, no display surface
       relevance.js                  TCAS-style teardrop relevance gate (what's worth showing at all)
       indicators.js                 Driving-view aircraft ranking/filtering (relevance + suppression + sort)
+      aircraftExtrapolation.js      Dead-reckons position between ADS-B polls using each aircraft's own speed/track
     /map
       cameraController.js           Owns MapLibre camera state; bridges NavigationCameraEvaluator to the map
       navStyle.js                   Vector basemap style factory (day/night palettes, 31 layers)

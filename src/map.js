@@ -10,7 +10,7 @@
 const EosMap = (() => {
   let _map                   = null;
   let _userMarker            = null;
-  let _airMarkers            = [];
+  let _airMarkers            = new Map(); // hex -> {marker, el}
   let _mode                  = "nav";
   let _heading               = 0;
   let _speedMph              = 0;
@@ -422,20 +422,46 @@ const EosMap = (() => {
    *   filters by it, so it's a live check on whether the filter agrees).
    * @param {function} onClickFn  Called with the clicked item.
    */
+  // Diffs by hex rather than tearing every marker down and rebuilding it —
+  // this is called on every extrapolation render tick (much more often than
+  // the underlying data actually changes, see app.js's render-tick timer),
+  // so recreating each maplibregl.Marker/DOM node every call would mean
+  // constant element churn (and click-listener rebinding) for markers whose
+  // position mostly just needs a small setLngLat() nudge.
   function renderAirMarkers(trackedList, onClickFn) {
-    clearAirMarkers();
+    const seenHexes = new Set();
+
     trackedList.forEach(item => {
       const a = item.aircraft;
-      const el = document.createElement("div");
-      el.className = "air-marker";
-      el.innerHTML = _airMarkerHtml(a, item.vis);
-      el.addEventListener("click", () => onClickFn(item));
+      seenHexes.add(a.hex);
+      const existing = _airMarkers.get(a.hex);
 
-      const m = new maplibregl.Marker({ element: el, anchor: "bottom" })
-        .setLngLat([a.lon, a.lat])
-        .addTo(_map);
-      _airMarkers.push(m);
+      if (existing) {
+        existing.el.innerHTML = _airMarkerHtml(a, item.vis);
+        existing.marker.setLngLat([a.lon, a.lat]);
+        existing.onClickFn = onClickFn;
+        existing.item = item;
+      } else {
+        const el = document.createElement("div");
+        el.className = "air-marker";
+        el.innerHTML = _airMarkerHtml(a, item.vis);
+        const entry = { el, item, onClickFn };
+        el.addEventListener("click", () => entry.onClickFn(entry.item));
+
+        const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+          .setLngLat([a.lon, a.lat])
+          .addTo(_map);
+        entry.marker = marker;
+        _airMarkers.set(a.hex, entry);
+      }
     });
+
+    for (const [hex, entry] of _airMarkers) {
+      if (!seenHexes.has(hex)) {
+        entry.marker.remove();
+        _airMarkers.delete(hex);
+      }
+    }
   }
 
   // Same reasoning as UI._displayColor() — the category colors are tuned for
@@ -482,8 +508,8 @@ const EosMap = (() => {
   }
 
   function clearAirMarkers() {
-    _airMarkers.forEach(m => m.remove());
-    _airMarkers = [];
+    _airMarkers.forEach(entry => entry.marker.remove());
+    _airMarkers.clear();
   }
 
   function flyTo(lat, lon, zoom) {

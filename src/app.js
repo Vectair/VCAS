@@ -14,6 +14,7 @@
   let aircraftList = [];
   let gpsWatchId = null;
   let fetchTimer = null;
+  let renderTickTimer = null;
   let lastFetchTime = null;
   let lastFetchError = null;
 
@@ -761,9 +762,35 @@
   let _loadingIndicatorTimer = null;
   const LOADING_INDICATOR_DELAY_MS = 500;
 
+  // How often to re-render aircraft position between actual ADS-B polls —
+  // see _currentAircraftList()/AircraftExtrapolation. Independent of (and
+  // much shorter than) CONFIG.REFRESH_INTERVAL_SECONDS: this doesn't fetch
+  // anything, just re-projects already-known aircraft along their reported
+  // track/speed, so a fast-moving nearby aircraft glides between polls
+  // instead of jumping once every 3s.
+  const RENDER_TICK_MS = 500;
+
   function scheduleFetch() {
     fetchAircraft();
     fetchTimer = setInterval(fetchAircraft, CONFIG.REFRESH_INTERVAL_SECONDS * 1000);
+    renderTickTimer = setInterval(_extrapolationRenderTick, RENDER_TICK_MS);
+  }
+
+  /** Aircraft positions extrapolated forward from the last real fix using
+   * their own reported speed/track (AircraftExtrapolation) — capped at
+   * STALE_THRESHOLD_SECONDS so a run of failed polls holds position rather
+   * than projecting further and further from an increasingly untrustworthy
+   * fix. */
+  function _currentAircraftList() {
+    if (lastFetchTime === null) return aircraftList;
+    const elapsedSeconds = (Date.now() - lastFetchTime) / 1000;
+    return AircraftExtrapolation.extrapolateAll(aircraftList, elapsedSeconds, CONFIG.STALE_THRESHOLD_SECONDS);
+  }
+
+  function _extrapolationRenderTick() {
+    if (userLat === null) return;
+    if (mode === "nav") refreshIndicators();
+    else refreshAirMode();
   }
 
   async function fetchAircraft() {
@@ -891,8 +918,10 @@
       if (expiry <= now) suppressedUntil.delete(hex);
     }
 
+    const currentAircraft = _currentAircraftList();
+
     const allRelevant = Indicators.build(
-      aircraftList, userState,
+      currentAircraft, userState,
       CONFIG.STALE_THRESHOLD_SECONDS,
       new Set(suppressedUntil.keys())
     );
@@ -901,7 +930,7 @@
     // aircraft the relevance gate excluded, since logging "the algorithm was
     // wrong to hide this" is the whole point.
     LogPanel.update(
-      Indicators.buildAll(aircraftList, userState, CONFIG.STALE_THRESHOLD_SECONDS),
+      Indicators.buildAll(currentAircraft, userState, CONFIG.STALE_THRESHOLD_SECONDS),
       userState
     );
 
@@ -970,7 +999,7 @@
     // is shown regardless of relevance — but now carries the same computed
     // vis/relevance/distance data NAV indicators do, so an AIR-triggered log
     // entry is just as complete, and the LOG panel stays live in AIR mode too.
-    const allTracked = Indicators.buildAll(aircraftList, userState, CONFIG.STALE_THRESHOLD_SECONDS);
+    const allTracked = Indicators.buildAll(_currentAircraftList(), userState, CONFIG.STALE_THRESHOLD_SECONDS);
 
     EosMap.renderAirMarkers(allTracked, onAirMarkerClick);
     LogPanel.update(allTracked, userState);
