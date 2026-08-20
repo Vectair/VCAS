@@ -10,27 +10,25 @@ const CONFIG = {
   ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
 
   // ---- ADS-B data provider(s) ----
-  // Round-robined by src/data/adsbExchangeClient.js — each poll tick uses
-  // the next provider in this list, with same-tick fallback to the rest if
-  // one errors. Splitting requests across multiple free community services,
-  // rather than pointing the app's whole request volume at just one, is
-  // deliberate: these are volunteer-funded services with finite hosting
-  // budgets, and concentrating load on a single one is exactly what got
-  // Airplanes.live's free anonymous API withdrawn (Aug 2026 — see git
-  // history/README). "airplanes_live" is left wired up in
-  // adsbExchangeClient.js in case free access ever returns, but isn't in
-  // this default rotation. See adsbExchangeClient.js's own header comment
-  // for what each provider id needs (adsb_exchange requires ADSB_API_KEY/
+  // Settled decision (2026-08-14): adsb.fi only. DATA_PROVIDERS is still a
+  // list — src/data/adsbExchangeClient.js round-robins across whatever's
+  // in it, with same-tick fallback to the rest if one errors — so adding a
+  // second provider back is just adding another id here, no code change
+  // needed. Deliberately single-provider for now rather than defaulting to
+  // spreading load across multiple free services: that was this app's own
+  // mitigation while the data-source decision was still open, not a
+  // requirement once a specific provider has been chosen. "airplanes_live"
+  // and "adsb_lol" are left wired up in adsbExchangeClient.js (unused) in
+  // case that changes. See adsbExchangeClient.js's own header comment for
+  // what each provider id needs (adsb_exchange requires ADSB_API_KEY/
   // ADSB_API_HOST below; the rest are free/anonymous).
-  DATA_PROVIDERS: ["adsb_fi", "adsb_lol"],
+  DATA_PROVIDERS: ["adsb_fi"],
 
   // ---- Telemetry & Refresh Intervals ----
-  // adsb.fi and ADSB.lol are each individually rate-limited to ~1 request/
-  // second; round-robining the two above already halves what either one
-  // sees from this single client (a request every ~6s per provider, not
-  // every 3s), well below that ceiling, while still cutting worst-case
-  // "aircraft already climbed hundreds of feet before it appears" lag by
-  // more than 3x versus the original 10s interval.
+  // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
+  // leaves generous headroom below that ceiling for a single client while
+  // cutting worst-case "aircraft already climbed hundreds of feet before it
+  // appears" lag by more than 3x versus the original 10s interval.
   REFRESH_INTERVAL_SECONDS: 3,
   REMOVE_THRESHOLD_SECONDS: 30,
   STALE_THRESHOLD_SECONDS: 15,

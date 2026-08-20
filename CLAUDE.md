@@ -45,39 +45,39 @@ navigation/identification pipelines.
 
 ## ADS-B data source — PARKED, read before touching
 
-**Current state (2026-08-14):** `CONFIG.DATA_PROVIDERS = ["adsb_fi", "adsb_lol"]`,
-round-robined in `adsbExchangeClient.js` with same-tick fallback. This is a
-stopgap, not a resolved decision — the project owner is still deciding where
-the ADS-B feed should ultimately come from and asked to park further work
-here until that's settled. **Don't add more providers, change the rotation
-strategy, or "fix" the data source without being asked** — it's intentionally
-left as-is pending that decision.
+**Settled (2026-08-14):** `CONFIG.DATA_PROVIDERS = ["adsb_fi"]` — free
+[adsb.fi](https://adsb.fi) open-data API, no key. This was an open decision
+for a while (see history below); it's now resolved. `DATA_PROVIDERS` stays a
+list — `adsbExchangeClient.js` round-robins across whatever's in it with
+same-tick fallback if one errors — so adding a second provider back is just
+adding another id, no code change needed, but don't add one unprompted;
+single-provider is the deliberate current choice, not an oversight.
 
 History, so it isn't rediscovered the hard way:
 - Original default was `airplanes_live` (Airplanes.live's free anonymous
   REST API). It was withdrawn in Aug 2026 — confirmed via a direct reply from
   their team (not a guess): they cited AI-agent/bot traffic driving hosting
   costs unsustainable ("Due to bot abuse and Claude code..."), and are
-  asking free-tier users to sponsor ($25–50/mo) or run a feeder. The
-  `airplanes_live` provider code is still wired up in `adsbExchangeClient.js`
-  in case free access ever returns, just not in the default rotation.
-  See `git log -- src/data/adsbExchangeClient.js` around Aug 2026 for the
-  full incident.
-- Switched to round-robining `adsb_fi` + `adsb_lol` instead of picking one
-  replacement, specifically to avoid concentrating this app's whole polling
-  volume on a single volunteer-funded service again — that's the same
-  pattern that got Airplanes.live's free tier pulled.
-- **Caveat carried forward, not fully verified:** ADSB.lol's own docs
-  reportedly mention a future feeder-gated API key requirement, meaning it
-  may not stay free/anonymous either. This claim came from a `WebSearch`
-  tool summary, not a page I successfully read directly — `api.adsb.lol` and
-  `www.adsb.lol` were both blocked by this sandbox's network egress policy
-  when I tried to verify with `WebFetch`. Treat as plausible, not confirmed.
+  asking free-tier users to sponsor ($25–50/mo) or run a feeder.
+- Briefly round-robined `adsb_fi` + `adsb_lol` together as a stopgap while
+  the real replacement decision was still open, specifically to avoid
+  concentrating the app's whole polling volume on one volunteer-funded
+  service again. Once the project owner settled on adsb.fi alone, that
+  hedge was dropped — it served its purpose for the interim, not meant to
+  be permanent multi-provider architecture.
+- **Why not ADSB.lol too:** their own docs reportedly mention a future
+  feeder-gated API key requirement, meaning free/anonymous access may not
+  last. This claim came from a `WebSearch` tool summary, not a page read
+  directly — `api.adsb.lol`/`www.adsb.lol` were both blocked by this
+  sandbox's network egress policy when tried via `WebFetch`. Flagged to the
+  project owner as plausible-but-unverified; contributed to going with
+  adsb.fi alone rather than as a reason to distrust adsb.fi itself.
+- `airplanes_live` and `adsb_lol` provider code is still wired up in
+  `adsbExchangeClient.js` (unused) in case either becomes relevant again —
+  don't delete it, don't re-enable it without being asked.
 - adsb.fi's usage terms require attribution (a link to their homepage) —
   honored in Settings > Data & Logging (`index.html`, `.settings-credit`).
-  ADSB.lol is credited alongside it even though their terms don't explicitly
-  require it.
-- Both `adsb_fi` and `adsb_lol` were verified to be ADS-B Exchange v2-schema
+- `adsb_fi`/`adsb_lol` were both verified to be ADS-B Exchange v2-schema
   compatible (`.ac` array, nautical miles, 250nm max) against their actual
   GitHub docs before shipping — not assumed just because they're in the same
   hobbyist ecosystem.

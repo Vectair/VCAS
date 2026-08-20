@@ -24,15 +24,19 @@ https://cloud.maptiler.com/auth/widget?mode=add — no credit card). Without it
 the map tiles won't load, but GPS, the aircraft feed, and the NAV indicators
 still work against a blank background.
 
-**ADS-B aircraft data needs no key by default** — it round-robins across two
-free community APIs, [adsb.fi](https://adsb.fi) and [ADSB.lol](https://adsb.lol)
-(`CONFIG.DATA_PROVIDERS`, see `src/data/adsbExchangeClient.js`), splitting
-requests between them rather than pointing the app's whole polling load at
-just one. ([airplanes.live](https://airplanes.live) was the original default
-but withdrew free anonymous access in Aug 2026 due to hosting costs — its
-provider code is still there in case that ever changes, just not in the
-default rotation.) To use ADS-B Exchange's paid API instead (or in addition —
-`DATA_PROVIDERS` accepts any mix of provider ids), add to `config.js`:
+**ADS-B aircraft data needs no key by default** — it uses the free
+[adsb.fi](https://adsb.fi) open-data API (`CONFIG.DATA_PROVIDERS`, see
+`src/data/adsbExchangeClient.js`). `DATA_PROVIDERS` is a list — the client
+round-robins across whatever's in it with same-tick fallback if one errors —
+but it's just adsb.fi alone for now, a settled choice rather than the
+multi-provider hedge used while that decision was still open.
+([airplanes.live](https://airplanes.live) was the original default but
+withdrew free anonymous access in Aug 2026 due to hosting costs; ADSB.lol was
+evaluated as a second option but not adopted. Both providers' code is still
+there in `adsbExchangeClient.js` in case that ever changes, just not in the
+default rotation.) To use ADS-B Exchange's paid API instead (or add a second
+provider back — `DATA_PROVIDERS` accepts any mix of provider ids), add to
+`config.js`:
 
 ```js
 DATA_PROVIDERS: ["adsb_exchange"],
@@ -113,8 +117,8 @@ All keys live in `src/config.js`.
 |-----|---------|-------------|
 | `MAPTILER_KEY` | `"PASTE_YOUR_MAPTILER_KEY_HERE"` | MapTiler browser token — required for road map tiles/glyphs |
 | `ORS_API_KEY` | `"PASTE_YOUR_ORS_KEY_HERE"` | Free OpenRouteService "Standard" API key — required for routing (driving/cycling/walking) |
-| `DATA_PROVIDERS` | `["adsb_fi", "adsb_lol"]` | ADS-B provider(s) to round-robin across — see `src/data/adsbExchangeClient.js` for available ids and what each needs |
-| `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll — each provider in `DATA_PROVIDERS` is individually rate-limited to ~1 req/sec, and round-robining across two already halves what any one sees from this single client |
+| `DATA_PROVIDERS` | `["adsb_fi"]` | ADS-B provider(s) — a list, round-robined if more than one is given; see `src/data/adsbExchangeClient.js` for available ids and what each needs |
+| `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll — adsb.fi's public endpoint is rate-limited to ~1 req/sec, so this leaves generous headroom as a single client |
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
 | `STALE_THRESHOLD_SECONDS` | `15` | Aircraft older than this are dimmed (`isStale`) in the driving view; also used as the hard age cutoff (3×) for which aircraft are considered at all |
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
@@ -300,7 +304,7 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
     navDisplayStyle.js              NAV display style state (Hybrid / Raw)
     wakeLock.js                     Screen Wake Lock wrapper — keeps the screen on during NAV mode
     /data
-      adsbExchangeClient.js         ADS-B provider adapter, round-robined (adsb.fi / ADSB.lol / ADS-B Exchange)
+      adsbExchangeClient.js         ADS-B provider adapter (adsb.fi; ADSB.lol/ADS-B Exchange/airplanes.live also wired up)
       normaliseAircraft.js          Raw provider response → internal aircraft object
     /logic
       geo.js                        Bearing, distance, polar screen-position projection, forward-position projection
