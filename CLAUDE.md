@@ -5,6 +5,24 @@ README is end-user/setup documentation; this file is decisions, conventions,
 and history that aren't obvious from the code alone. Keep this updated as
 things change; it's the main thing that survives between sessions.
 
+## Long-term destination: a standalone, self-sufficient native app
+
+**The project owner has stated this multiple times over the course of the
+build — it is a settled decision, not an open question.** VCAS's PWA form
+(installable web app, no native build, no app store) is a **deliberate
+interim choice for fast iteration** — no build step, edit-and-push-to-deploy,
+instant field-testing via a public HTTPS URL (see the Aug 11 2026 commit that
+added PWA installability: motivated purely by practical testing needs, GPS/
+compass secure-context requirements, nothing more). It is **not** the
+intended final form. Don't propose "is this actually meant to be a real app"
+as an open question, don't default to PWA-only solutions on the assumption
+that's the ceiling, and don't push back on native-track proposals with "not
+yet"/"let's keep it simple for now" without first checking whether that's
+actually still true — that pattern has already caused real friction once
+because a repeated, explicit decision wasn't written down anywhere durable
+until 2026-08-20. If in doubt about whether now is the right moment for a
+concrete step toward native, ask; don't assume the PWA form is the ceiling.
+
 ## What VCAS is, and isn't
 
 VCAS is a mobile-first navigation app with an aircraft-identification overlay.
