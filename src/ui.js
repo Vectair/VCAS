@@ -506,6 +506,68 @@ const UI = (() => {
     if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
   }
 
+  /**
+   * RAW mode's range rings, drawn as screen-space arcs sharing the EXACT
+   * same anchor/scale/FOV the aircraft dots use (Geo.circularPlotRadius +
+   * Geo.bandedRadiusFraction) — NOT the real geo-projected MapLibre layers
+   * EosMap.updateRangeRings draws for AIR's own optional rings. Both used
+   * to exist for RAW too, and had nothing in common: dots plotted on the
+   * deliberately non-linear banded scale, rings on the literal real-world
+   * nm-to-pixel scale — so an aircraft's plotted position and the rings
+   * around it could (and did, reported directly against the deployed app)
+   * disagree completely, e.g. an 8nm aircraft rendering INSIDE a literal
+   * 2nm ring. Making the ring itself just another point on the SAME
+   * formula the dot uses guarantees they can never disagree, by
+   * construction, not by coincidence of matching numbers.
+   *
+   * Safe specifically because RAW has no real map texture underneath to
+   * visually detach from (pure black background, no vector tile source at
+   * all) — the "rings must be real map layers" decision elsewhere in this
+   * codebase was about Hybrid/AIR's real road/building detail, which
+   * doesn't exist in RAW.
+   *
+   * @param {number[]} bandsNm         Same array Indicators.RING_BANDS_NM
+   *   and the dots' own Geo.projectToPolarPosition call use.
+   * @param {number} fovHalfAngleDeg   Same Indicators.FOV_HALF_ANGLE_DEG
+   *   the dots are restricted to.
+   */
+  function renderRangeRingsOverlay(viewportWidth, viewportHeight, anchorY, safeInset, bandsNm, fovHalfAngleDeg, color) {
+    const svg = document.getElementById("nav-range-rings-overlay");
+    if (!svg) return;
+
+    const cx = viewportWidth * 0.5;
+    const cy = viewportHeight * anchorY;
+    const plotRadius = Geo.circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg);
+    const fovRad = (fovHalfAngleDeg * Math.PI) / 180;
+
+    let rings = "";
+    bandsNm.forEach(nm => {
+      const radius = Geo.bandedRadiusFraction(nm, bandsNm) * plotRadius;
+      if (radius < 4) return; // too small to read as a ring at all
+
+      const startX = cx + radius * Math.sin(-fovRad), startY = cy - radius * Math.cos(-fovRad);
+      const endX   = cx + radius * Math.sin(fovRad),  endY   = cy - radius * Math.cos(fovRad);
+      // 150° < 180°, so large-arc-flag is always 0; sweep-flag 1 draws the
+      // arc through dead-ahead (angle 0), not the long way round the back.
+      rings += `<path d="M ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${endX} ${endY}"
+                  fill="none" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.55"/>`;
+
+      // Always along dead-ahead (angle 0 = straight up from the anchor) —
+      // no heading-rotation concern at all here, unlike the old real-geo
+      // rings, since this is screen-space relative to dead-ahead already.
+      rings += `<text x="${cx}" y="${cy - radius - 4}" text-anchor="middle"
+                  style="fill:${color}; font-size:11px" opacity="0.7">${nm}</text>`;
+    });
+
+    svg.innerHTML = rings;
+    svg.classList.remove("hidden");
+  }
+
+  function clearRangeRingsOverlay() {
+    const svg = document.getElementById("nav-range-rings-overlay");
+    if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
+  }
+
   // ---- Popup ----
 
   /** Shared row of ground-truth log buttons, embedded in both popups below. */
@@ -667,6 +729,8 @@ const UI = (() => {
     clearIndicators,
     renderCompassRing,
     clearCompassRing,
+    renderRangeRingsOverlay,
+    clearRangeRingsOverlay,
     showPopup,
     showAirPopup,
     hidePopup,

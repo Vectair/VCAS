@@ -41,6 +41,12 @@
         <div id="map"></div>
       </div>
 
+      <!-- NAV Raw-mode range rings (screen-space, same banded scale the
+           indicator dots use — see EosMap.updateRangeRings vs
+           UI.renderRangeRingsOverlay in CLAUDE.md for why real geo-projected
+           map layers and this share nothing in common on purpose here) -->
+      <svg id="nav-range-rings-overlay" style="position:fixed;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;" class="hidden"></svg>
+
       <!-- NAV Raw-mode heading/compass tape (ND-style, top of screen) -->
       <svg id="nav-compass-ring" style="position:fixed;inset:0;width:100%;height:100%;z-index:10;pointer-events:none;" class="hidden"></svg>
 

@@ -336,10 +336,13 @@ Hybrid's edge indicators aren't a round display and keep the full teardrop
 `Relevance` already computes. `Geo.projectToPolarPosition` returns `null`
 for any bearing outside the FOV; callers filter those out before rendering
 (they're still tracked/relevant for Hybrid and the LOG panel, just not
-drawable inside RAW's arc). Rings are drawn as arcs too
+drawable inside RAW's arc). Rings were initially drawn as arcs too
 (`Geo.arcCoordinates`, an open `Geo.circleCoordinates` restricted to
-`labelBearingDeg ± fovHalfAngleDeg`) rather than full circles, matching the
-same reference photo.
+`labelBearingDeg ± fovHalfAngleDeg`) as real geo-referenced MapLibre
+layers, matching the same reference photo — **superseded later the same
+day, see "Rings and dots share one scale" below: this real-geo approach
+turned out to be fundamentally incompatible with the banded scale and was
+replaced with screen-space rings.**
 
 This also fixed a real, independently-reported "aircraft cluster together
 regardless of range" bug: the old per-bearing `maxRadiusForBearing()` scale
@@ -433,6 +436,61 @@ every aircraft's final radius exactly equals its pre-declutter value
 it must not break, not just against "does the thing it was meant to fix
 look fixed" — the first version passed its own overlap check while
 silently failing this one.**
+
+**Rings and dots share one scale now — the previous two fixes above
+didn't actually fix "no correlation with the rings" (2026-08-21).**
+Proven with a screenshot: an aircraft labelled 8.0nm rendered INSIDE the
+literal "2" range ring. Root cause, missed by both fixes above: the
+aircraft dots (banded/non-linear screen-space scale, see `Geo.
+circularPlotRadius`) and the range rings (real geodesic circles at
+literal nm radii, reprojected through the map's actual zoom — see
+"Range rings" section below) were **two entirely independent coordinate
+systems that were never reconciled**, despite superficially sharing the
+same nm numbers. Extending the band scale or fixing declutter could
+never have touched this — neither change came anywhere near the ring
+math. The project owner's own description of the intended design, given
+much earlier the same session — "even though the bands themselves are
+the same distance apart the range within them changes" — was, in
+hindsight, describing the RINGS themselves needing to be evenly/banded-
+spaced on screen, not just the dots; the real-geo ring implementation
+never actually matched that description, it just happened to ship
+without anyone noticing until traffic appeared far enough out for the
+mismatch to become obvious.
+
+Fixed by abandoning real geo-referenced rings for RAW specifically and
+adding `UI.renderRangeRingsOverlay()` — a screen-space SVG overlay
+(new `#nav-range-rings-overlay`, z-index between the map and the
+indicators layer) that draws each ring at exactly
+`Geo.bandedRadiusFraction(nm, bandsNm) * Geo.circularPlotRadius(...)` —
+the *identical* formula `Geo.projectToPolarPosition` uses for the dots,
+same anchor, same FOV. This makes a dot's position and its matching
+ring's position provably identical by construction, not by keeping two
+formulas in sync by convention (which is exactly what silently drifted
+apart before). Verified via Playwright: a dot at precisely a band
+boundary (2/5/15nm) lands within rounding error of that ring's own
+radius; the literal reported case (an 8nm aircraft vs the 2nm ring) now
+always renders outside it, at every bearing tested.
+
+This is deliberately RAW-only — `EosMap.updateRangeRings` (the real
+MapLibre GeoJSON layer, `Geo.arcCoordinates`/`labelBearingDeg` and all)
+is untouched and still exactly what AIR's own opt-in range rings use,
+since AIR is real unbanded 1:1 map scale (the project owner's own words:
+"air is 1:1 scale and that does appear to be working") — there's no
+banding there to stay consistent with, and real geo circles are the
+correct choice. Safe to make RAW screen-space specifically because RAW
+has no real map texture underneath to visually detach from (pure black
+background, no vector tile source at all) — the original "rings must be
+real map layers" decision (see "Range rings" below) was about Hybrid/
+AIR's real road/building detail, which doesn't exist in RAW.
+
+**Lesson, stacked on top of the two directly above: when a reported
+symptom persists after a fix, re-derive the root cause from scratch
+rather than assuming the previous fix's theory was right and just needed
+another pass.** Both the band-scale extension and the radius-preserving
+declutter rework were real, correct fixes for real bugs — and neither
+one was what the user was actually describing. Only re-reading their
+original "hybrid scale" description against what the ring code actually
+does (rather than against what the dots do) surfaced the real mismatch.
 
 Not yet done: a sortable aircraft list (callsign/type/altitude,
 default-sorted by the same visibility-likelihood scoring the indicators

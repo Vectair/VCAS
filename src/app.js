@@ -979,22 +979,19 @@
     UI.declutterRenderedIndicators(vw * 0.5, vh * (userState.anchorY ?? 0.8));
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
-    // TCAS/ND-style range rings — Raw only. They're real geo-referenced
-    // circles now (see EosMap.updateRangeRings) at literal nm radii, which
-    // reads naturally on Raw's plain instrument-style background but
-    // competes with Hybrid's own real road/building detail rather than
-    // aiding it, so Hybrid goes without rather than showing both.
+    // TCAS/ND-style range rings — Raw only. Screen-space, sharing the same
+    // anchor/scale/FOV the aircraft dots above use (see
+    // UI.renderRangeRingsOverlay's own doc comment for why this replaced
+    // EosMap's real geo-referenced MapLibre layer for RAW specifically —
+    // that's still what AIR's own opt-in rings use, since AIR's real 1:1
+    // map scale has no banding to stay consistent with). Not drawn for
+    // Hybrid — its own real road/building detail already gives spatial
+    // reference, and it never adopted the banded scale in the first place.
+    EosMap.clearRangeRings(); // RAW no longer uses the real-geo layer at all
     if (isRawView) {
-      // Label bearing = current heading, not true north — RAW is heading-up
-      // (the map itself rotates to match userHeading), so a label fixed at
-      // true north drifts to whatever screen angle "north" currently is,
-      // swinging off-screen for anything but a heading near 0/360. FOV
-      // half-angle draws each ring as a forward arc, matching the same
-      // field-of-view restriction the indicator dots above now use — see
-      // EosMap.updateRangeRings's own doc comment for both.
-      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM, userHeading, Indicators.FOV_HALF_ANGLE_DEG);
+      UI.renderRangeRingsOverlay(vw, vh, userState.anchorY ?? 0.8, userState.safeInset, Indicators.RING_BANDS_NM, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
     } else {
-      EosMap.clearRangeRings();
+      UI.clearRangeRingsOverlay();
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
