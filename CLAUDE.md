@@ -408,16 +408,31 @@ is rendered — it has no way to know how wide a real label box will
 measure once actual callsign/type text is in it, so two dots just
 outside that fixed gap could still have their (much wider) label boxes
 overlap. Fixed by adding `UI.declutterRenderedIndicators()`, a second
-pass that runs AFTER `renderIndicators()` — measures each `.indicator-
-label`'s real `getBoundingClientRect()`, resolves any pairwise overlap
-via the same "push apart along the shorter-overlap axis" AABB approach
-`declutter()` already uses for points, then moves each aircraft's whole
-`.indicator` element (shape + label together, so the direction arrow
-never separates from its own label). Verified via Playwright with the
-literal reported scenario (three close-together aircraft in the plot's
-new outer band): labels provably overlapping before the second pass,
-provably not after, and a screenshot confirms they read as cleanly
-adjacent rather than scattered apart.
+pass that runs AFTER `renderIndicators()` and measures each
+`.indicator-label`'s real `getBoundingClientRect()`.
+
+**First version of this pass was itself a real, shipped bug, caught the
+same day by the project owner re-testing:** it pushed each `.indicator`
+freely in x/y (plain AABB minimum-translation separation) to resolve
+label overlap — which let an aircraft's RADIUS (distance from anchor)
+drift arbitrarily to satisfy a label-spacing constraint, with nothing
+keeping distance ordering intact. Confirmed with the literal reported
+scenario: a 15.9nm aircraft ended up rendering farther from the anchor
+than a 25.9nm and a 33.7nm one — the label pass had silently undone the
+exact "does distance correlate with plotted position" property the
+band-scale fix above exists to guarantee, immediately reintroducing the
+same "no correlation" symptom in a new form. Reworked to re-parametrise
+each aircraft as `(radius, angle)` around the anchor and constrain the
+separation pass to only ever adjust ANGLE — radius is computed once from
+the true `Geo.projectToPolarPosition` output and never touched again, so
+no amount of label crowding can invert distance ordering, by
+construction (not just by tuning). Re-verified with the same scenario:
+every aircraft's final radius exactly equals its pre-declutter value
+(bit-for-bit, not just "close"), and no two label boxes overlap.
+**Lesson: verify a decluttering/layout fix against the specific property
+it must not break, not just against "does the thing it was meant to fix
+look fixed" — the first version passed its own overlap check while
+silently failing this one.**
 
 Not yet done: a sortable aircraft list (callsign/type/altitude,
 default-sorted by the same visibility-likelihood scoring the indicators

@@ -283,63 +283,90 @@ const UI = (() => {
    * outer band of the plot (see indicators.js's RING_BANDS_NM). Call this
    * AFTER renderIndicators() so the elements actually exist to measure.
    *
-   * Moves each aircraft's whole .indicator element (shape + label
-   * together, so the arrow/shape stays attached to its own label) by
-   * however much is needed to separate its .indicator-label box from every
-   * other one — standard AABB minimum-translation separation, same
-   * two-rects-push-apart-along-the-shorter-overlap-axis approach
-   * Indicators.declutter() already uses for points, just measured in real
-   * rendered pixels instead of computed ahead of time.
+   * @param {number} anchorX  Same cx Geo.projectToPolarPosition used for
+   *   this render (viewportWidth * 0.5).
+   * @param {number} anchorY  Same cy Geo.projectToPolarPosition used for
+   *   this render (viewportHeight * anchorY).
+   *
+   * First version of this moved each .indicator freely in x/y (standard
+   * AABB minimum-translation separation) — shipped, then reverted the same
+   * day once real testing showed it: pushing freely lets an aircraft's
+   * label shove it RADIALLY, which can make a closer aircraft end up
+   * rendering farther from the anchor than a genuinely more distant one,
+   * silently destroying the one thing the plot's radius is supposed to
+   * mean. Reworked to re-parametrise each aircraft as (radius, angle)
+   * around the anchor and only ever adjust ANGLE to resolve an overlap —
+   * radius (true distance-derived position) is never touched, so no
+   * amount of label crowding can invert distance ordering, by
+   * construction. Verified with the literal reported scenario: before this
+   * rework, a 15.9nm aircraft rendered farther from the anchor than a
+   * 25.9nm and a 33.7nm one; after, every aircraft's radius exactly
+   * matches what Geo.projectToPolarPosition computed, unchanged.
    */
-  function declutterRenderedIndicators() {
+  function declutterRenderedIndicators(anchorX, anchorY) {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
     const els = Array.from(container.querySelectorAll(".indicator"));
     if (els.length < 2) return;
 
     const items = els.map(el => {
+      const trueX = parseFloat(el.style.left) || 0;
+      const trueY = parseFloat(el.style.top) || 0;
+      const rdx = trueX - anchorX, rdy = trueY - anchorY;
+      const radius = Math.hypot(rdx, rdy);
+      // Matches Geo.projectToPolarPosition's own x/y construction
+      // (x = cx + r*sinθ, y = cy - r*cosθ) inverted to solve for θ.
+      const angle = Math.atan2(rdx, -rdy);
       const label = el.querySelector(".indicator-label") || el;
-      const r = label.getBoundingClientRect();
-      return { el, left: r.left, right: r.right, top: r.top, bottom: r.bottom, dx: 0, dy: 0 };
+      const rect = label.getBoundingClientRect();
+      // The label's own offset from the true dot position (CSS stacks it
+      // below the shape via flex, it isn't centred exactly ON the dot) —
+      // preserved across angle adjustments so the label keeps the same
+      // relationship to its shape it always had.
+      return {
+        el, radius, angle,
+        labelW: rect.width, labelH: rect.height,
+        offsetX: (rect.left + rect.width / 2) - trueX,
+        offsetY: (rect.top + rect.height / 2) - trueY,
+      };
     });
 
+    function labelRect(item) {
+      const cx = anchorX + item.radius * Math.sin(item.angle) + item.offsetX;
+      const cy = anchorY - item.radius * Math.cos(item.angle) + item.offsetY;
+      return { left: cx - item.labelW / 2, right: cx + item.labelW / 2, top: cy - item.labelH / 2, bottom: cy + item.labelH / 2 };
+    }
+
     const PADDING_PX = 4;
-    const MAX_PASSES = 6;
+    const MAX_PASSES = 8;
     for (let pass = 0; pass < MAX_PASSES; pass++) {
       let moved = false;
       for (let i = 0; i < items.length; i++) {
         for (let j = i + 1; j < items.length; j++) {
           const a = items[i], b = items[j];
-          const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-          const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          const ar = labelRect(a), br = labelRect(b);
+          const overlapX = Math.min(ar.right, br.right) - Math.max(ar.left, br.left);
+          const overlapY = Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top);
           if (overlapX <= 0 || overlapY <= 0) continue;
 
           moved = true;
-          const acx = (a.left + a.right) / 2, bcx = (b.left + b.right) / 2;
-          const acy = (a.top + a.bottom) / 2, bcy = (b.top + b.bottom) / 2;
-
-          if (overlapX < overlapY) {
-            const push = overlapX / 2 + PADDING_PX;
-            const sign = acx <= bcx ? -1 : 1; // a moves this way, b the opposite
-            a.dx += sign * push; a.left += sign * push; a.right += sign * push;
-            b.dx -= sign * push; b.left -= sign * push; b.right -= sign * push;
-          } else {
-            const push = overlapY / 2 + PADDING_PX;
-            const sign = acy <= bcy ? -1 : 1;
-            a.dy += sign * push; a.top += sign * push; a.bottom += sign * push;
-            b.dy -= sign * push; b.top -= sign * push; b.bottom -= sign * push;
-          }
+          // Convert the needed screen-space separation into an angular
+          // push via arc length (s = r * θ) at each item's own radius —
+          // never adjusts radius itself.
+          const overlapPx = Math.min(overlapX, overlapY) / 2 + PADDING_PX;
+          const avgRadius = Math.max(20, (a.radius + b.radius) / 2);
+          const pushAngle = overlapPx / avgRadius;
+          const sign = a.angle <= b.angle ? -1 : 1;
+          a.angle += sign * pushAngle;
+          b.angle -= sign * pushAngle;
         }
       }
       if (!moved) break;
     }
 
     items.forEach(item => {
-      if (item.dx === 0 && item.dy === 0) return;
-      const curLeft = parseFloat(item.el.style.left) || 0;
-      const curTop = parseFloat(item.el.style.top) || 0;
-      item.el.style.left = (curLeft + item.dx) + "px";
-      item.el.style.top = (curTop + item.dy) + "px";
+      item.el.style.left = (anchorX + item.radius * Math.sin(item.angle)) + "px";
+      item.el.style.top  = (anchorY - item.radius * Math.cos(item.angle)) + "px";
     });
   }
 

@@ -971,8 +971,12 @@
     // it. This second, DOM-measurement-based pass catches label boxes that
     // still visibly overlap despite their dots being far enough apart,
     // which point-only decluttering structurally can't (reported directly:
-    // several aircraft landing in the plot's outer band at once).
-    UI.declutterRenderedIndicators();
+    // several aircraft landing in the plot's outer band at once). Anchor
+    // must match exactly what Geo.projectToPolarPosition used to compute
+    // these positions in the first place (see that function/userState.anchorY
+    // above), or the angle-only adjustment inside would be resolving
+    // overlaps around the wrong centre.
+    UI.declutterRenderedIndicators(vw * 0.5, vh * (userState.anchorY ?? 0.8));
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
     // TCAS/ND-style range rings — Raw only. They're real geo-referenced
