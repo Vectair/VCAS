@@ -747,6 +747,24 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 }
 .suppressed-dot.selected { box-shadow: 0 0 0 2px #ffff00; }
 
+/* Leader line — the 8-point candidate label placement's backup tier
+   (ui.js's declutterRenderedIndicators): only appears for an aircraft
+   whose label had to be pushed beyond the normal fixed radius to clear a
+   genuinely crowded cluster, so the connection back to its icon stays
+   obvious even once the label is no longer tucked right up against it.
+   Anchored at .indicator's own origin (its icon), sized/rotated per-
+   aircraft in JS — a plain 1px line is deliberately unobtrusive, this is
+   a wayfinding aid, not something meant to draw the eye on its own. */
+.indicator-leader {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  transform-origin: 0 50%;
+  opacity: .55;
+  pointer-events: none;
+}
+
 .indicator-shape {
   position: absolute;
   left: 0;

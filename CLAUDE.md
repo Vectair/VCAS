@@ -1013,6 +1013,85 @@ sometimes surfaces content `WebFetch` can't reach directly, but treat its
 summaries as secondhand, not verified quotes, and say so when passing that
 info along.
 
+## Label decluttering: 8-point candidates + leader-line backup (2026-08-21)
+
+Two real-device screenshots (Hybrid and RAW) showed the same gap the
+angle-only rework above didn't close: a label sitting on top of a
+*different* aircraft's icon or direction arrow. Root cause: that version
+only ever checked a candidate label position against OTHER LABELS — icons
+and arrows were never in its obstacle set at all, so a label had no way
+to "see" it was covering someone else's traffic symbol.
+
+**A deliberate, agreed departure from real TCAS/ND convention.** A real
+TCAS doesn't fight to keep every tag legible — its job is collision
+avoidance, and overlapping traffic reads as "these are close together,"
+which is itself useful information. VCAS's core purpose is different:
+per the project owner, "this app is about identification of aircraft, not
+avoiding... for the label information the point is knowing what it is I
+can see out the window" — a label you can't read, or can't confidently
+match to the right icon, fails that job outright, in a way overlapping
+*icons* (still kept, deliberately, from the earlier session's fix) don't.
+Justified on safety grounds too: someone will spend far longer parsing a
+crowded, ambiguous cluster of labels than a properly separated one — time
+much better not spent staring at the screen while driving.
+
+**Design, modelled on real prior art rather than invented from scratch** —
+the "point-feature label placement" problem in cartography (NP-hard in
+general; real systems score a small set of discrete candidate positions
+around each point rather than searching continuously):
+
+- `_LABEL_CANDIDATE_ANGLES_DEG = [0, 45, -45, 90, -90, 135, -135, 180]`
+  (ui.js) — 8 compass-direction offsets around each icon, at a fixed
+  `_LABEL_RADIUS_PX` (24). Straight down (0°, the old default) is tried
+  first, so an aircraft with nothing to avoid doesn't move for no reason.
+- Processed in the SAME priority order `Indicators.build()`/
+  `renderIndicators()` already used — a higher-priority aircraft's label
+  claims its preferred candidate first; already-placed labels become
+  obstacles for whoever's processed next, rather than every aircraft
+  fighting over the same spot simultaneously.
+- Obstacle set per candidate check: every OTHER aircraft's icon+arrow
+  bundle (`.indicator-shape`'s own `getBoundingClientRect()`, which
+  already encloses the arrow even though it visually overflows the
+  shape's own layout box), every suppressed range-selector edge dot, and
+  every already-placed label — explicitly EXCLUDING the aircraft's own
+  icon, which a label is supposed to sit close against (that's the
+  "attached tag" look) and must not be penalised for.
+- **Real bug caught by the isolated-aircraft test case specifically**:
+  the very first version forgot that exclusion and included every
+  aircraft's own icon in its own obstacle set — since the default 24px
+  radius doesn't fully clear icon-radius + label-half-height, this made
+  even a SINGLE aircraft with nothing else on screen register a false
+  self-overlap and escalate straight to a leader line, on every single
+  render. Caught immediately by testing "one aircraft, alone" as its own
+  case, not just crowded clusters — the same discipline as the earlier
+  "verify against the specific property, not just the reported symptom"
+  lesson elsewhere in this file, applied prophylactically this time
+  instead of after shipping.
+
+**Leader-line backup tier**, for when even the best of the 8 candidates
+still overlaps something: keep that candidate's angle (don't restart the
+search) and escalate radius in `_LEADER_STEP_PX` (18px) steps, up to
+`_MAX_LEADER_STEPS` (5), stopping the moment it clears; a thin
+`.indicator-leader` div (1px, the label's own border colour, `opacity:.55`)
+is drawn from the icon to the label only for aircraft that actually needed
+this tier, so the association stays obvious once the label is no longer
+tucked right up against its icon. A fixed radius has a hard ceiling — in a
+genuinely dense cluster, no angle around a small fixed circle avoids every
+neighbour — so this tier exists specifically to keep the "zero remaining
+overlap" guarantee even there, rather than accepting overlap once the
+8-point tier runs out of room.
+
+Verified with a real Playwright/Chromium render across four scenarios: an
+isolated aircraft (confirms no leader line, default position, after the
+self-overlap bug above was fixed), two aircraft 100px apart and a
+moderate 3-aircraft cluster ~80px apart (both resolve via the 8-point
+tier alone, no leader lines), and a dense 5-aircraft cluster packed
+within ~30px of each other (escalates to leader lines for all 5) — in
+every case, exhaustively checked ALL pairwise label-vs-label AND
+label-vs-other-icon overlaps in the actual rendered DOM: zero remaining,
+including in the dense case, and every icon's own rendered centre still
+matched its true plotted point exactly.
+
 ## General conventions established this session
 
 - Don't guess at third-party API shapes — verify against real, current docs

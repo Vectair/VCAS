@@ -344,106 +344,187 @@ const UI = (() => {
     }
   }
 
+  // 8-point candidate label placement (2026-08-21) — replaces a pure
+  // continuous angle-nudge. Modelled on the standard cartographic
+  // "point-feature label placement" approach (an NP-hard problem in
+  // general; real systems score a small set of discrete candidate
+  // positions around each point rather than searching continuously) —
+  // scoring 8 fixed compass-direction offsets around each icon by total
+  // overlap and picking the best is far more predictable than letting a
+  // label settle at an arbitrary in-between angle, and — the actual gap a
+  // real-device report exposed in the previous (label-vs-label-only)
+  // version — makes it straightforward to check a candidate against
+  // EVERY obstacle (every aircraft's icon+arrow, every suppressed dot,
+  // every already-placed label), not just other labels. Screenshots
+  // showed a label sitting on top of a *different* aircraft's icon/arrow,
+  // which a label-vs-label-only check has no way to see as a collision.
+  const _LABEL_CANDIDATE_ANGLES_DEG = [0, 45, -45, 90, -90, 135, -135, 180];
+  const _LABEL_RADIUS_PX = 24;
+  // Leader-line backup tier: a fixed candidate radius has a hard ceiling —
+  // in a genuinely dense cluster, no angle around a small fixed circle can
+  // avoid every neighbour. Rather than accept overlap (the identification
+  // pillar this app exists for makes "which label belongs to which icon"
+  // load-bearing in a way TCAS's own collision-avoidance purpose doesn't
+  // — worth spending more screen space and an explicit connector line on,
+  // a deliberate deviation from real TCAS/ND convention agreed with the
+  // project owner), push the label further out along its best-scoring
+  // angle in steps until it clears (or the step budget runs out), and
+  // draw a thin connecting line back to the icon so the association stays
+  // obvious even once the label is no longer tucked right up against it.
+  const _LEADER_STEP_PX = 18;
+  const _MAX_LEADER_STEPS = 5;
+  const _LABEL_OBSTACLE_PADDING_PX = 3;
+
+  function _inflateRect(r, px) {
+    return { left: r.left - px, right: r.right + px, top: r.top - px, bottom: r.bottom + px };
+  }
+
+  function _rectOverlapArea(a, b) {
+    const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return (ox > 0 && oy > 0) ? ox * oy : 0;
+  }
+
   /**
    * Nudges apart *rendered* indicator LABELS that visibly overlap — never
    * the icon or its direction arrow, which must always stay exactly where
    * Geo.projectToPolarPosition put them: that point (ind.x/ind.y, i.e.
    * .indicator's own left/top) IS the aircraft's true plotted position,
-   * full stop. Call this AFTER renderIndicators() so the elements actually
-   * exist to measure.
+   * full stop. Call this AFTER renderIndicators() (and renderSuppressedDots(),
+   * if called this render — suppressed dots are obstacles too) so the
+   * elements actually exist to measure.
    *
-   * Operates entirely in a per-aircraft LOCAL polar system centred on that
-   * aircraft's own fixed icon — (radius, angle) here describe the label's
-   * offset from ITS OWN icon, not from the plot's ownship anchor the way
-   * an earlier version of this function used. Only ANGLE is ever adjusted
-   * to resolve an overlap; radius (how far the label sits from its own
-   * icon) stays whatever the CSS default already put it at, so a label
-   * only ever swings around its icon like a clock hand, never drifts
-   * closer to or farther from it.
-   *
-   * Real-device report (2026-08-21) that prompted this rework: the whole
-   * icon+arrow+label bundle was visibly sliding together off the
-   * aircraft's true position whenever labels needed to deconflict — a
-   * prior version of this function re-derived (radius, angle) around the
-   * DISTANT plot anchor and moved the entire .indicator element by it,
-   * which correctly preserved each aircraft's plotted RANGE (see the
-   * radius-preserving rework below this one in git history) but still
-   * dragged the icon and arrow along with the label to do it. There is no
-   * plot-anchor reference in this version at all — every computation is
-   * local to each aircraft's own already-fixed icon, so the icon
-   * literally cannot move; only the label's own left/top/transform are
-   * ever written.
+   * Processes aircraft in the order given — the SAME priority order
+   * Indicators.build() already sorted by and renderIndicators() rendered
+   * in — so a higher-priority aircraft's label claims its preferred spot
+   * first and a lower-priority one already-placed labels count as an
+   * obstacle for takes what's left, rather than fighting over the same
+   * candidate. Each aircraft tries its 8 candidate positions in
+   * preference order (straight down first, matching the old default, so
+   * an uncrowded aircraft's label doesn't move for no reason) and takes
+   * the first fully clear one; if none is fully clear, keeps the
+   * least-bad candidate's angle and escalates radius until it clears or
+   * the step budget runs out, drawing a leader line for that case (see
+   * _LEADER_STEP_PX's own comment).
    */
   function declutterRenderedIndicators() {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
     const els = Array.from(container.querySelectorAll(".indicator"));
-    if (els.length < 2) return;
+    if (els.length === 0) return;
+
+    // Fixed obstacles that never move, gathered ONCE up front — every
+    // icon+arrow bundle (.indicator-shape's own rect already encloses its
+    // direction-arrow child even though the arrow visually extends past
+    // the shape's own box, since getBoundingClientRect() accounts for
+    // overflowing absolutely-positioned descendants) and every suppressed
+    // range-selector edge dot, across the WHOLE layer.
+    // Each obstacle keeps the hex of the aircraft it belongs to (undefined
+    // for suppressed dots, which carry their own hex too via data-hex) so
+    // an aircraft's OWN icon can be excluded from ITS OWN obstacle check
+    // below — a label is SUPPOSED to sit close against its own icon
+    // (that's the whole "attached tag" look), only a DIFFERENT aircraft's
+    // icon/arrow is a real collision. Missing this the first time round
+    // made even a single isolated aircraft with nothing else on screen
+    // register a false self-overlap and escalate straight to a leader
+    // line — caught by testing an isolated-aircraft case specifically,
+    // not just crowded ones.
+    const fixedObstacles = [];
+    els.forEach(el => {
+      const hex = el.dataset.hex;
+      const shape = el.querySelector(".indicator-shape");
+      fixedObstacles.push({ hex, rect: _inflateRect(shape.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+    });
+    container.querySelectorAll(".suppressed-dot").forEach(el => {
+      fixedObstacles.push({ hex: el.dataset.hex, rect: _inflateRect(el.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+    });
 
     const items = els.map(el => {
-      // .indicator's own left/top — the TRUE, fixed aircraft position.
-      // Read once, used only to convert the label's current on-screen
-      // rect into an icon-relative offset below; never written to.
+      const hex = el.dataset.hex;
       const iconX = parseFloat(el.style.left) || 0;
       const iconY = parseFloat(el.style.top) || 0;
       const label = el.querySelector(".indicator-label");
-      const rect = label.getBoundingClientRect();
-      // #indicators-layer is position:fixed;inset:0, so getBoundingClientRect()
-      // (viewport coordinates) and .indicator's own left/top (that same
-      // layer's coordinate space) are directly comparable with no scroll/
-      // transform reconciliation needed — same assumption the rest of this
-      // codebase's screen-space overlays already rely on.
-      const dx = (rect.left + rect.width / 2) - iconX;
-      const dy = (rect.top + rect.height / 2) - iconY;
-      const radius = Math.hypot(dx, dy);
-      // dx = r sinθ, dy = r cosθ — θ = 0 is "straight down", matching the
-      // CSS default (.indicator-label's own top:24px) this reads back at
-      // first render, so an aircraft with no overlap to resolve ends up
-      // exactly where it already was.
-      const angle = Math.atan2(dx, dy);
-      return { label, iconX, iconY, radius, angle, labelW: rect.width, labelH: rect.height };
+      const rect = label.getBoundingClientRect(); // width/height only — position is about to be overwritten regardless
+      return { el, label, hex, iconX, iconY, labelW: rect.width, labelH: rect.height };
     });
 
-    function labelRect(item) {
-      const cx = item.iconX + item.radius * Math.sin(item.angle);
-      const cy = item.iconY + item.radius * Math.cos(item.angle);
+    function rectAt(item, radius, angleDeg) {
+      const rad = (angleDeg * Math.PI) / 180;
+      const cx = item.iconX + radius * Math.sin(rad);
+      const cy = item.iconY + radius * Math.cos(rad);
       return { left: cx - item.labelW / 2, right: cx + item.labelW / 2, top: cy - item.labelH / 2, bottom: cy + item.labelH / 2 };
     }
 
-    const PADDING_PX = 4;
-    const MAX_PASSES = 8;
-    for (let pass = 0; pass < MAX_PASSES; pass++) {
-      let moved = false;
-      for (let i = 0; i < items.length; i++) {
-        for (let j = i + 1; j < items.length; j++) {
-          const a = items[i], b = items[j];
-          const ar = labelRect(a), br = labelRect(b);
-          const overlapX = Math.min(ar.right, br.right) - Math.max(ar.left, br.left);
-          const overlapY = Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top);
-          if (overlapX <= 0 || overlapY <= 0) continue;
-
-          moved = true;
-          // Convert the needed screen-space separation into an angular
-          // push via arc length (s = r * θ) at each item's own (icon-
-          // local) radius — never adjusts radius itself.
-          const overlapPx = Math.min(overlapX, overlapY) / 2 + PADDING_PX;
-          const avgRadius = Math.max(20, (a.radius + b.radius) / 2);
-          const pushAngle = overlapPx / avgRadius;
-          const sign = a.angle <= b.angle ? -1 : 1;
-          a.angle += sign * pushAngle;
-          b.angle -= sign * pushAngle;
-        }
-      }
-      if (!moved) break;
+    function totalOverlap(rect, obstacles) {
+      let sum = 0;
+      for (const o of obstacles) sum += _rectOverlapArea(rect, o);
+      return sum;
     }
 
+    const placedLabelRects = [];
+
     items.forEach(item => {
-      // Offsets relative to .indicator's own origin (its icon, at (0,0)
-      // in this local frame) — NOT absolute viewport coordinates, since
+      const obstacles = fixedObstacles
+        .filter(o => o.hex !== item.hex)
+        .map(o => o.rect)
+        .concat(placedLabelRects);
+
+      let bestAngle = _LABEL_CANDIDATE_ANGLES_DEG[0];
+      let bestOverlap = Infinity;
+      let bestRect = rectAt(item, _LABEL_RADIUS_PX, bestAngle);
+      for (const angleDeg of _LABEL_CANDIDATE_ANGLES_DEG) {
+        const rect = rectAt(item, _LABEL_RADIUS_PX, angleDeg);
+        const overlap = totalOverlap(rect, obstacles);
+        if (overlap < bestOverlap) {
+          bestOverlap = overlap; bestAngle = angleDeg; bestRect = rect;
+          if (overlap === 0) break; // first clear candidate wins, in preference order
+        }
+      }
+
+      let finalRadius = _LABEL_RADIUS_PX;
+      let finalRect = bestRect;
+      let usedLeader = false;
+      if (bestOverlap > 0) {
+        // All 8 candidates still collide with something — escalate along
+        // the least-bad angle rather than searching a whole new angle set
+        // at every radius (cheaper, and keeps the label moving in one
+        // consistent direction instead of jumping around).
+        for (let step = 1; step <= _MAX_LEADER_STEPS; step++) {
+          const radius = _LABEL_RADIUS_PX + step * _LEADER_STEP_PX;
+          const rect = rectAt(item, radius, bestAngle);
+          const overlap = totalOverlap(rect, obstacles);
+          usedLeader = true;
+          finalRadius = radius;
+          finalRect = rect;
+          if (overlap === 0) break; // else keep going — last step's position (least overlap reachable) is accepted
+        }
+      }
+
+      placedLabelRects.push(_inflateRect(finalRect, _LABEL_OBSTACLE_PADDING_PX));
+
+      const rad = (bestAngle * Math.PI) / 180;
+      const dx = finalRadius * Math.sin(rad), dy = finalRadius * Math.cos(rad);
+      // Offsets relative to .indicator's own origin (its icon, at (0,0) in
+      // this local frame) — NOT absolute viewport coordinates, since
       // .indicator-label is positioned relative to its .indicator parent.
-      item.label.style.left = (item.radius * Math.sin(item.angle)) + "px";
-      item.label.style.top  = (item.radius * Math.cos(item.angle)) + "px";
+      item.label.style.left = dx + "px";
+      item.label.style.top  = dy + "px";
       item.label.style.transform = "translate(-50%, -50%)";
+
+      let leader = item.el.querySelector(".indicator-leader");
+      if (usedLeader) {
+        if (!leader) {
+          leader = document.createElement("div");
+          leader.className = "indicator-leader";
+          item.el.insertBefore(leader, item.el.firstChild); // paints below the shape/label
+        }
+        leader.style.background = item.label.style.borderColor || "";
+        leader.style.width = Math.hypot(dx, dy) + "px";
+        leader.style.transform = `rotate(${(Math.atan2(dy, dx) * 180) / Math.PI}deg)`;
+        leader.style.display = "";
+      } else if (leader) {
+        leader.style.display = "none";
+      }
     });
   }
 
