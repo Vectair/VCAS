@@ -884,6 +884,19 @@
     if (userLat === null) return;
     const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
+    // How much room the bottom chrome (ETA card and/or the bottom bar,
+    // which can be stacked together when a route is active) actually
+    // occupies right now — kept only as a "keep dots clear of this"
+    // safe-margin (Geo.maxRadiusForBearing's safeInset), NOT subtracted
+    // from viewportHeight itself. It used to be subtracted directly (plus
+    // an extra flat 45px on top), which shrank the polar plot's own
+    // cy = viewportHeight*anchorY below the real map anchor —
+    // CameraController derives the user's true on-screen position from the
+    // FULL container height (see cameraController.js's _renderAnchoredFrame),
+    // so a shrunk viewportHeight here silently dragged every aircraft dot's
+    // origin upward relative to where the user marker and range rings
+    // actually sit, independent of (and compounding) the polar-scale clamp
+    // bug fixed in Geo.projectToPolarPosition.
     let bottomObstructionHeight = 0;
     const routeCard = document.getElementById("route-card");
     if (routeCard && !routeCard.classList.contains("hidden")) {
@@ -895,14 +908,13 @@
     }
     if (bottomObstructionHeight === 0) bottomObstructionHeight = 60;
 
-    const usableViewportHeight = vh - bottomObstructionHeight - 45;
-
     const userState = {
       lat: userLat, lon: userLon,
       heading: userHeading,
       speedMph: userSpeedMph,
       viewportWidth: vw,
-      viewportHeight: usableViewportHeight,
+      viewportHeight: vh,
+      safeInset: bottomObstructionHeight,
       metar: MetarProvider.getCached(),
     };
 

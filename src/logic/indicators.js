@@ -54,6 +54,15 @@ const Indicators = (() => {
    */
   function _computeAll(aircraftList, userState, staleThresholdSeconds) {
     const { lat, lon, heading, viewportWidth, viewportHeight, metar } = userState;
+    // Must match what the camera actually used for this frame (see
+    // CameraController/geo.js's projectToPolarPosition doc comment) or the
+    // plotted origin silently drifts from where the user marker and range
+    // rings really are. anchorY defaults to projectToPolarPosition's own
+    // default (0.8) if the caller didn't evaluate a camera frame yet (e.g.
+    // before the first followNav() call); safeInset likewise falls back to
+    // its own default.
+    const anchorY = userState.anchorY;
+    const safeInset = userState.safeInset;
 
     return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
@@ -66,7 +75,7 @@ const Indicators = (() => {
         // Slant range (not flat horizontal distance) — the same figure
         // Relevance itself compares against the teardrop, so an aircraft's
         // plotted radius agrees with whether it's near the edge of relevance.
-        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM);
+        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM, anchorY, safeInset);
         // Direction-of-travel indicator — the aircraft's own ground track,
         // expressed relative to the observer's heading-up view the same way
         // relativeBearing expresses the aircraft's *position*. null when the

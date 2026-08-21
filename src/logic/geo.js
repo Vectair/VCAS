@@ -123,20 +123,28 @@ const Geo = (() => {
   /**
    * True polar plot of a relative bearing + range: angle = bearing, radius =
    * a banded (non-linear) function of distance — see bandedRadiusFraction()
-   * — anchored at the same point the 3D camera anchors the user (cx, cy =
-   * h*anchorY). Replaces the old edge-only projection (which placed every
+   * — anchored at the same point the camera anchors the user (cx, cy =
+   * h*anchorY; caller must pass the SAME viewportHeight/anchorY the camera
+   * actually used, e.g. CameraController.getLastEvaluated().anchorY and the
+   * map container's real full height — not a shrunk "usable" height with UI
+   * chrome subtracted out, or cy silently stops matching where the user's
+   * real position, and therefore the range rings anchored to it, actually
+   * render). Replaces the old edge-only projection (which placed every
    * aircraft at the frame edge regardless of distance) with a genuine
    * bearing-as-angle/distance-as-radius mapping — closer traffic now plots
    * closer to the anchor, not jammed onto the edge alongside everything
    * else.
    *
-   * The NM-to-pixel scale is uniform (the dead-ahead radius, same at every
-   * bearing), with maxRadiusForBearing() used only as a last-resort clamp so
-   * a point doesn't run off-screen at wide angles. This banded screen-space
-   * scale is deliberately compressed (see bandedRadiusFraction()) and is
-   * independent of the range rings, which are real geo-referenced circles
-   * at their literal nm radius (see EosMap.updateRangeRings in map.js) — an
-   * aircraft dot at this band's edge is a decluttering aid, not a claim
+   * The NM-to-pixel scale is deliberately non-linear (see
+   * bandedRadiusFraction()) and scaled against each bearing's own available
+   * room (maxRadiusForBearing) directly, not against dead-ahead's room with
+   * a separate after-the-fact clamp — that used to let the clamp silently
+   * override the banded distance encoding at off-centre bearings, making
+   * aircraft in very different bands render at nearly the same radius. It's
+   * also independent of the range rings, which are real geo-referenced
+   * circles at their literal nm radius (see EosMap.updateRangeRings in
+   * map.js) — an aircraft dot at this band's edge is a decluttering aid
+   * showing roughly how far out it is, not a claim
    * that it sits exactly on that real-world ring.
    *
    * @param {number[]} bandsNm  Ring band boundaries in nm — see
@@ -151,9 +159,21 @@ const Geo = (() => {
     const sinA = Math.sin(angleRad);
     const cosA = Math.cos(angleRad);
 
-    const deadAheadRadius = maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
+    // Scale directly against THIS bearing's own available room (edgeRadius),
+    // not against dead-ahead's with a separate min() clamp bolted on after —
+    // the old version computed the banded fraction of deadAheadRadius, then
+    // silently substituted edgeRadius whenever that exceeded what was
+    // actually available at this bearing. That substitution has nothing to
+    // do with which band the aircraft is in, so two aircraft in very
+    // different bands (e.g. band 1 vs band 4) could both get clamped down
+    // to the same edgeRadius at similar off-centre bearings — collapsing
+    // exactly the distance differentiation the banded scale exists to
+    // preserve, and reading as aircraft "bunching together" regardless of
+    // real distance. Scaling against edgeRadius directly keeps the banded
+    // proportion intact at every bearing while still never running
+    // off-screen, since it's now built from the room that's actually there.
     const edgeRadius = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
-    const radiusPx = Math.min(bandedRadiusFraction(rangeNm, bandsNm) * deadAheadRadius, edgeRadius);
+    const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * edgeRadius;
 
     const x = Math.round(cx + sinA * radiusPx);
     const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted

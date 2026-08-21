@@ -210,6 +210,49 @@ instance this session (not assumed):
    dragstart/zoomstart/rotatestart/pitchstart handlers) or manual panning
    gets fought and effectively does nothing.
 
+**The `anchorY * containerHeight` invariant has more than one consumer — keep
+them in sync.** NAV mode's aircraft indicators (`Geo.projectToPolarPosition`
+in geo.js, called from `indicators.js`) plot around their own `cy = viewportHeight
+* anchorY`, entirely separate code from `_renderAnchoredFrame()` above. Found
+and fixed 2026-08-20: `app.js`'s `refreshIndicators()` used to hand
+`projectToPolarPosition` a shrunk `viewportHeight` (real height minus the
+bottom bar's height minus a flat 45px, meant as a "keep dots off the bottom
+chrome" margin) instead of the real full container height the camera
+actually anchors against — silently dragging every indicator's origin
+upward relative to where the user marker and range rings (which ARE
+anchored correctly) really render. On top of that, `userState.anchorY` was
+being computed correctly from `CameraController.getLastEvaluated()` but
+never actually read by `indicators.js` — masked for RAW specifically only
+because RAW's real anchorY (0.80) happens to equal `projectToPolarPosition`'s
+own hardcoded default. Fixed by passing the real, un-shrunk viewportHeight
+and the real evaluated anchorY through, and moving the "keep dots off the
+bottom chrome" concern to the `safeInset` parameter `maxRadiusForBearing`
+already had for exactly this, instead of corrupting the anchor's own math.
+**The lesson:** any new code that needs to know "where does the user's real
+position render on screen" must derive it from the same full-container-
+height + real-evaluated-anchorY inputs `_renderAnchoredFrame()` uses, not
+recompute its own shrunk/approximated version — the two WILL drift apart
+silently, exactly like this did, and it won't be obvious until someone
+compares the two on a real screen (in this case: aircraft dots not lining
+up with the range rings, reported directly by the project owner testing
+the deployed RAW screen).
+
+Same session, same investigation: `Geo.projectToPolarPosition`'s banded
+(non-linear, ring-band-based) distance scale for the indicator's radius
+was computing `min(bandedFraction * deadAheadRadius, edgeRadius)` — meant
+as an off-screen-clipping safety clamp, but at bearings off dead-ahead
+this silently substituted `edgeRadius` (which has nothing to do with which
+band the aircraft is in) whenever the intended radius exceeded it, so two
+aircraft in very different bands could render at nearly the same radius —
+confirmed via a Node simulation on a realistic narrow-phone viewport
+(bearings ≥60° collapsed a 1.5nm and an 11nm aircraft to within 1px of
+each other). Fixed by scaling the banded fraction directly against each
+bearing's own `edgeRadius` (`bandedFraction * edgeRadius`) instead of
+computing it against dead-ahead and clamping after the fact — keeps the
+banded proportion intact at every bearing while still never running
+off-screen. Both fixes verified with Node simulations (not just reasoned
+through) before shipping — see git history around this date.
+
 **Testing convention for MapLibre-related changes:** this sandbox can't reach
 MapLibre's CDN or any real tile server (network egress policy blocks them).
 Verify camera/projection math with a *locally npm-installed* `maplibre-gl`
