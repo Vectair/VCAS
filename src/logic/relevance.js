@@ -19,17 +19,51 @@
 const Relevance = (() => {
 
   const DEFAULTS = {
-    rMaxNm:             15,   // teardrop range dead ahead (relative bearing 0°)
+    rMaxNm:             15,   // teardrop range dead ahead (relative bearing 0°) — floor for
+                               // low/mid-altitude traffic; see _effectiveRMaxNm for high-altitude extension
     rMinNm:             3,    // teardrop range dead behind (relative bearing 180°) — never zero
     pinchExponent:      2,    // higher = narrower sides, closer to the reference illustration's waist
     overheadElevationDeg: 70, // matches Visibility's own isOverhead threshold
     lookaheadSeconds:   15,
     lookaheadSamples:   3,
     stationarySpeedMph: 5,    // below this, the user's own motion isn't projected forward
+    // A real high-altitude jet is visible (often via contrail) from far
+    // beyond a fixed 15nm — that cap was tuned around ordinary low-altitude
+    // local traffic, not long-haul cruise-altitude overflights. Confirmed
+    // directly (2026-08-21): a real aircraft at ~32,000ft, ~20-25nm ground
+    // distance (~12-15° elevation, ~21-26nm slant range) was independently
+    // ADS-B-confirmed AND visually confirmed via contrail, but VCAS's fixed
+    // 15nm cap excluded it entirely before Visibility.estimate() ever got a
+    // chance to score it (which it does correctly — "Possibly visible" —
+    // once actually evaluated). minElevationForRangeDeg is the angle above
+    // the horizon below which extending range further isn't worth it (10°
+    // gives ~30nm of margin at 32,000ft, comfortably covering the confirmed
+    // case); rangeExtensionCapNm matches Visibility's own 40nm confidence
+    // ceiling, so relevance never reaches further than Visibility itself
+    // trusts.
+    minElevationForRangeDeg: 10,
+    rangeExtensionCapNm: 40,
   };
 
   const KT_TO_MPS  = 0.514444;
   const MPH_TO_MPS = 0.44704;
+  const FT_PER_NM  = 6076.12;
+
+  /**
+   * Dead-ahead teardrop range (rMaxNm), extended for high-altitude aircraft.
+   * A fixed rMaxNm makes sense for ordinary low-altitude local traffic, but
+   * a cruise-altitude jet is geometrically visible from much farther out —
+   * the higher it is, the more horizontal distance it can cover before
+   * dropping below any given elevation angle. Only ever extends beyond the
+   * configured rMaxNm floor, never shrinks below it, and never exceeds
+   * rangeExtensionCapNm.
+   */
+  function _effectiveRMaxNm(altitudeFt, opts) {
+    if (altitudeFt == null || altitudeFt <= 0) return opts.rMaxNm;
+    const altitudeNm = altitudeFt / FT_PER_NM;
+    const extended = altitudeNm / Math.tan(opts.minElevationForRangeDeg * Math.PI / 180);
+    return Math.min(opts.rangeExtensionCapNm, Math.max(opts.rMaxNm, extended));
+  }
 
   /**
    * Maximum relevant slant range for a given relative bearing — the teardrop
@@ -91,16 +125,20 @@ const Relevance = (() => {
    */
   function evaluate(userState, aircraft, relativeBearing, vis, options) {
     const opts = options ? Object.assign({}, DEFAULTS, options) : DEFAULTS;
+    // See _effectiveRMaxNm's doc comment — extends the teardrop's dead-ahead
+    // range for high-altitude aircraft, which are visible from much farther
+    // out than the fixed rMaxNm floor assumes.
+    const effectiveOpts = { ...opts, rMaxNm: _effectiveRMaxNm(aircraft.altitudeFt, opts) };
 
-    if (vis.elevationDeg > opts.overheadElevationDeg) {
+    if (vis.elevationDeg > effectiveOpts.overheadElevationDeg) {
       return { relevant: true, reason: "overhead", enterInSeconds: 0 };
     }
 
-    if (_inTeardrop(relativeBearing, vis.slantRangeNm, opts)) {
+    if (_inTeardrop(relativeBearing, vis.slantRangeNm, effectiveOpts)) {
       return { relevant: true, reason: "in-view", enterInSeconds: 0 };
     }
 
-    const enterInSeconds = _predictedEntrySeconds(userState, aircraft, opts);
+    const enterInSeconds = _predictedEntrySeconds(userState, aircraft, effectiveOpts);
     if (enterInSeconds != null) {
       return { relevant: true, reason: "predicted-entry", enterInSeconds };
     }

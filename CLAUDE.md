@@ -376,6 +376,37 @@ linking between a list row and its on-plot icon. Ask before assuming this
 was abandoned if picking the RAW work back up — it's the agreed next step,
 not a rejected idea.
 
+## Relevance range — altitude-extended (2026-08-21)
+
+`Relevance.DEFAULTS.rMaxNm` (15nm, the teardrop's dead-ahead range) is
+tuned around ordinary low-altitude local traffic — a real cruise-altitude
+jet is visible (often via contrail) from far beyond that. Confirmed with a
+real, independently-verified case: an aircraft at ~32,000ft, ~20-25nm
+ground distance (~12-15° elevation, ~21-26nm slant range) was ADS-B-
+confirmed on a third-party tracker (adsbexchange.com) AND visually
+confirmed via contrail by the project owner, but VCAS's fixed 15nm cap
+excluded it entirely before `Visibility.estimate()` ever got a chance to
+score it — confirmed separately that Visibility scores it correctly
+("Possibly visible") once it's actually evaluated, so the gap was purely
+Relevance's range gate, not a visibility-scoring problem.
+
+Fixed with `Relevance._effectiveRMaxNm(altitudeFt, opts)`: extends the
+teardrop's dead-ahead range for high-altitude aircraft using elevation-
+angle geometry (`altitudeNm / tan(minElevationForRangeDeg)`), floored at
+the original 15nm (so ordinary low/mid-altitude traffic is completely
+unaffected — verified: 12nm and 18nm low-altitude test cases behave
+identically before/after) and capped at `rangeExtensionCapNm` (40nm,
+matching `Visibility`'s own confidence ceiling — no point extending
+relevance further than Visibility itself trusts). `minElevationForRangeDeg`
+(10°) was picked to comfortably cover the confirmed real case (~30nm of
+extension at 32,000ft) — a tuned constant like `pinchExponent`, not a
+physically-derived one, so revisit if a real-world case falls outside it
+again. Because `_teardropRangeNm`'s pinch formula scales toward `rMinNm`
+(unchanged, 3nm) at 180°, the extension only ever helps bearings biased
+toward dead-ahead — it doesn't loosen the "behind" allowance at all,
+matching that a high-altitude jet only helps if you'd actually be looking
+that way.
+
 ## RAW mode fidelity
 
 RAW is meant to closely resemble a real TCAS/ND cockpit display, matched
