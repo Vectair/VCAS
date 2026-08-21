@@ -53,6 +53,11 @@
       <!-- Edge indicators layer (sits above map, below UI chrome) -->
       <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
 
+      <!-- RAW mode sortable aircraft list panel (Stage 3) — fills whatever
+           side margin the circular plot leaves empty on wider screens;
+           hidden entirely when there isn't room. See UI.renderAircraftList. -->
+      <div id="raw-aircraft-list" class="hidden"></div>
+
       <!-- GPS unavailable message -->
       <div id="gps-message" class="hidden">
         <div class="card">

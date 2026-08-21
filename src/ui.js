@@ -6,6 +6,13 @@ const UI = (() => {
   let _popupTimer = null;
   const POPUP_DISMISS_MS = 4000;
 
+  // Stage 3: cross-highlight between the on-plot icon and its matching
+  // aircraft-list row. Module-level (not per-render) so it survives the
+  // ~500ms extrapolation re-render tick — both renderIndicators() and
+  // renderAircraftList() re-tag their elements with data-hex and re-apply
+  // this on every call, rather than the highlight vanishing after one frame.
+  let _selectedHex = null;
+
   // Destination names ultimately come from geocoding search results (see
   // orsGeocoder.js), which can echo back place names built from free-text
   // user input — escape before dropping into innerHTML-built SVG/HTML.
@@ -232,8 +239,10 @@ const UI = (() => {
     container.innerHTML = "";
 
     indicators.forEach(ind => {
+      const hex = ind.aircraft.hex;
       const el = document.createElement("div");
-      el.className = "indicator" + (ind.isStale ? " stale" : "");
+      el.className = "indicator" + (ind.isStale ? " stale" : "") + (hex === _selectedHex ? " selected" : "");
+      el.dataset.hex = hex;
       el.style.left = ind.x + "px";
       el.style.top  = ind.y + "px";
 
@@ -266,9 +275,28 @@ const UI = (() => {
           ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
         </div>`;
 
-      el.addEventListener("click", () => onClickFn(ind));
+      el.addEventListener("click", () => { selectAircraft(hex); onClickFn(ind); });
       container.appendChild(el);
     });
+  }
+
+  /**
+   * Cross-highlights an aircraft between the on-plot icon and its matching
+   * Stage 3 aircraft-list row (spec: "tapping the icon on VCAS highlights
+   * the list row and vice versa"). Called from both renderIndicators()'s
+   * and renderAircraftList()'s own click handlers below — either side can
+   * originate a selection, both sides reflect it.
+   */
+  function selectAircraft(hex) {
+    _selectedHex = hex;
+    document.querySelectorAll(".indicator[data-hex]").forEach(el => {
+      el.classList.toggle("selected", el.dataset.hex === hex);
+    });
+    const rows = document.querySelectorAll(".raw-list-row[data-hex]");
+    rows.forEach(el => el.classList.toggle("selected", el.dataset.hex === hex));
+    for (const row of rows) {
+      if (row.dataset.hex === hex) { row.scrollIntoView({ block: "nearest" }); break; }
+    }
   }
 
   /**
@@ -567,6 +595,118 @@ const UI = (() => {
     if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
   }
 
+  // ---- RAW mode aircraft list panel (Stage 3) ----
+
+  const RAW_LIST_SORT_MODES = [
+    { key: "priority", label: "PRI" },
+    { key: "range",    label: "RNG" },
+    { key: "altitude", label: "ALT" },
+    { key: "type",     label: "TYP" },
+  ];
+  // Below this available width, there isn't room to show callsign+type+
+  // altitude+range legibly — the panel hides entirely rather than render
+  // an unreadably-cramped sliver. See the doc comment below for why this
+  // varies so much by device.
+  const MIN_PANEL_WIDTH_PX = 118;
+  const MAX_PANEL_WIDTH_PX = 220;
+  const PANEL_MARGIN_PX = 8;
+
+  /**
+   * Sortable aircraft-list panel, RAW mode only — fills whatever side
+   * margin the FOV-restricted circular plot (Geo.circularPlotRadius) leaves
+   * empty beyond its own edge. Uses the EXACT same anchor/plot-radius math
+   * the dots and range-rings overlay use for "how much room is actually
+   * free", rather than guessing a fixed layout — a narrow phone portrait's
+   * circular plot already spans nearly edge-to-edge (see CLAUDE.md's "at
+   * least 3 types of sizing" discussion), so there's deliberately nothing
+   * to show there; a wider phone/landscape/car-infotainment screen has
+   * real side margin the plot doesn't use, and that's where this renders.
+   *
+   * @param {Array} items       Same shape as Indicators.build()'s output —
+   *   already sorted by the caller according to `sortMode`; this function
+   *   only renders in the order given, it doesn't sort.
+   * @param {object} layout     { viewportWidth, viewportHeight, anchorY,
+   *   safeInset, fovHalfAngleDeg, topInset }. topInset is how much of the
+   *   top of the screen real chrome (top bar + nav guidance card) occupies
+   *   — kept separate from safeInset (bottom chrome) so the panel's own
+   *   top edge clears the top bar the same way the plot's bottom clears
+   *   the bottom bar/route card.
+   * @param {string} sortMode    One of "priority"|"range"|"altitude"|"type" —
+   *   only used to mark which sort button reads as active; the caller
+   *   already did the actual sorting (see app.js's _sortForRawList).
+   * @param {function} onSortClick  Called with the clicked sort mode string.
+   * @param {function} onRowClick   Called with the indicator item (same
+   *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
+   */
+  function renderAircraftList(items, layout, sortMode, onSortClick, onRowClick) {
+    const panel = document.getElementById("raw-aircraft-list");
+    if (!panel) return;
+
+    const { viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg, topInset } = layout;
+    const plotRadius = Geo.circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg);
+    const fovRad = (fovHalfAngleDeg * Math.PI) / 180;
+    const cx = viewportWidth * 0.5;
+    const plotRightEdgeX = cx + plotRadius * Math.sin(fovRad);
+    const availableWidth = viewportWidth - plotRightEdgeX - PANEL_MARGIN_PX * 2;
+
+    if (availableWidth < MIN_PANEL_WIDTH_PX) {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      return;
+    }
+
+    const panelWidth = Math.min(availableWidth, MAX_PANEL_WIDTH_PX);
+    panel.style.left   = (viewportWidth - PANEL_MARGIN_PX - panelWidth) + "px";
+    panel.style.width  = panelWidth + "px";
+    panel.style.top    = (topInset + PANEL_MARGIN_PX) + "px";
+    panel.style.bottom = (safeInset + PANEL_MARGIN_PX) + "px";
+
+    const header = RAW_LIST_SORT_MODES.map(m =>
+      `<button type="button" class="raw-list-sort-btn${m.key === sortMode ? " active" : ""}" data-sort="${m.key}">${m.label}</button>`
+    ).join("");
+
+    const rows = items.length === 0
+      ? `<div class="raw-list-empty">No traffic</div>`
+      : items.map(ind => {
+          const a = ind.aircraft;
+          const callsign = _escapeHtml(a.callsign || a.hex);
+          const type = a.type ? _escapeHtml(a.type) : "—";
+          const altLabel = a.altitudeFt != null ? `${Math.round(a.altitudeFt).toLocaleString()}ft` : "—";
+          const rangeLabel = `${ind.distanceNm.toFixed(1)}nm`;
+          const color = _displayColor(ind.vis);
+          const selected = a.hex === _selectedHex ? " selected" : "";
+          return `
+            <div class="raw-list-row${selected}" data-hex="${_escapeHtml(a.hex)}">
+              <div class="rlr-dot" style="background:${color}"></div>
+              <div class="rlr-info">
+                <div class="rlr-callsign">${callsign}</div>
+                <div class="rlr-meta">${type} · ${altLabel} · ${rangeLabel}</div>
+              </div>
+            </div>`;
+        }).join("");
+
+    panel.innerHTML = `
+      <div class="raw-list-header">${header}</div>
+      <div class="raw-list-body">${rows}</div>`;
+
+    panel.querySelectorAll(".raw-list-sort-btn").forEach(btn => {
+      btn.addEventListener("click", () => onSortClick(btn.dataset.sort));
+    });
+    panel.querySelectorAll(".raw-list-row[data-hex]").forEach(rowEl => {
+      const hex = rowEl.dataset.hex;
+      const ind = items.find(it => it.aircraft.hex === hex);
+      if (!ind) return;
+      rowEl.addEventListener("click", () => { selectAircraft(hex); onRowClick(ind); });
+    });
+
+    panel.classList.remove("hidden");
+  }
+
+  function clearAircraftList() {
+    const panel = document.getElementById("raw-aircraft-list");
+    if (panel) { panel.classList.add("hidden"); panel.innerHTML = ""; }
+  }
+
   // ---- Popup ----
 
   /** Shared row of ground-truth log buttons, embedded in both popups below. */
@@ -726,10 +866,13 @@ const UI = (() => {
     renderIndicators,
     declutterRenderedIndicators,
     clearIndicators,
+    selectAircraft,
     renderCompassRing,
     clearCompassRing,
     renderRangeRingsOverlay,
     clearRangeRingsOverlay,
+    renderAircraftList,
+    clearAircraftList,
     showPopup,
     showAirPopup,
     hidePopup,

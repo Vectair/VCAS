@@ -30,6 +30,11 @@
   // Manually-suppressed aircraft (via the popup's Suppress button): hex -> expiry timestamp (ms).
   let suppressedUntil = new Map();
 
+  // Stage 3 aircraft-list panel (RAW only) — which field it's currently
+  // sorted by. In-memory only, like indicatorPage above; not a persisted
+  // setting, just live display state for the current session.
+  let rawListSortMode = "priority";
+
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
 
@@ -315,6 +320,15 @@
         // them immediately if the AIR rings option (settings) is on.
         EosMap.clearRangeRings();
         UI.clearCompassRing(); // Only ever shown in NAV's Raw style
+        // Both screen-space RAW overlays — same reasoning as clearCompassRing
+        // above: refreshIndicators() (which normally clears these on a
+        // Hybrid/Raw switch) never runs again once in AIR mode, so leaving
+        // either uncleared here means stale RAW content floats over the AIR
+        // map for as long as the user stays there. renderRangeRingsOverlay
+        // was already missing this before the aircraft-list panel existed —
+        // fixed alongside it since it's the identical bug at the same call site.
+        UI.clearRangeRingsOverlay();
+        UI.clearAircraftList();
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -908,6 +922,18 @@
     }
     if (bottomObstructionHeight === 0) bottomObstructionHeight = 60;
 
+    // Same idea as bottomObstructionHeight above, but for the Stage 3
+    // aircraft-list panel's own top edge — real top-bar (+ guidance card,
+    // when a route is active) height, so the panel doesn't render
+    // underneath either.
+    let topObstructionHeight = 0;
+    const topBar = document.getElementById("top-bar");
+    if (topBar) topObstructionHeight += topBar.offsetHeight;
+    const guidanceCard = document.getElementById("nav-guidance-card");
+    if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
+      topObstructionHeight += guidanceCard.offsetHeight;
+    }
+
     const userState = {
       lat: userLat, lon: userLon,
       heading: userHeading,
@@ -1010,6 +1036,66 @@
     } else {
       UI.clearCompassRing();
     }
+
+    // Stage 3: sortable aircraft-list panel — Raw only, same rationale as
+    // the compass tape/range rings above. Deliberately built from
+    // allRelevant (the FULL relevant set), not the paginated `shown`
+    // subset the plot caps to (Indicators.capForViewportWidth) — the list
+    // is exactly the escape hatch for "more relevant traffic than the plot
+    // shows icons for", not a mirror of whatever page is currently up.
+    // Tapping a row for an aircraft not on the current icon page still
+    // opens its popup (at its computed, if unrendered, plot position); it
+    // doesn't auto-advance the page to bring the icon into view.
+    if (isRawView) {
+      const listItems = _sortForRawList(allRelevant, rawListSortMode);
+      UI.renderAircraftList(
+        listItems,
+        {
+          viewportWidth: vw, viewportHeight: vh,
+          anchorY: userState.anchorY ?? 0.8, safeInset: userState.safeInset,
+          fovHalfAngleDeg: Indicators.FOV_HALF_ANGLE_DEG,
+          topInset: topObstructionHeight,
+        },
+        rawListSortMode, onRawListSortClick, onIndicatorClick
+      );
+    } else {
+      UI.clearAircraftList();
+    }
+  }
+
+  /**
+   * Re-orders (never re-filters) the Stage 3 list panel's own display
+   * order. "priority" is a no-op — allRelevant already arrives sorted by
+   * visibility score then proximity (Indicators.build()'s own default),
+   * and that's also what governs which aircraft get plot icons/pagination
+   * at all, so it must stay untouched here rather than being re-derived.
+   * The other three modes only affect how the LIST reads; they never
+   * touch the plot's own icon selection/order.
+   */
+  function _sortForRawList(items, mode) {
+    if (mode === "priority") return items;
+    const sorted = items.slice();
+    if (mode === "range") {
+      sorted.sort((a, b) => a.distanceNm - b.distanceNm);
+    } else if (mode === "altitude") {
+      sorted.sort((a, b) => {
+        const aAlt = a.aircraft.altitudeFt, bAlt = b.aircraft.altitudeFt;
+        if (aAlt == null && bAlt == null) return 0;
+        if (aAlt == null) return 1; // unknown altitude sorts last, not first
+        if (bAlt == null) return -1;
+        return aAlt - bAlt;
+      });
+    } else if (mode === "type") {
+      sorted.sort((a, b) =>
+        (a.aircraft.type || a.aircraft.callsign || "").localeCompare(b.aircraft.type || b.aircraft.callsign || "")
+      );
+    }
+    return sorted;
+  }
+
+  function onRawListSortClick(sortMode) {
+    rawListSortMode = sortMode;
+    refreshIndicators();
   }
 
   function onCycleIndicatorPage() {

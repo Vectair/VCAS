@@ -492,13 +492,88 @@ one was what the user was actually describing. Only re-reading their
 original "hybrid scale" description against what the ring code actually
 does (rather than against what the dots do) surfaced the real mismatch.
 
-Not yet done: a sortable aircraft list (callsign/type/altitude,
-default-sorted by the same visibility-likelihood scoring the indicators
-use, re-sortable by range/altitude/type) filling whatever space the plot's
-arc-not-circle shape still leaves empty, with tap-to-highlight linking
-between a list row and its on-plot icon. Ask before assuming this was
-abandoned if picking the RAW work back up — it's the agreed next step,
-not a rejected idea.
+**Stage 3: sortable aircraft-list panel — done (2026-08-21).** Fills
+whatever side margin the FOV-restricted circular plot's own edge leaves
+empty, using the EXACT same anchor/plot-radius math (`Geo.
+circularPlotRadius`) the dots and range-rings overlay already use for "how
+much room is actually free" — not a separately-guessed layout, for the
+same reason the rings-vs-dots coordinate-system mismatch earlier in this
+file was worth avoiding twice. `UI.renderAircraftList()` (ui.js) computes
+the plot's rightmost edge in px (`cx + plotRadius*sin(fovHalfAngleDeg)`)
+and hides the panel entirely — not just empty — below `MIN_PANEL_WIDTH_PX`
+(118px) of leftover width: a narrow phone portrait's circular plot already
+spans nearly edge-to-edge (see the FOV section above), so there's
+deliberately nothing to show there; it only renders on wider phones/
+landscape/car-infotainment screens where the plot doesn't use the full
+width. Capped at `MAX_PANEL_WIDTH_PX` (220px) on very wide screens rather
+than stretching to fill all available leftover space.
+
+Default-sorted by the same visibility-priority order `Indicators.build()`
+already produces (score desc, then proximity) — re-sortable via four small
+header buttons (PRI/RNG/ALT/TYP) that only reorder the LIST's own display;
+sorting never touches which aircraft get plot icons or how they're
+paginated (`app.js`'s `_sortForRawList`, called on the full `allRelevant`
+set, is a pure display-order concern, kept deliberately separate from the
+plot's own relevance-based icon selection/capping). Built from the FULL
+relevant set, not the paginated `shown` subset the plot caps to — the
+list is the escape hatch for "more relevant traffic than the plot shows
+icons for," not a mirror of whichever page is currently up; tapping a row
+for an aircraft not on the current icon page still opens its popup (at its
+computed, even if currently unrendered, plot position) rather than
+auto-advancing pagination.
+
+Tap-to-highlight is bidirectional and persists across renders:
+`UI.selectAircraft(hex)` (module-level `_selectedHex` in ui.js, not
+per-render state) toggles a `.selected` class on both the matching
+`.indicator` and `.raw-list-row` by their shared `data-hex`, called from
+both `renderIndicators()`'s and `renderAircraftList()`'s own click
+handlers — either side can originate a selection, both reflect it, and
+because both render functions re-apply it from `_selectedHex` on every
+call, the highlight survives the ~500ms extrapolation re-render tick
+(`_extrapolationRenderTick`) instead of vanishing after one frame the way
+per-render-only state would. Selecting a row also scrolls it into view.
+The on-plot highlight is a glow (`filter: drop-shadow`,
+`box-shadow: 0 0 0 2px #ffff00`) rather than fighting `.indicator-label`'s
+own inline `border-color` (set per-aircraft by `_borderColor()`), avoiding
+a `!important` specificity fight against an inline style.
+
+Incidental fix found while wiring this: switching from NAV to AIR mode
+(the `btn-air` click handler) already called `UI.clearCompassRing()` since
+`refreshIndicators()` — which normally clears RAW-only screen overlays on
+a Hybrid/Raw switch — never runs again once in AIR mode, but was missing
+the equivalent `UI.clearRangeRingsOverlay()` call for the screen-space
+range-rings overlay (`UI.renderRangeRingsOverlay`, the "Rings and dots
+share one scale" fix above) — meaning stale RAW ring content could float
+over the AIR map for as long as the user stayed there. Fixed alongside
+adding the equivalent `UI.clearAircraftList()` call at the same site,
+since it's the identical bug pattern at the same call site, not a
+separate issue.
+
+Verified with a real (not headless-shell) locally-installed Chromium via
+Playwright, per this project's established convention — including hitting
+and fixing a real testing-harness pitfall along the way: `geo.js` uses
+Greek-letter identifiers (`φ`, `λ`, `Δ`, `δ`, `θ`), and a minimal test
+harness page without its own `<meta charset="utf-8">` silently corrupted
+them when the script was fetched externally (Python's `http.server`
+doesn't send a charset on its `Content-Type` for `.js`, and a browser's
+external-script charset fallback is the *document's* encoding, not
+UTF-8) — surfaced as a nonsensical `"Missing initializer in const
+declaration"` parse error deep in `geo.js`. Confirmed this is a
+test-harness-only artifact, not a real app bug: `index.html`'s actual
+`<meta charset="UTF-8" />` is already the very first head tag. Once fixed,
+verified: a narrow-portrait viewport (400×800) hides the panel entirely;
+a landscape/infotainment-shaped one (1400×500) shows it at the expected
+position (clear of both the mocked top-bar and bottom-bar), with correct
+row content, correct default-active sort button, and — via real
+Playwright clicks, not just reasoning — that clicking an icon selects its
+row, clicking a different row moves the selection to its icon, and
+clicking a sort button fires the expected callback.
+
+Not yet done: nothing further on Stage 3 itself. Any follow-up (e.g.
+letting a row tap auto-advance the plot's own pagination to bring its icon
+into view, or a two-sided layout when both left and right margins have
+room) should be treated as a new, separately-agreed feature, not an
+implied gap in this one.
 
 **Label content: type + altitude, not type + distance (2026-08-21).**
 Explicit instruction, restating an earlier Stage 3 spec line that hadn't
