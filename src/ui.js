@@ -355,10 +355,22 @@ const UI = (() => {
       // One shared <text> assignment per call (svg.innerHTML is set once,
       // below) rather than a separate render call, so this can never
       // clobber — or be clobbered by — the tape markup above.
+      //
+      // The range rings' own "2/5/10/15" labels are a completely separate
+      // rendering system (real geo-projected MapLibre symbols, not this
+      // SVG) with no position awareness of this strip or vice versa — a
+      // far-out ring's label can legitimately land anywhere in this upper
+      // area depending on the user's real position, so there's no fixed Y
+      // offset here that's guaranteed collision-free (confirmed: the
+      // deployed version visibly overlapped a ring label in testing).
+      // Same fix as the indicator labels already use for the same
+      // "something else might be behind this" problem — an opaque
+      // background plate (--label-bg's raw value, since this SVG can't
+      // reference CSS custom properties) — rather than trying to predict
+      // where a real geo-projected ring will or won't land.
       const stripY = tickTopY + 14 + 14 + 20;
       const speedLabel = `SPD ${Math.round(vehicleInfo.speedMph)} MPH`;
-      infoStrip += `<text x="${cx}" y="${stripY}" text-anchor="middle"
-                  style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">${speedLabel}</text>`;
+      let routeLine = null;
       if (vehicleInfo.route) {
         const { destName, distanceMeters, durationSeconds } = vehicleInfo.route;
         const distLabel = distanceMeters >= 1000 ? (distanceMeters / 1000).toFixed(1) + "km" : Math.round(distanceMeters) + "m";
@@ -366,10 +378,25 @@ const UI = (() => {
         const d = new Date(arrivalMs);
         const arrivalLabel = d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
         const shortDest = destName.length > 22 ? destName.slice(0, 21) + "…" : destName;
-        const routeLine = `${_escapeHtml(shortDest)} · ${distLabel} · ETA ${arrivalLabel}`;
-        infoStrip += `<text x="${cx}" y="${stripY + 18}" text-anchor="middle"
-                    style="fill:#f0f0f0; font-size:12px" opacity="0.85">${routeLine}</text>`;
+        routeLine = `${shortDest} · ${distLabel} · ETA ${arrivalLabel}`;
       }
+
+      // No live text measurement available for a string injected via
+      // innerHTML — a rough monospace-ish per-character estimate, generous
+      // enough not to clip real content, not trying to be pixel-perfect.
+      const estWidth = str => str.length * 7.2;
+      const boxW = Math.max(estWidth(speedLabel), routeLine ? estWidth(routeLine) : 0) + 28;
+      const boxH = routeLine ? 46 : 26;
+      const bg = `<rect x="${cx - boxW / 2}" y="${stripY - 17}" width="${boxW}" height="${boxH}" rx="4"
+                  fill="rgba(14,17,23,.82)"/>`;
+
+      let text = `<text x="${cx}" y="${stripY}" text-anchor="middle"
+                  style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">${speedLabel}</text>`;
+      if (routeLine) {
+        text += `<text x="${cx}" y="${stripY + 18}" text-anchor="middle"
+                    style="fill:#f0f0f0; font-size:12px" opacity="0.85">${_escapeHtml(routeLine)}</text>`;
+      }
+      infoStrip = bg + text;
     }
 
     svg.innerHTML = ticks + pointer + digital + infoStrip;
