@@ -112,6 +112,25 @@ const Visibility = (() => {
   const NM_TO_M = 1852;
   const NM_PER_SM = 0.868976;
 
+  // A high-flying jet's angular size alone often underrates it — the
+  // airframe itself may be a barely-resolvable dot, but its contrail is a
+  // bright, obvious streak. Neither figure is derived from any formal
+  // model (no upper-air temperature/humidity data source exists in VCAS,
+  // and adding one would be exactly the kind of weather-display scope this
+  // project has explicitly rejected — see CLAUDE.md) — both are the
+  // project owner's own field experience, same as pinchExponent/
+  // overheadElevationDeg in relevance.js are tuned constants, not
+  // physically derived ones. CONTRAIL_MIN_ALTITUDE_FT (26,000ft) is a
+  // round, defensible floor for where contrails typically start forming in
+  // temperate climates. CONTRAIL_MAX_RANGE_NM (50nm) is specifically an
+  // *identification* range, not a raw-visibility one — the owner's own
+  // words: "beyond that they can still be seen but I couldn't definitively
+  // say they were from a certain aircraft." Matches (and replaces) the
+  // 40nm range extension cap Relevance used pending this real number —
+  // see relevance.js's rangeExtensionCapNm.
+  const CONTRAIL_MIN_ALTITUDE_FT = 26000;
+  const CONTRAIL_MAX_RANGE_NM = 50;
+
   function _sizeForType(typeCode) {
     if (!typeCode) return FALLBACK_SIZES.UNKNOWN;
     const key = typeCode.toUpperCase().trim();
@@ -241,10 +260,25 @@ const Visibility = (() => {
 
     if (veryClose) {
       cat = CATEGORIES[0]; // Certainly visible
+    } else if (
+      altitudeFt != null && altitudeFt >= CONTRAIL_MIN_ALTITUDE_FT && slantNm <= CONTRAIL_MAX_RANGE_NM
+    ) {
+      // High and close enough to plausibly be identifiable by contrail —
+      // never worse than "Possibly visible" even when angular size alone
+      // would rate it lower, but never overrides a BETTER angular-size
+      // result either (a big, close-enough-to-clearly-see jet stays at
+      // whatever its own size already earned it).
+      const angularCat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];
+      const possiblyIdx = CATEGORIES.findIndex(c => c.label === "Possibly visible");
+      cat = CATEGORIES[Math.min(CATEGORIES.indexOf(angularCat), possiblyIdx)];
     } else if (slantNm > 40) {
       // Beyond 40 NM: cap at Possibly visible, even if angular size (e.g. a
       // very large aircraft) would otherwise put it higher — haze/curvature
-      // at that range isn't modelled, so don't overstate confidence.
+      // at that range isn't modelled, so don't overstate confidence. The
+      // contrail case above is deliberately checked first and can reach
+      // out to 50nm — this is the fallback for anything too low to
+      // plausibly contrail but somehow still this far out (predicted-entry
+      // lookahead, mostly).
       cat = CATEGORIES.find(c => c.label === "Possibly visible") || CATEGORIES[2];
     } else {
       cat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];

@@ -31,38 +31,45 @@ const Relevance = (() => {
     // beyond a fixed 15nm — that cap was tuned around ordinary low-altitude
     // local traffic, not long-haul cruise-altitude overflights. Confirmed
     // directly (2026-08-21): a real aircraft at ~32,000ft, ~20-25nm ground
-    // distance (~12-15° elevation, ~21-26nm slant range) was independently
-    // ADS-B-confirmed AND visually confirmed via contrail, but VCAS's fixed
-    // 15nm cap excluded it entirely before Visibility.estimate() ever got a
-    // chance to score it (which it does correctly — "Possibly visible" —
-    // once actually evaluated). minElevationForRangeDeg is the angle above
-    // the horizon below which extending range further isn't worth it (10°
-    // gives ~30nm of margin at 32,000ft, comfortably covering the confirmed
-    // case); rangeExtensionCapNm matches Visibility's own 40nm confidence
-    // ceiling, so relevance never reaches further than Visibility itself
-    // trusts.
-    minElevationForRangeDeg: 10,
-    rangeExtensionCapNm: 40,
+    // distance was independently ADS-B-confirmed AND visually confirmed via
+    // contrail, but VCAS's fixed 15nm cap excluded it entirely before
+    // Visibility.estimate() ever got a chance to score it.
+    //
+    // Deliberately a flat threshold + flat cap, NOT a gradual elevation-
+    // angle formula (an earlier version of this used one, calibrated only
+    // to that one reported case — reverted once the real intended model
+    // came out: these two numbers are the project owner's own field
+    // experience, "no hard work done on this beyond personal experience,"
+    // not physically derived). contrailMinAltitudeFt must match Visibility's
+    // own CONTRAIL_MIN_ALTITUDE_FT; rangeExtensionCapNm must match its
+    // CONTRAIL_MAX_RANGE_NM — the owner's own words on the latter: "50nm
+    // was about as far away as identifiable contrails could be... beyond
+    // that they can still be seen but I couldn't definitively say they
+    // were from a certain aircraft." A gradual geometric formula sounds
+    // more rigorous but isn't what was actually observed, and undershoots
+    // it badly: it doesn't even reach 50nm until ~54,000ft, well above
+    // where most airliners cruise.
+    contrailMinAltitudeFt: 26000,
+    rangeExtensionCapNm: 50,
   };
 
   const KT_TO_MPS  = 0.514444;
   const MPH_TO_MPS = 0.44704;
-  const FT_PER_NM  = 6076.12;
 
   /**
    * Dead-ahead teardrop range (rMaxNm), extended for high-altitude aircraft.
    * A fixed rMaxNm makes sense for ordinary low-altitude local traffic, but
-   * a cruise-altitude jet is geometrically visible from much farther out —
-   * the higher it is, the more horizontal distance it can cover before
-   * dropping below any given elevation angle. Only ever extends beyond the
-   * configured rMaxNm floor, never shrinks below it, and never exceeds
-   * rangeExtensionCapNm.
+   * a cruise-altitude jet is identifiable (often via contrail) from much
+   * farther out. Mirrors Visibility's own contrail-floor condition exactly
+   * — same altitude threshold, same range cap — so an aircraft that gets
+   * the contrail visibility floor is guaranteed to have actually been
+   * relevant enough to reach Visibility.estimate() in the first place.
    */
   function _effectiveRMaxNm(altitudeFt, opts) {
-    if (altitudeFt == null || altitudeFt <= 0) return opts.rMaxNm;
-    const altitudeNm = altitudeFt / FT_PER_NM;
-    const extended = altitudeNm / Math.tan(opts.minElevationForRangeDeg * Math.PI / 180);
-    return Math.min(opts.rangeExtensionCapNm, Math.max(opts.rMaxNm, extended));
+    if (altitudeFt != null && altitudeFt >= opts.contrailMinAltitudeFt) {
+      return Math.max(opts.rMaxNm, opts.rangeExtensionCapNm);
+    }
+    return opts.rMaxNm;
   }
 
   /**

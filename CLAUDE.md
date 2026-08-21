@@ -376,36 +376,75 @@ linking between a list row and its on-plot icon. Ask before assuming this
 was abandoned if picking the RAW work back up — it's the agreed next step,
 not a rejected idea.
 
-## Relevance range — altitude-extended (2026-08-21)
+## Contrail visibility — Relevance range + Visibility score (2026-08-21)
 
-`Relevance.DEFAULTS.rMaxNm` (15nm, the teardrop's dead-ahead range) is
-tuned around ordinary low-altitude local traffic — a real cruise-altitude
-jet is visible (often via contrail) from far beyond that. Confirmed with a
-real, independently-verified case: an aircraft at ~32,000ft, ~20-25nm
-ground distance (~12-15° elevation, ~21-26nm slant range) was ADS-B-
-confirmed on a third-party tracker (adsbexchange.com) AND visually
-confirmed via contrail by the project owner, but VCAS's fixed 15nm cap
+Real, independently-verified gap: an aircraft at ~32,000ft, ~20-25nm ground
+distance (~12-15° elevation, ~21-26nm slant range) was ADS-B-confirmed on
+a third-party tracker (adsbexchange.com) AND visually confirmed via
+contrail by the project owner, but VCAS's fixed 15nm `Relevance` cap
 excluded it entirely before `Visibility.estimate()` ever got a chance to
-score it — confirmed separately that Visibility scores it correctly
-("Possibly visible") once it's actually evaluated, so the gap was purely
-Relevance's range gate, not a visibility-scoring problem.
+score it. This wasn't a new problem to solve from scratch — `README.md`'s
+"Ground-Truth Log Panel" section and the log panel's own dedicated
+`visible_contrail` (〜) outcome button already existed *specifically* to
+collect real observations like this one, for a contrail-visibility model
+explicitly flagged as not-yet-built ("this panel is how that gap gets
+measured before it gets modelled"). That connection — and the fact a
+specific number had already been discussed for it — wasn't written down
+anywhere durable, so it took the project owner explicitly saying "I
+thought we had a cap at 50nm specifically for this reason" to surface it.
+**Lesson repeated from the native-app-destination incident earlier this
+project: a real prior decision with no durable record gets silently
+re-litigated. That's what CLAUDE.md is for — write down numbers, not just
+the fact that a discussion happened.**
 
-Fixed with `Relevance._effectiveRMaxNm(altitudeFt, opts)`: extends the
-teardrop's dead-ahead range for high-altitude aircraft using elevation-
-angle geometry (`altitudeNm / tan(minElevationForRangeDeg)`), floored at
-the original 15nm (so ordinary low/mid-altitude traffic is completely
-unaffected — verified: 12nm and 18nm low-altitude test cases behave
-identically before/after) and capped at `rangeExtensionCapNm` (40nm,
-matching `Visibility`'s own confidence ceiling — no point extending
-relevance further than Visibility itself trusts). `minElevationForRangeDeg`
-(10°) was picked to comfortably cover the confirmed real case (~30nm of
-extension at 32,000ft) — a tuned constant like `pinchExponent`, not a
-physically-derived one, so revisit if a real-world case falls outside it
-again. Because `_teardropRangeNm`'s pinch formula scales toward `rMinNm`
-(unchanged, 3nm) at 180°, the extension only ever helps bearings biased
-toward dead-ahead — it doesn't loosen the "behind" allowance at all,
-matching that a high-altitude jet only helps if you'd actually be looking
-that way.
+The real numbers, confirmed directly from the project owner: **26,000ft**
+altitude threshold and **50nm** range cap, both **field experience, not
+physically derived** ("no hard work done on this number beyond personal
+experience... 50nm was about as far away as identifiable contrails could
+be. beyond that they can still be seen but I couldn't definitively say
+they were from a certain aircraft") — i.e. 50nm is specifically an
+*identification-confidence* range, matching this project's identification
+pillar, not a raw-visibility one. Treat these as tuned constants like
+`pinchExponent`/`overheadElevationDeg`, not something to "improve" with a
+physics model — VCAS has no upper-air temperature/humidity data source,
+and adding one would be exactly the kind of weather-display scope this
+project has explicitly rejected elsewhere in this file.
+
+**Two coordinated pieces, deliberately mirroring the same threshold/cap so
+neither module diverges from the other:**
+
+- `Relevance._effectiveRMaxNm(altitudeFt, opts)`: when altitude ≥
+  `contrailMinAltitudeFt` (26,000ft), the teardrop's dead-ahead range
+  jumps straight to `rangeExtensionCapNm` (50nm) — a flat threshold+cap,
+  NOT a gradual elevation-angle formula. An elevation-angle version was
+  built and shipped first (calibrated only to the one reported case) and
+  had to be reverted once the real intended model came out: it doesn't
+  even reach 50nm until ~54,000ft, well above where airliners actually
+  cruise, so it silently undershot the real number for every realistic
+  case. Below the threshold, `rMaxNm` is completely unchanged (15nm, or
+  whatever's configured) — verified low-altitude traffic at 12/18/30nm
+  behaves identically before/after.
+- `Visibility.estimate()`: the same altitude+range window (`altitudeFt >=
+  CONTRAIL_MIN_ALTITUDE_FT && slantNm <= CONTRAIL_MAX_RANGE_NM`) floors the
+  category at "Possibly visible" — never downgrades a case angular size
+  alone already scores higher (`Math.min` of the two tier indices), only
+  rescues cases angular size alone would underrate. Deliberately folded
+  into the existing four tiers rather than added as a new distinct
+  tier/symbol — a direct choice from the project owner over giving
+  contrail-only sightings their own shape, keeping the existing legend
+  unchanged.
+
+Because `_teardropRangeNm`'s pinch formula scales toward `rMinNm`
+(unchanged, 3nm) at 180°, the range extension only ever helps bearings
+biased toward dead-ahead — it doesn't loosen the "behind" allowance at
+all, matching that a high-altitude jet only helps if you'd actually be
+looking that way. Verified end-to-end with a Node simulation covering:
+the original real case, a smaller narrowbody at 30nm (angular size alone
+would drop it — contrail floor correctly rescues it AND makes it
+relevant), the same case beyond 50nm (correctly excluded), a close-in
+high-altitude case where angular size alone already dominates (correctly
+NOT downgraded), and the exact 25,900ft/26,000ft altitude boundary
+(correctly excluded/included respectively).
 
 ## RAW mode fidelity
 
