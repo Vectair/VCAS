@@ -119,7 +119,7 @@ const EosMap = (() => {
       }
       if (!_map.getSource("range-rings")) {
         _initRangeRingsLayer();
-        if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm, _lastRingPosition.labelBearingDeg);
+        if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm, _lastRingPosition.labelBearingDeg, _lastRingPosition.fovHalfAngleDeg);
       } else {
         _applyRangeRingColor();
       }
@@ -321,15 +321,26 @@ const EosMap = (() => {
    *   visible). Callers in RAW mode must pass the user's current heading so
    *   the label sits along dead-ahead (always "up" on a heading-up display)
    *   instead, matching how a real heading-up ND places range labels.
+   * @param {number} [fovHalfAngleDeg]  When set, draws each ring as an arc
+   *   (Geo.arcCoordinates) spanning `labelBearingDeg ± fovHalfAngleDeg`
+   *   instead of a full circle — matching a real TCAS/ND reference photo,
+   *   which only ever shows a forward field of view. Omit (the default) for
+   *   a full circle, used by AIR (no single "forward" direction makes sense
+   *   in a north-up strategic view).
    */
-  function updateRangeRings(lat, lon, bandsNm, labelBearingDeg = 0) {
+  function updateRangeRings(lat, lon, bandsNm, labelBearingDeg = 0, fovHalfAngleDeg = null) {
     if (!_map || !_map.getSource("range-rings")) return;
-    _lastRingPosition = { lat, lon, bandsNm, labelBearingDeg };
+    _lastRingPosition = { lat, lon, bandsNm, labelBearingDeg, fovHalfAngleDeg };
 
     const ringFeatures = bandsNm.map(nm => ({
       type:       "Feature",
       properties: { nm },
-      geometry:   { type: "LineString", coordinates: Geo.circleCoordinates(lat, lon, nm * NM_TO_M) },
+      geometry:   {
+        type:        "LineString",
+        coordinates: fovHalfAngleDeg != null
+          ? Geo.arcCoordinates(lat, lon, nm * NM_TO_M, labelBearingDeg, fovHalfAngleDeg)
+          : Geo.circleCoordinates(lat, lon, nm * NM_TO_M),
+      },
     }));
     _map.getSource("range-rings").setData({ type: "FeatureCollection", features: ringFeatures });
 

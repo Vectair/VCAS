@@ -925,6 +925,14 @@
     }
     _updateGuidanceCard(camConfig && camConfig.maneuver);
 
+    // RAW's plot is a field-of-view-restricted circular display, matching a
+    // real TCAS/ND reference photo (forward arc only, not a full sweep) —
+    // see Indicators.FOV_HALF_ANGLE_DEG's own doc comment. Hybrid's edge
+    // indicators aren't a "round display" and keep the full teardrop
+    // Relevance itself already computes, so this stays unset there.
+    const isRawView = NavDisplayStyle.isRaw();
+    if (isRawView) userState.fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG;
+
     const now = Date.now();
     for (const [hex, expiry] of suppressedUntil) {
       if (expiry <= now) suppressedUntil.delete(hex);
@@ -932,11 +940,13 @@
 
     const currentAircraft = _currentAircraftList();
 
+    // The FOV filter (x === null) only ever excludes anything when
+    // fovHalfAngleDeg is set — a no-op for Hybrid, which never sets it.
     const allRelevant = Indicators.build(
       currentAircraft, userState,
       CONFIG.STALE_THRESHOLD_SECONDS,
       new Set(suppressedUntil.keys())
-    );
+    ).filter(item => item.x !== null);
 
     // Ground-truth log panel gets everything tracked, unfiltered — including
     // aircraft the relevance gate excluded, since logging "the algorithm was
@@ -962,13 +972,15 @@
     // reads naturally on Raw's plain instrument-style background but
     // competes with Hybrid's own real road/building detail rather than
     // aiding it, so Hybrid goes without rather than showing both.
-    if (NavDisplayStyle.isRaw()) {
+    if (isRawView) {
       // Label bearing = current heading, not true north — RAW is heading-up
       // (the map itself rotates to match userHeading), so a label fixed at
       // true north drifts to whatever screen angle "north" currently is,
-      // swinging off-screen for anything but a heading near 0/360. See
-      // EosMap.updateRangeRings's own doc comment for the full story.
-      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM, userHeading);
+      // swinging off-screen for anything but a heading near 0/360. FOV
+      // half-angle draws each ring as a forward arc, matching the same
+      // field-of-view restriction the indicator dots above now use — see
+      // EosMap.updateRangeRings's own doc comment for both.
+      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM, userHeading, Indicators.FOV_HALF_ANGLE_DEG);
     } else {
       EosMap.clearRangeRings();
     }

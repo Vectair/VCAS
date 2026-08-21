@@ -46,6 +46,17 @@ const Indicators = (() => {
   const RING_BANDS_NM = [2, 5, 10, POLAR_MAX_RANGE_NM];
 
   /**
+   * Half-angle (deg) of RAW mode's forward field of view — 75° either side
+   * of dead-ahead, ~150° total, matching a real TCAS/ND reference photo
+   * (which shows a forward arc, never a full 360° sweep) and RAW's own
+   * rationale: it exists to show what's ahead while driving, not a
+   * behind-the-vehicle picture. Passed through as userState.fovHalfAngleDeg
+   * by RAW's caller only — Hybrid's edge indicators have no "round display"
+   * to fit an arc into and keep the full teardrop Relevance computes.
+   */
+  const FOV_HALF_ANGLE_DEG = 75;
+
+  /**
    * Shared per-aircraft computation used by both build() and buildAll() —
    * bearing/distance/visibility/relevance/polar screen position/direction-
    * of-travel, for every aircraft that passes the hard staleness cutoff.
@@ -63,6 +74,7 @@ const Indicators = (() => {
     // its own default.
     const anchorY = userState.anchorY;
     const safeInset = userState.safeInset;
+    const fovHalfAngleDeg = userState.fovHalfAngleDeg;
 
     return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
@@ -75,7 +87,13 @@ const Indicators = (() => {
         // Slant range (not flat horizontal distance) — the same figure
         // Relevance itself compares against the teardrop, so an aircraft's
         // plotted radius agrees with whether it's near the edge of relevance.
-        const { x, y } = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM, anchorY, safeInset);
+        // null when fovHalfAngleDeg is set and this bearing falls outside
+        // RAW's forward field of view — callers must skip rendering those
+        // (still relevant/tracked for Hybrid/logging, just not drawable
+        // inside RAW's arc-restricted plot).
+        const pos = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM, anchorY, safeInset, fovHalfAngleDeg);
+        const x = pos ? pos.x : null;
+        const y = pos ? pos.y : null;
         // Direction-of-travel indicator — the aircraft's own ground track,
         // expressed relative to the observer's heading-up view the same way
         // relativeBearing expresses the aircraft's *position*. null when the
@@ -195,7 +213,7 @@ const Indicators = (() => {
     return items;
   }
 
-  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM, RING_BANDS_NM };
+  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM, RING_BANDS_NM, FOV_HALF_ANGLE_DEG };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

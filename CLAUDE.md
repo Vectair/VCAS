@@ -326,6 +326,56 @@ already gives spatial reference); AIR mode has it as an opt-in setting
 (`AirRangeRingsOption`) since real map scale there makes literal nm circles
 useful but still optional clutter.
 
+**RAW is a field-of-view-restricted circular display, not a full 360°
+plot (2026-08-21).** Prompted directly by the project owner comparing a
+real TCAS/ND reference photo (shows only a forward ~150° arc, never a full
+sweep) and by VCAS's own rationale for RAW existing at all — "what's ahead
+while driving," not a rear picture. `Indicators.FOV_HALF_ANGLE_DEG` (75°,
+150° total) is threaded through as `userState.fovHalfAngleDeg`, RAW-only —
+Hybrid's edge indicators aren't a round display and keep the full teardrop
+`Relevance` already computes. `Geo.projectToPolarPosition` returns `null`
+for any bearing outside the FOV; callers filter those out before rendering
+(they're still tracked/relevant for Hybrid and the LOG panel, just not
+drawable inside RAW's arc). Rings are drawn as arcs too
+(`Geo.arcCoordinates`, an open `Geo.circleCoordinates` restricted to
+`labelBearingDeg ± fovHalfAngleDeg`) rather than full circles, matching the
+same reference photo.
+
+This also fixed a real, independently-reported "aircraft cluster together
+regardless of range" bug: the old per-bearing `maxRadiusForBearing()` scale
+(kept for Hybrid, see below) meant a phone's narrow width squeezed anything
+even moderately off dead-ahead down to a tiny fraction of the vertical
+headroom available dead-ahead — two aircraft in very different distance
+bands could end up almost the same radius apart from the anchor just
+because they shared a similar off-centre bearing. `Geo.circularPlotRadius`
+replaces that with a single, bearing-independent radius for the whole FOV —
+`min(maxRadiusForBearing(0,...), maxRadiusForBearing(fovHalfAngleDeg,...))`
+— so every aircraft at the same real distance now plots at the same radius
+regardless of direction, same as a real round instrument. Verified
+numerically (not just asserted) that the minimum really is at those two
+endpoints across the full 0–90° sweep before relying on it.
+
+Same investigation surfaced a smaller, adjacent bug in
+`maxRadiusForBearing` itself: `safeInset` (the bottom bar's real height,
+often 60-100px+) was being reused as the LEFT/RIGHT edge margin too, even
+though there's no equivalent chrome on the sides to avoid — just the
+screen edge. Since bearings near the FOV's own edge are mostly horizontal
+(sin(75°) ≈ 0.97), that margin was often the binding constraint, needlessly
+shrinking the whole circular plot for no real reason. Fixed by giving
+left/right a small fixed margin (20px) independent of `safeInset`, which
+more than doubled the effective plot radius in testing (89px → 193px on a
+412px-wide viewport).
+
+Not yet done, discussed but not built: repurposing the space the plot's
+arc-not-circle shape leaves empty (a real TCAS/ND fills it with flight
+data above the compass tape) with vehicle/route info, plus a sortable
+aircraft list (callsign/type/altitude, default-sorted by the same
+visibility-likelihood scoring the indicators use, re-sortable by
+range/altitude/type) in whatever space remains, with tap-to-highlight
+linking between a list row and its on-plot icon. Ask before assuming this
+was abandoned if picking the RAW work back up — it's the agreed next step,
+not a rejected idea.
+
 ## RAW mode fidelity
 
 RAW is meant to closely resemble a real TCAS/ND cockpit display, matched

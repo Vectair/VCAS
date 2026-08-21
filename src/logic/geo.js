@@ -110,10 +110,20 @@ const Geo = (() => {
     const cosA = Math.cos(angleRad);
 
     // Available boundaries from the anchor, respecting UI safety perimeters.
+    // safeInset is how much room bottom chrome (the bar/ETA card) actually
+    // occupies — real and often substantial (~60-100px) — so it's what
+    // topY/bottomY use. There's no equivalent chrome on the LEFT/RIGHT
+    // edges, just the physical screen edge itself, so those get a small
+    // fixed margin instead of reusing safeInset: at bearings near the field-
+    // of-view's own edge (see projectToPolarPosition's fovHalfAngleDeg),
+    // sin(bearing) is close to 1, meaning the horizontal constraint often
+    // ends up the tightest one — reusing the bottom bar's height there was
+    // needlessly shrinking the whole circular plot for no real reason.
+    const EDGE_MARGIN_PX = 20;
     const topY    = safeInset + 20;
     const bottomY = Math.min(h - safeInset - 20, cy + 40);
-    const leftX   = safeInset + 20;
-    const rightX  = w - safeInset - 20;
+    const leftX   = EDGE_MARGIN_PX;
+    const rightX  = w - EDGE_MARGIN_PX;
 
     const maxScaleX = sinA !== 0 ? (sinA > 0 ? (rightX - cx) : (cx - leftX)) / Math.abs(sinA) : Infinity;
     const maxScaleY = cosA !== 0 ? (cosA > 0 ? (cy - topY)    : (bottomY - cy)) / Math.abs(cosA) : Infinity;
@@ -150,8 +160,20 @@ const Geo = (() => {
    * @param {number[]} bandsNm  Ring band boundaries in nm — see
    *   bandedRadiusFraction(). The last entry is the effective max range;
    *   anything at or beyond it plots at the outer edge.
+   * @param {number} [fovHalfAngleDeg]  When set, restricts the plot to a
+   *   forward field of view (matching a real TCAS/ND reference photo, which
+   *   only ever shows a forward arc, not a full 360° sweep) and switches the
+   *   scale from the old per-bearing maxRadiusForBearing() to a single,
+   *   bearing-independent circularPlotRadius() — see that function's doc
+   *   comment for why. Bearings outside ±fovHalfAngleDeg return null instead
+   *   of a position; the caller must not render those. Omit (the default)
+   *   to keep the old unrestricted, per-bearing behaviour — used by Hybrid's
+   *   edge indicators, which have no "round display" real estate to fit
+   *   into and cover the full teardrop Relevance itself already computes.
    */
-  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60) {
+  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60, fovHalfAngleDeg = null) {
+    if (fovHalfAngleDeg != null && Math.abs(relativeBearing) > fovHalfAngleDeg) return null;
+
     const cx = viewportWidth * 0.5;
     const cy = viewportHeight * anchorY;
 
@@ -159,21 +181,26 @@ const Geo = (() => {
     const sinA = Math.sin(angleRad);
     const cosA = Math.cos(angleRad);
 
-    // Scale directly against THIS bearing's own available room (edgeRadius),
-    // not against dead-ahead's with a separate min() clamp bolted on after —
-    // the old version computed the banded fraction of deadAheadRadius, then
-    // silently substituted edgeRadius whenever that exceeded what was
-    // actually available at this bearing. That substitution has nothing to
-    // do with which band the aircraft is in, so two aircraft in very
-    // different bands (e.g. band 1 vs band 4) could both get clamped down
-    // to the same edgeRadius at similar off-centre bearings — collapsing
-    // exactly the distance differentiation the banded scale exists to
-    // preserve, and reading as aircraft "bunching together" regardless of
-    // real distance. Scaling against edgeRadius directly keeps the banded
-    // proportion intact at every bearing while still never running
-    // off-screen, since it's now built from the room that's actually there.
-    const edgeRadius = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
-    const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * edgeRadius;
+    let radiusScale;
+    if (fovHalfAngleDeg != null) {
+      radiusScale = circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg);
+    } else {
+      // Scale directly against THIS bearing's own available room (edgeRadius),
+      // not against dead-ahead's with a separate min() clamp bolted on after —
+      // the old version computed the banded fraction of deadAheadRadius, then
+      // silently substituted edgeRadius whenever that exceeded what was
+      // actually available at this bearing. That substitution has nothing to
+      // do with which band the aircraft is in, so two aircraft in very
+      // different bands (e.g. band 1 vs band 4) could both get clamped down
+      // to the same edgeRadius at similar off-centre bearings — collapsing
+      // exactly the distance differentiation the banded scale exists to
+      // preserve, and reading as aircraft "bunching together" regardless of
+      // real distance. Scaling against edgeRadius directly keeps the banded
+      // proportion intact at every bearing while still never running
+      // off-screen, since it's now built from the room that's actually there.
+      radiusScale = maxRadiusForBearing(relativeBearing, viewportWidth, viewportHeight, anchorY, safeInset);
+    }
+    const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * radiusScale;
 
     const x = Math.round(cx + sinA * radiusPx);
     const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted
@@ -236,6 +263,53 @@ const Geo = (() => {
     return coords;
   }
 
+  /**
+   * Open arc of [lon, lat] coordinates tracing a true circle of
+   * `radiusMeters` around (lat, lon), from `centerBearingDeg - halfAngleDeg`
+   * to `centerBearingDeg + halfAngleDeg` — GeoJSON LineString-ready, NOT
+   * closed (an arc has two distinct ends, unlike circleCoordinates()'s full
+   * loop). Used for RAW mode's range rings, which — matching a real TCAS/ND
+   * reference photo — only ever show a forward-looking field of view, not a
+   * full 360° sweep; a real cockpit ND has no reason to show what's behind
+   * the aircraft, and VCAS's RAW mode exists specifically for "what's ahead
+   * while driving," same rationale.
+   */
+  function arcCoordinates(lat, lon, radiusMeters, centerBearingDeg, halfAngleDeg, numPoints = 48) {
+    const coords = [];
+    for (let i = 0; i <= numPoints; i++) {
+      const bearing = centerBearingDeg - halfAngleDeg + (2 * halfAngleDeg * i) / numPoints;
+      const pt = destinationPoint(lat, lon, bearing, radiusMeters);
+      coords.push([pt.lon, pt.lat]);
+    }
+    return coords;
+  }
+
+  /**
+   * The single, bearing-independent plot radius (px) for a field-of-view-
+   * restricted circular display (RAW mode) — replaces per-bearing
+   * maxRadiusForBearing() as the scale reference for anything with a hard
+   * fovHalfAngleDeg cutoff. A real TCAS/ND is round: same nm-per-pixel scale
+   * in every direction. maxRadiusForBearing()'s per-bearing "how much room
+   * is there at this specific angle" varies hugely between dead-ahead (lots
+   * of vertical headroom) and the sides (a phone is narrow) — using it
+   * directly as the scale (the pre-2026-08-21 approach) meant aircraft off
+   * to the side got radius-capped so hard their distance band barely showed
+   * at all, reading as "clustering" regardless of real separation. A single
+   * fixed radius, sized to whatever the FOV's own edges can actually fit,
+   * fixes that by construction: every aircraft at the same real distance
+   * plots at the same radius, full stop, matching how a round instrument
+   * reads. The binding constraint is always at one of the FOV's two edges —
+   * dead-ahead (bearing 0, all vertical headroom) or the outer edge of the
+   * arc (bearing ±fovHalfAngleDeg, mostly horizontal headroom) — because
+   * maxRadiusForBearing's own min(scaleX,scaleY) is highest in between and
+   * lowest at the extremes (verified numerically, not just asserted).
+   */
+  function circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg) {
+    const deadAhead = maxRadiusForBearing(0, viewportWidth, viewportHeight, anchorY, safeInset);
+    const edge = maxRadiusForBearing(fovHalfAngleDeg, viewportWidth, viewportHeight, anchorY, safeInset);
+    return Math.min(deadAhead, edge);
+  }
+
   return {
     calculateBearing,
     calculateDistanceMeters,
@@ -243,10 +317,12 @@ const Geo = (() => {
     calculateRelativeBearing,
     bandedRadiusFraction,
     maxRadiusForBearing,
+    circularPlotRadius,
     projectToPolarPosition,
     projectPosition,
     destinationPoint,
     circleCoordinates,
+    arcCoordinates,
   };
 })();
 
