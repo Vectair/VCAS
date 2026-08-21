@@ -522,12 +522,14 @@ const EosMap = (() => {
     const arrowSvg = aircraft.trackDeg != null
       ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${aircraft.trackDeg}deg) translateY(-16px)">${_directionArrowSvg(displayColor)}</div>`
       : "";
+    const altitudeLabel = aircraft.altitudeFt != null ? `${Math.round(aircraft.altitudeFt).toLocaleString()}ft` : "";
     return `
       <div class="air-marker-inner">
         <div class="air-icon">${arrowSvg}${shapeSvg}</div>
         <div class="air-label-box">
           <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
+          ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
         </div>
       </div>`;
   }

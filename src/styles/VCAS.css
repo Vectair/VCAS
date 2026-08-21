@@ -733,7 +733,7 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label {
   background: rgba(14,17,23,.88);
 }
 body[data-mode="nav"][data-nav-style="raw"] .indicator-label .actype,
-body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-distance {
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude {
   color: #f0f0f0;
 }
 
@@ -750,7 +750,7 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-distance
   line-height: 1.3;
 }
 
-.indicator-label .indicator-distance {
+.indicator-label .indicator-altitude {
   /* --text-muted is too low-contrast against the day theme's pale label
      background (tuned for subtle chrome, not label text) — reuse
      --text-secondary, same as .actype, just one size smaller. */
@@ -801,6 +801,12 @@ body[data-theme="day"] .air-label-box {
 
 .air-label-box .actype {
   font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.air-label-box .indicator-altitude {
+  font-size: 8px;
   color: var(--text-secondary);
   line-height: 1.3;
 }

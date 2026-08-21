@@ -500,6 +500,29 @@ between a list row and its on-plot icon. Ask before assuming this was
 abandoned if picking the RAW work back up — it's the agreed next step,
 not a rejected idea.
 
+**Label content: type + altitude, not type + distance (2026-08-21).**
+Explicit instruction, restating an earlier Stage 3 spec line that hadn't
+been implemented yet ("the basic info that should be on VCAS label is the
+type and altitude"): both NAV/RAW's `.indicator-label` (`ui.js`
+`renderIndicators()`) and AIR's `.air-label-box` (`map.js`
+`_airMarkerHtml()`) now show callsign + type + altitude
+(`Math.round(altitudeFt).toLocaleString()+"ft"`, e.g. "32,000ft"), never a
+distance readout — the dot's own plotted radius already encodes range (this
+is the whole point of the banded polar scale above), so a redundant text
+distance wasn't adding anything a label is actually for. The
+`indicator-distance` CSS class was renamed to `indicator-altitude`
+(VCAS.css) rather than left as a stale name now holding altitude text.
+AIR markers previously showed no altitude or distance at all — this is a
+net-new field there, not a rename, so it needed its own
+`.air-label-box .indicator-altitude` rule (separate cascade scope from
+`.indicator-label`'s, matching the pre-existing `.air-label-box .actype`
+split) rather than assuming the renamed `.indicator-label` rule would
+reach it. Verified with a local Playwright + the real `VCAS.css` (not a
+hand-copied stylesheet) rendering both label markups standalone: RAW's
+`#f0f0f0` override applies correctly to the renamed class, AIR's
+`--text-secondary`/8px rule applies correctly to its own scope, both show
+the right altitude text.
+
 ## Contrail visibility — Relevance range + Visibility score (2026-08-21)
 
 Real, independently-verified gap: an aircraft at ~32,000ft, ~20-25nm ground
