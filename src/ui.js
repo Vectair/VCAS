@@ -281,15 +281,60 @@ const UI = (() => {
   }
 
   /**
-   * Cross-highlights an aircraft between the on-plot icon and its matching
-   * Stage 3 aircraft-list row (spec: "tapping the icon on VCAS highlights
-   * the list row and vice versa"). Called from both renderIndicators()'s
-   * and renderAircraftList()'s own click handlers below — either side can
-   * originate a selection, both sides reflect it.
+   * Minimal "something's out there" markers for aircraft the ND-style range
+   * selector has dialled past (app.js's selectedRangeIndex/RING_BANDS_NM
+   * slice) — still relevant/tracked, just beyond the range the user
+   * currently has the plot zoomed to. A real TCAS/ND shows exactly this:
+   * traffic beyond the selected range but within its own envelope appears
+   * as a plain mark at the display's edge, not a fully-detailed symbol.
+   * No shape, no label, no direction arrow — literally just a dot in the
+   * aircraft's own visibility colour, at its own bearing, on the plot's
+   * outer edge. Position comes for free: Geo.bandedRadiusFraction already
+   * clamps anything at/beyond the last active band to radius fraction 1.0,
+   * so these items' own ind.x/ind.y (from the SAME Indicators.build() call
+   * that produced the full-icon set) already sit exactly on the edge at
+   * the correct bearing — this function only decides how to DRAW them.
+   *
+   * Deliberately appended to #indicators-layer rather than clearing it —
+   * called right after renderIndicators() each frame, which already did
+   * the one-time container.innerHTML = "" reset for both.
+   *
+   * @param {Array} items      Same shape as renderIndicators()'s input,
+   *   for the subset beyond the selected range — unpaginated, always all
+   *   of them (no clutter concern: a bare dot doesn't crowd the display
+   *   the way a full label does).
+   * @param {function} onClickFn  Same contract as renderIndicators()'s —
+   *   still tappable, opens the same popup with full detail even though
+   *   nothing is shown by default.
+   */
+  function renderSuppressedDots(items, onClickFn) {
+    const container = document.getElementById("indicators-layer");
+    if (!container) return;
+
+    items.forEach(ind => {
+      const hex = ind.aircraft.hex;
+      const el = document.createElement("div");
+      el.className = "suppressed-dot" + (hex === _selectedHex ? " selected" : "");
+      el.dataset.hex = hex;
+      el.style.left = ind.x + "px";
+      el.style.top  = ind.y + "px";
+      el.style.background = _displayColor(ind.vis);
+      el.addEventListener("click", () => { selectAircraft(hex); onClickFn(ind); });
+      container.appendChild(el);
+    });
+  }
+
+  /**
+   * Cross-highlights an aircraft between the on-plot icon (or suppressed
+   * edge dot) and its matching Stage 3 aircraft-list row (spec: "tapping
+   * the icon on VCAS highlights the list row and vice versa"). Called from
+   * renderIndicators()'s, renderSuppressedDots()'s, and
+   * renderAircraftList()'s own click handlers — any of the three can
+   * originate a selection, all reflect it.
    */
   function selectAircraft(hex) {
     _selectedHex = hex;
-    document.querySelectorAll(".indicator[data-hex]").forEach(el => {
+    document.querySelectorAll(".indicator[data-hex], .suppressed-dot[data-hex]").forEach(el => {
       el.classList.toggle("selected", el.dataset.hex === hex);
     });
     const rows = document.querySelectorAll(".raw-list-row[data-hex]");
@@ -599,6 +644,40 @@ const UI = (() => {
     if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
   }
 
+  // ---- RAW mode range selector ----
+
+  /**
+   * ND-style range knob equivalent — a real A320-family EFIS control panel
+   * has a physical knob next to the ND that cycles its displayed range; a
+   * touchscreen has no separate hardware for that, so this is a small
+   * tappable readout sitting in the corner of the square plot itself
+   * (matching where a real ND prints its own current range) rather than a
+   * separate floating control that would need its own layout negotiation
+   * against the Stage 3 list panel. Positioned by the caller (app.js) from
+   * the SAME square layout the plot/rings use, so it always sits inside
+   * the square regardless of portrait/landscape.
+   *
+   * @param {number} x, y      Top-right corner of the square, in viewport px.
+   * @param {number} rangeNm   Current selected range (one of
+   *   Indicators.RING_BANDS_NM) — displayed as e.g. "10NM".
+   * @param {function} onClick  Called with no args on tap; app.js advances
+   *   to the next preset and re-renders.
+   */
+  function renderRangeSelector(x, y, rangeNm, onClick) {
+    const btn = document.getElementById("btn-raw-range");
+    if (!btn) return;
+    btn.textContent = rangeNm + "NM";
+    btn.style.left = x + "px";
+    btn.style.top  = y + "px";
+    btn.onclick = onClick; // overwritten each render, not addEventListener — avoids stacking a new listener every frame
+    btn.classList.remove("hidden");
+  }
+
+  function clearRangeSelector() {
+    const btn = document.getElementById("btn-raw-range");
+    if (btn) btn.classList.add("hidden");
+  }
+
   // ---- RAW mode aircraft list panel (Stage 3) ----
 
   const RAW_LIST_SORT_MODES = [
@@ -637,8 +716,14 @@ const UI = (() => {
    * @param {function} onSortClick  Called with the clicked sort mode string.
    * @param {function} onRowClick   Called with the indicator item (same
    *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
+   * @param {Set<string>} [beyondRangeHexes]  Hex codes currently beyond the
+   *   ND-style range selector's selected range (see renderSuppressedDots) —
+   *   the list still shows every relevant aircraft regardless of range, but
+   *   these get a dimmed row so it's clear why they have no full plot icon
+   *   of their own right now, just an edge dot (or nothing, if outside the
+   *   FOV entirely).
    */
-  function renderAircraftList(items, rowsRect, sortMode, onSortClick, onRowClick) {
+  function renderAircraftList(items, rowsRect, sortMode, onSortClick, onRowClick, beyondRangeHexes) {
     const panel = document.getElementById("raw-aircraft-list");
     if (!panel) return;
 
@@ -667,8 +752,9 @@ const UI = (() => {
           const rangeLabel = `${ind.distanceNm.toFixed(1)}nm`;
           const color = _displayColor(ind.vis);
           const selected = a.hex === _selectedHex ? " selected" : "";
+          const beyondRange = beyondRangeHexes && beyondRangeHexes.has(a.hex) ? " beyond-range" : "";
           return `
-            <div class="raw-list-row${selected}" data-hex="${_escapeHtml(a.hex)}">
+            <div class="raw-list-row${selected}${beyondRange}" data-hex="${_escapeHtml(a.hex)}">
               <div class="rlr-dot" style="background:${color}"></div>
               <div class="rlr-info">
                 <div class="rlr-callsign">${callsign}</div>
@@ -856,6 +942,7 @@ const UI = (() => {
     setAircraftCount,
     setModeLabel,
     renderIndicators,
+    renderSuppressedDots,
     declutterRenderedIndicators,
     clearIndicators,
     selectAircraft,
@@ -863,6 +950,8 @@ const UI = (() => {
     clearCompassRing,
     renderRangeRingsOverlay,
     clearRangeRingsOverlay,
+    renderRangeSelector,
+    clearRangeSelector,
     renderAircraftList,
     clearAircraftList,
     showPopup,

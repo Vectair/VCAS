@@ -689,6 +689,79 @@ this file — the fix each time isn't "remember harder," it's writing the
 actual number/shape/rule down somewhere durable the moment it's decided,
 not just the fact that a conversation about it happened.
 
+## RAW ND-style range selector + suppressed edge dots (2026-08-21)
+
+Explicitly modelled on the real A320-family EFIS control panel — the
+project owner's own reference: a physical knob next to the Navigation
+Display cycles its displayed range. A touchscreen has no separate hardware
+for that, so `UI.renderRangeSelector()` puts a small tappable "10NM"-style
+readout in the square plot's own top-right corner instead (matching where
+a real ND prints its current range) — tapping it advances
+`app.js`'s `selectedRangeIndex` through `Indicators.RING_BANDS_NM`
+(`[2, 5, 10, 15, 50]`) and wraps around. Deliberately reuses the SAME
+5-value array the range rings already draw at, rather than inventing a
+separate preset list — the project owner's own framing ("5 options") maps
+onto it exactly, and it means there's only ever one array of "the sizes
+this display understands," not two that could drift apart.
+
+**How rescaling works, with zero new geometry:** `app.js` slices
+`RING_BANDS_NM` down to `selectedRangeIndex + 1` entries
+(`activeBandsNm`) and passes that in place of the full array everywhere —
+`Geo.projectToPolarPosition`'s existing `bandedRadiusFraction` logic
+already clamps any range at or beyond the LAST band to radius fraction
+1.0 (see geo.js). Feed it a shorter array and that clamp point simply
+moves inward: dialled to 10nm, an 8nm aircraft now gets plotted using
+only 3 bands instead of 5, landing farther out (more of the plot's radius)
+than it would on the full scale — exactly the "zoom in" a real ND range
+knob does. Verified numerically: the same 8nm aircraft plots at y=165
+(near the edge) on `[2,5,10]` vs y=231 (more central) on the full
+`[2,5,10,15,50]`.
+
+**Suppressed edge dots — the same clamp, repurposed rather than fought.**
+Direct instruction: aircraft beyond the selected range shouldn't just
+vanish — they should show as "literally just a dot" in the aircraft's own
+visibility colour, at its correct bearing, on the plot's outer edge, so
+the user knows something's out there before they dial the range back out.
+Because the clamp above already puts anything beyond the selected range's
+last band at radius fraction 1.0 regardless of how far beyond it actually
+is (a 30nm and a 45nm aircraft at the same bearing land on the EXACT same
+pixel, verified: `{x:173,y:140}` for both against a `[2,5,10]` scale),
+that IS the edge-dot position — no separate "place it on the boundary"
+geometry was needed, just a different renderer
+(`UI.renderSuppressedDots()`, ui.js) for items past the cutoff: no shape,
+no label box, no direction arrow, just an 8px dot, still tappable (opens
+the same popup as a full icon).
+
+**Relevance itself is completely untouched by this.** The range selector
+is a pure display-layer concept layered on top of the existing relevance
+gate, not a second filter: `Relevance.evaluate()` still decides what's
+"trackable" at all (teardrop/overhead/50nm contrail extension, all
+unchanged); `app.js`'s `refreshIndicators()` splits that already-relevant
+set into `withinRange` (full icon + label, and this is now what
+`Indicators.capForViewportWidth`'s pagination applies to — NOT the whole
+relevant set, which would have wrongly paginated away suppressed dots
+too) and `beyondRange` (edge dot, always rendered in full, never
+paginated — a bare dot has no clutter cost the way a label does). The
+Stage 3 list panel is untouched in scope — it still shows the FULL
+relevant set regardless of range — but rows for `beyondRange` aircraft
+now get a `.beyond-range` dimmed style (`raw-list-row.beyond-range`,
+opacity .5) so it's visually clear why some rows have no matching full
+icon on the plot (a bare edge dot, or if also outside the FOV, nothing at
+all) rather than reading as a bug.
+
+Selection cross-highlight (`UI.selectAircraft`) was extended to cover
+`.suppressed-dot` elements alongside `.indicator` and `.raw-list-row` —
+tapping an edge dot highlights its list row exactly like tapping a full
+icon does, and vice versa, using the same shared `data-hex` mechanism.
+
+Verified with a real Playwright/Chromium render: a `[2,5,10]`-scale plot
+with 2 aircraft inside 10nm and 2 beyond it correctly rendered 2 full
+labelled icons and 2 bare colour-matched dots sitting within ~0.2px of
+the plot's own computed radius (rounding only); the list panel showed all
+4 rows with the 2 out-of-range ones dimmed; clicking a suppressed dot
+selected both it and its matching list row; clicking the range button
+fired the cycle callback.
+
 **Label content: type + altitude, not type + distance (2026-08-21).**
 Explicit instruction, restating an earlier Stage 3 spec line that hadn't
 been implemented yet ("the basic info that should be on VCAS label is the

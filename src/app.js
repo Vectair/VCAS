@@ -35,6 +35,13 @@
   // setting, just live display state for the current session.
   let rawListSortMode = "priority";
 
+  // ND-style range selector (RAW only) — index into Indicators.RING_BANDS_NM,
+  // matching a real EFIS control panel's physical range knob. Defaults to
+  // the LAST index (the full 2/5/10/15/50nm scale) so a fresh session's
+  // behaviour is identical to before this existed — dialling it down is an
+  // explicit user action, not a new default anyone has to opt out of.
+  let selectedRangeIndex = Indicators.RING_BANDS_NM.length - 1;
+
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
 
@@ -350,6 +357,7 @@
         // fixed alongside it since it's the identical bug at the same call site.
         UI.clearRangeRingsOverlay();
         UI.clearAircraftList();
+        UI.clearRangeSelector(); // same bug pattern as the two clears above
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -1003,6 +1011,8 @@
     // the plain full viewport, so none of this applies there.
     const isRawView = NavDisplayStyle.isRaw();
     let square = null;
+    let activeBandsNm = Indicators.RING_BANDS_NM;
+    let selectedRangeNm = Indicators.RING_BANDS_NM[Indicators.RING_BANDS_NM.length - 1];
     if (isRawView) {
       square = Geo.computeSquarePlotLayout(vw, insets.squareContentTop, insets.squareContentHeight);
       userState.fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG;
@@ -1019,6 +1029,18 @@
       userState.plotOffsetX = square.squareLeft;
       userState.plotOffsetY = square.squareTop;
       userState.plotSafeInset = SQUARE_EDGE_MARGIN_PX;
+
+      // ND-style range selector — a shorter prefix of the same band array
+      // the rings already draw, so dialling down to (say) 10nm both
+      // rescales the plot (the 10nm band now maps to the full radius
+      // instead of a small inner fraction of it, matching a real ND
+      // zooming in) and — via Geo.bandedRadiusFraction's own existing
+      // clamp-to-edge behaviour for anything at/beyond the last band —
+      // pushes traffic beyond 10nm out to the plot's outer edge, which is
+      // exactly the position the suppressed edge-dot below wants.
+      activeBandsNm = Indicators.RING_BANDS_NM.slice(0, selectedRangeIndex + 1);
+      selectedRangeNm = activeBandsNm[activeBandsNm.length - 1];
+      userState.plotBandsNm = activeBandsNm;
     }
 
     const now = Date.now();
@@ -1044,15 +1066,30 @@
       userState
     );
 
+    // ND range selector split — vis.slantRangeNm is the SAME figure
+    // Indicators.build() plotted the dot's radius from (see indicators.js),
+    // so this agrees exactly with what's visibly at/past the plot's edge.
+    // Relevance itself is untouched by the range selector (an aircraft
+    // doesn't stop being "relevant" just because the user zoomed in) —
+    // this only decides full-icon-with-label vs bare edge dot. Hybrid
+    // never dials the selector down (activeBandsNm stays the full array,
+    // selectedRangeNm stays its max), so beyondRange is always empty there.
+    const withinRange = isRawView ? allRelevant.filter(it => it.vis.slantRangeNm <= selectedRangeNm) : allRelevant;
+    const beyondRange = isRawView ? allRelevant.filter(it => it.vis.slantRangeNm > selectedRangeNm) : [];
+
     const cap = Indicators.capForViewportWidth(vw);
-    const totalPages = Math.max(1, Math.ceil(allRelevant.length / cap));
+    const totalPages = Math.max(1, Math.ceil(withinRange.length / cap));
     if (indicatorPage >= totalPages) indicatorPage = 0;
 
     const pageStart = indicatorPage * cap;
-    const shown = allRelevant.slice(pageStart, pageStart + cap);
+    const shown = withinRange.slice(pageStart, pageStart + cap);
     Indicators.declutter(shown, INDICATOR_DECLUTTER_GAP_PX);
 
     UI.renderIndicators(shown, onIndicatorClick);
+    // Beyond-range traffic renders as bare edge dots, always in full (never
+    // paginated — a dot carries no label, so it doesn't compete for the
+    // same "keep it glanceable" room a page cap exists to protect).
+    UI.renderSuppressedDots(beyondRange, onIndicatorClick);
     // Indicators.declutter() above only pushes raw dot centres apart by a
     // fixed radius before anything is rendered — it has no idea how wide a
     // real callsign/type label is going to measure once actual text is in
@@ -1069,7 +1106,12 @@
     const declutterAnchorX = isRawView ? square.squareLeft + square.squareSize * 0.5 : vw * 0.5;
     const declutterAnchorY = isRawView ? square.squareTop + square.squareSize * userState.anchorY : vh * (userState.anchorY ?? 0.8);
     UI.declutterRenderedIndicators(declutterAnchorX, declutterAnchorY);
-    UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
+    // Scoped to withinRange, not allRelevant — "N of M shown, tap for more"
+    // is about PAGINATION overflow within the current range; traffic held
+    // back by the range selector instead is a separate concept (the
+    // suppressed edge dots + list panel's dimmed rows already communicate
+    // that), not something this badge's "more" wording should conflate it with.
+    UI.setAircraftCount(shown.length, withinRange.length, onCycleIndicatorPage);
 
     // TCAS/ND-style range rings — Raw only. Screen-space, sharing the same
     // square/scale/FOV the aircraft dots above use (see
@@ -1081,9 +1123,18 @@
     // reference, and it never adopted the banded scale in the first place.
     EosMap.clearRangeRings(); // RAW no longer uses the real-geo layer at all
     if (isRawView) {
-      UI.renderRangeRingsOverlay(square.squareLeft, square.squareTop, square.squareSize, userState.anchorY, SQUARE_EDGE_MARGIN_PX, Indicators.RING_BANDS_NM, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
+      // activeBandsNm, not the full Indicators.RING_BANDS_NM — only the
+      // rings within the currently-selected range actually draw, matching
+      // the dots above (both already only ever reach RING_BANDS_NM's own
+      // boundaries anyway; this just stops short at whichever one the user
+      // picked, same "zoom" effect the plot's own rescale gets from it).
+      UI.renderRangeRingsOverlay(square.squareLeft, square.squareTop, square.squareSize, userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
+      // ND-style range selector — sits in the square's own top-right
+      // corner, matching where a real ND prints its current range.
+      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, square.squareTop + 8, selectedRangeNm, onRawRangeCycleClick);
     } else {
       UI.clearRangeRingsOverlay();
+      UI.clearRangeSelector();
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
@@ -1119,10 +1170,16 @@
     // page to bring the icon into view.
     if (isRawView) {
       const listItems = _sortForRawList(allRelevant, rawListSortMode);
-      UI.renderAircraftList(listItems, square.rows, rawListSortMode, onRawListSortClick, onIndicatorClick);
+      const beyondRangeHexes = new Set(beyondRange.map(it => it.aircraft.hex));
+      UI.renderAircraftList(listItems, square.rows, rawListSortMode, onRawListSortClick, onIndicatorClick, beyondRangeHexes);
     } else {
       UI.clearAircraftList();
     }
+  }
+
+  function onRawRangeCycleClick() {
+    selectedRangeIndex = (selectedRangeIndex + 1) % Indicators.RING_BANDS_NM.length;
+    refreshIndicators();
   }
 
   /**

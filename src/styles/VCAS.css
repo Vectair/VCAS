@@ -539,6 +539,34 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 #btn-recenter:active { opacity: .75; transform: scale(.94); }
 #btn-recenter.hidden { display: none; }
 
+/* ND-style range selector (RAW only) — sits in the corner of the square
+   plot itself, matching where a real ND prints its own current range,
+   rather than a separate floating control that would need its own layout
+   negotiation against the Stage 3 list panel. left/top (set per-render in
+   ui.js's renderRangeSelector) is the square's own top-right corner; the
+   translateX below anchors the button's RIGHT edge there regardless of
+   its rendered width (driven by how many digits the range number has),
+   instead of guessing the width up front. Always dark regardless of Day/
+   Night/Auto, same reasoning as the compass tape/range rings/list panel —
+   RAW has no "day mode" instrument and this only ever shows inside RAW. */
+#btn-raw-range {
+  position: fixed;
+  z-index: 11;
+  transform: translateX(-100%);
+  padding: 4px 8px;
+  border: 1px solid rgba(240,240,240,.3);
+  border-radius: var(--radius-sm);
+  background: rgba(14,17,23,.85);
+  color: #f0f0f0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+#btn-raw-range:active { background: rgba(240,240,240,.15); }
+#btn-raw-range.hidden { display: none; }
+
 /* ---- Destination-pick hint ---- */
 #dest-pick-banner {
   position: fixed;
@@ -692,6 +720,25 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
    needing !important to win the specificity fight against an inline style. */
 .indicator.selected .indicator-shape { filter: drop-shadow(0 0 4px #ffff00) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
 .indicator.selected .indicator-label { box-shadow: 0 0 0 2px #ffff00; }
+
+/* "Something's out there" edge marker (RAW range selector, ui.js's
+   renderSuppressedDots) — traffic beyond the currently-selected ND range
+   but still relevant/tracked, matching how a real ND shows out-of-range-
+   but-in-envelope traffic as a bare mark at the display's edge rather
+   than a full symbol. Deliberately minimal: no shape, no label, no
+   direction arrow — just a coloured dot, same visibility colour a full
+   label would use. */
+.suppressed-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: 0 0 2px rgba(0,0,0,.7);
+}
+.suppressed-dot.selected { box-shadow: 0 0 0 2px #ffff00; }
 
 .indicator-shape {
   position: relative;
@@ -884,6 +931,15 @@ body[data-theme="day"] .air-label-box {
 .raw-list-row:last-child { border-bottom: none; }
 .raw-list-row:active { background: rgba(240,240,240,.08); }
 .raw-list-row.selected { background: rgba(255,255,0,.14); }
+
+/* Dimmed, not hidden — this aircraft is still in the list (it's relevant
+   and tracked), it just doesn't have a full plot icon right now because
+   the ND range selector is dialled below its distance; it shows as a bare
+   suppressed-dot on the plot instead (or nothing, if also outside the
+   FOV). Distinguishes "no icon because out of range" from "no icon
+   because it didn't make the priority cut" (which just isn't in this
+   list's row set differently — everything relevant IS in the list). */
+.raw-list-row.beyond-range { opacity: .5; }
 
 .rlr-dot {
   flex-shrink: 0;

@@ -111,6 +111,16 @@ const Indicators = (() => {
     // is a small fixed in-square margin instead; falling back to safeInset
     // keeps Hybrid's existing behaviour exactly as it was.
     const safeInset = userState.plotSafeInset != null ? userState.plotSafeInset : userState.safeInset;
+    // The user-selectable ND-style range knob (app.js's selectedRangeIndex)
+    // overrides which band boundaries are "in play" for THIS render — e.g.
+    // dialled down to 10nm, bandsNm becomes [2,5,10] instead of the full
+    // [2,5,10,15,50], so bandedRadiusFraction's own existing clamp-to-1.0
+    // behaviour (anything at/beyond the last band plots at the outer edge)
+    // is what naturally produces the "suppressed edge dot" position for
+    // traffic beyond the selected range — no separate geometry needed for
+    // that, see app.js's refreshIndicators. Falls back to the full array
+    // for Hybrid/LogPanel callers, which never set this.
+    const bandsNm = userState.plotBandsNm || RING_BANDS_NM;
 
     return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
@@ -127,7 +137,7 @@ const Indicators = (() => {
         // RAW's forward field of view — callers must skip rendering those
         // (still relevant/tracked for Hybrid/logging, just not drawable
         // inside RAW's arc-restricted plot).
-        const pos = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, plotWidth, plotHeight, RING_BANDS_NM, anchorY, safeInset, fovHalfAngleDeg, plotOffsetX, plotOffsetY);
+        const pos = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, plotWidth, plotHeight, bandsNm, anchorY, safeInset, fovHalfAngleDeg, plotOffsetX, plotOffsetY);
         const x = pos ? pos.x : null;
         const y = pos ? pos.y : null;
         // Direction-of-travel indicator — the aircraft's own ground track,
