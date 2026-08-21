@@ -548,9 +548,16 @@ const NavStyle = (() => {
     // raw has nothing to render from the vector tile source at all, so
     // it isn't even declared here — one fewer network fetch, and it keeps
     // the intent explicit: this theme genuinely draws nothing but a flat
-    // background colour.
+    // background colour. glyphs IS still needed despite that: MapLibre
+    // requires a style-level `glyphs` URL for ANY symbol layer using
+    // `text-field` to validate at all, regardless of whether the style has
+    // a tile source — without it, EosMap's dynamically-added range-ring nm
+    // labels (added via addLayer(), not declared in this style's own
+    // layers) fail validation entirely and never render. Confirmed directly
+    // against a real MapLibre instance: the exact "requires a style
+    // glyphs property" error this omission produces (2026-08-21).
     if (t === "raw") {
-      return { version: 8, sources: {}, layers: _layers(t) };
+      return { version: 8, glyphs: _glyphsUrl(), sources: {}, layers: _layers(t) };
     }
 
     return {

@@ -276,17 +276,41 @@ fit within the frame at all — see the anchor-alignment note above, the
 RAW's zoom) now all project correctly along the dead-ahead centreline
 regardless of current heading.
 
+**The label-bearing fix above was real but not sufficient on its own** —
+after shipping it, labels were STILL completely invisible in RAW, at any
+heading. The actual, more fundamental cause, found immediately after by
+literally reproducing `NavStyle.getStyle("raw")`'s style object against a
+real MapLibre instance: `getStyle("raw")` returns
+`{version:8, sources:{}, layers:[...]}` with **no `glyphs` property at
+all** (deliberate — RAW has no vector tile source, so the comment reasoned
+there was nothing to fetch glyphs for). But MapLibre requires a style-level
+`glyphs` URL for ANY symbol layer using `text-field` to validate, full
+stop, regardless of whether the style has a tile source — reproduced the
+exact `"requires a style glyphs property"` validation failure this
+omission causes. `EosMap`'s range-ring-labels layer (added dynamically via
+`addLayer()`, so it isn't visible in `NavStyle.getStyle()`'s own returned
+JSON) was silently failing to validate under RAW's style the entire time.
+Fixed by adding `glyphs: _glyphsUrl()` to the raw style branch too — same
+MapTiler glyphs endpoint the day/night styles already use, independent of
+whether there's a vector tile layer to go with it. Re-verified: the same
+symbol layer that previously threw on `addLayer()` under a glyphs-less
+style now adds cleanly once `glyphs` is present.
+
 **Testing convention for MapLibre-related changes:** this sandbox can't reach
 MapLibre's CDN or any real tile server (network egress policy blocks them).
 Verify camera/projection math with a *locally npm-installed* `maplibre-gl`
 package (`registry.npmjs.org` is allowlisted) driven via Playwright/headless
 Chromium with a minimal tile-less style
 (`{version:8, sources:{}, layers:[{type:"background",...}]}`), not by
-reasoning about it or trusting a code comment's claim. This caught three
-real bugs this session that pure code review missed — including one (the
-label-bearing bug above) only found by comparing RAW's real behaviour
-against AIR's already-correct one on a real device, not from reading the
-code in isolation.
+reasoning about it or trusting a code comment's claim. This caught four
+real bugs this session that pure code review missed — including two (the
+label-bearing bug and the missing-glyphs bug) only found by directly
+reproducing RAW's actual style/state against a real MapLibre instance
+after comparing RAW's behaviour against AIR's already-correct one, not
+from reading the code in isolation. Don't assume a single fix resolved a
+rendering symptom just because it was a real, verified bug — re-verify
+against the actual reported symptom (here: labels still invisible after
+the first fix) before considering it closed.
 
 ## Range rings — real map layers, not a screen overlay
 
