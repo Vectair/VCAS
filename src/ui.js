@@ -272,6 +272,77 @@ const UI = (() => {
     });
   }
 
+  /**
+   * Nudges apart *rendered* indicator labels that visibly overlap —
+   * complements Indicators.declutter() (which only pushes apart raw x/y
+   * dot centres by a fixed radius, before anything is on screen at all).
+   * A fixed centre-to-centre gap can't know how wide a real label box is
+   * going to be once actual callsign/type text is measured — two dots
+   * comfortably outside that gap can still have their (much wider) label
+   * boxes overlap, especially once several aircraft land in the same
+   * outer band of the plot (see indicators.js's RING_BANDS_NM). Call this
+   * AFTER renderIndicators() so the elements actually exist to measure.
+   *
+   * Moves each aircraft's whole .indicator element (shape + label
+   * together, so the arrow/shape stays attached to its own label) by
+   * however much is needed to separate its .indicator-label box from every
+   * other one — standard AABB minimum-translation separation, same
+   * two-rects-push-apart-along-the-shorter-overlap-axis approach
+   * Indicators.declutter() already uses for points, just measured in real
+   * rendered pixels instead of computed ahead of time.
+   */
+  function declutterRenderedIndicators() {
+    const container = document.getElementById("indicators-layer");
+    if (!container) return;
+    const els = Array.from(container.querySelectorAll(".indicator"));
+    if (els.length < 2) return;
+
+    const items = els.map(el => {
+      const label = el.querySelector(".indicator-label") || el;
+      const r = label.getBoundingClientRect();
+      return { el, left: r.left, right: r.right, top: r.top, bottom: r.bottom, dx: 0, dy: 0 };
+    });
+
+    const PADDING_PX = 4;
+    const MAX_PASSES = 6;
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      let moved = false;
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i], b = items[j];
+          const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+          const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+
+          moved = true;
+          const acx = (a.left + a.right) / 2, bcx = (b.left + b.right) / 2;
+          const acy = (a.top + a.bottom) / 2, bcy = (b.top + b.bottom) / 2;
+
+          if (overlapX < overlapY) {
+            const push = overlapX / 2 + PADDING_PX;
+            const sign = acx <= bcx ? -1 : 1; // a moves this way, b the opposite
+            a.dx += sign * push; a.left += sign * push; a.right += sign * push;
+            b.dx -= sign * push; b.left -= sign * push; b.right -= sign * push;
+          } else {
+            const push = overlapY / 2 + PADDING_PX;
+            const sign = acy <= bcy ? -1 : 1;
+            a.dy += sign * push; a.top += sign * push; a.bottom += sign * push;
+            b.dy -= sign * push; b.top -= sign * push; b.bottom -= sign * push;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+
+    items.forEach(item => {
+      if (item.dx === 0 && item.dy === 0) return;
+      const curLeft = parseFloat(item.el.style.left) || 0;
+      const curTop = parseFloat(item.el.style.top) || 0;
+      item.el.style.left = (curLeft + item.dx) + "px";
+      item.el.style.top = (curTop + item.dy) + "px";
+    });
+  }
+
   function clearIndicators() {
     const container = document.getElementById("indicators-layer");
     if (container) container.innerHTML = "";
@@ -565,6 +636,7 @@ const UI = (() => {
     setAircraftCount,
     setModeLabel,
     renderIndicators,
+    declutterRenderedIndicators,
     clearIndicators,
     renderCompassRing,
     clearCompassRing,

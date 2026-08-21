@@ -383,6 +383,42 @@ markup (`UI._escapeHtml`, new) — verified via Playwright that a `<b>`/`&`/
 markup, plus a real long name to confirm truncation (22 chars + `…`)
 doesn't break mid-escape.
 
+**Plot scale extended to match relevance's real reach; real label-box
+decluttering added (2026-08-21).** Reported directly against the deployed
+app: aircraft ranging from 31.6nm to 46.0nm all plotted at the exact same
+point (the plot's outer edge), with no visible correlation to the range
+rings, and their labels stacked on top of each other/themselves.
+Root cause of the first part: `Indicators.POLAR_MAX_RANGE_NM`/
+`RING_BANDS_NM` were still capped at 15nm (`Relevance.DEFAULTS.rMaxNm`,
+the *base* floor) from before the contrail work above — but relevance
+itself can now reach 50nm (`rangeExtensionCapNm`) for high-altitude
+traffic, so anything between 15 and 50nm had nowhere meaningful to plot
+and all clamped to the identical edge radius, regardless of whether it
+was 16nm or 46nm out — hence "no correlation with the rings" and,
+with several such aircraft at once, no room to keep their labels apart
+either. Fixed by retargeting `POLAR_MAX_RANGE_NM` at
+`rangeExtensionCapNm` (50) and adding a 5th band (`[2, 5, 10, 15, 50]`) —
+deliberately one wide final band rather than several fine ones, since
+that band only ever holds sparser high-altitude/contrail traffic, not
+the dense close-in local traffic the fine near bands exist for.
+
+Root cause of the second part: `Indicators.declutter()` only ever pushed
+raw x/y *dot centres* apart by a fixed radius, computed before anything
+is rendered — it has no way to know how wide a real label box will
+measure once actual callsign/type text is in it, so two dots just
+outside that fixed gap could still have their (much wider) label boxes
+overlap. Fixed by adding `UI.declutterRenderedIndicators()`, a second
+pass that runs AFTER `renderIndicators()` — measures each `.indicator-
+label`'s real `getBoundingClientRect()`, resolves any pairwise overlap
+via the same "push apart along the shorter-overlap axis" AABB approach
+`declutter()` already uses for points, then moves each aircraft's whole
+`.indicator` element (shape + label together, so the direction arrow
+never separates from its own label). Verified via Playwright with the
+literal reported scenario (three close-together aircraft in the plot's
+new outer band): labels provably overlapping before the second pass,
+provably not after, and a screenshot confirms they read as cleanly
+adjacent rather than scattered apart.
+
 Not yet done: a sortable aircraft list (callsign/type/altitude,
 default-sorted by the same visibility-likelihood scoring the indicators
 use, re-sortable by range/altitude/type) filling whatever space the plot's

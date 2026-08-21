@@ -965,6 +965,14 @@
     Indicators.declutter(shown, INDICATOR_DECLUTTER_GAP_PX);
 
     UI.renderIndicators(shown, onIndicatorClick);
+    // Indicators.declutter() above only pushes raw dot centres apart by a
+    // fixed radius before anything is rendered — it has no idea how wide a
+    // real callsign/type label is going to measure once actual text is in
+    // it. This second, DOM-measurement-based pass catches label boxes that
+    // still visibly overlap despite their dots being far enough apart,
+    // which point-only decluttering structurally can't (reported directly:
+    // several aircraft landing in the plot's outer band at once).
+    UI.declutterRenderedIndicators();
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
     // TCAS/ND-style range rings — Raw only. They're real geo-referenced

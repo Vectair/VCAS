@@ -28,8 +28,19 @@ const Indicators = (() => {
    * teardrop range rather than a separate made-up number, so the plotted
    * scale actually means something: an aircraft at the plot's outer edge is
    * an aircraft at (or beyond) the edge of relevance for that bearing.
+   *
+   * This is `rangeExtensionCapNm` (50), not the base `rMaxNm` (15) —
+   * updated 2026-08-21 alongside the contrail-visibility work. Before that,
+   * relevance never reached past 15nm for anything, so tying the plot's
+   * scale to 15 and to relevance's own max were the same thing. Now a
+   * high-altitude aircraft can be relevant out to 50nm, and leaving the
+   * plot's own scale capped at 15 meant every one of those aircraft —
+   * regardless of whether it was 16nm or 46nm away — clamped to the exact
+   * same outer-edge radius: no differentiation, no correlation with the
+   * range rings, and (with several of them at once) no room to avoid their
+   * labels overlapping either. Reported directly against the deployed app.
    */
-  const POLAR_MAX_RANGE_NM = Relevance.DEFAULTS.rMaxNm;
+  const POLAR_MAX_RANGE_NM = Relevance.DEFAULTS.rangeExtensionCapNm;
 
   /**
    * Ring band boundaries (nm) for the plot's non-linear distance scale —
@@ -38,12 +49,21 @@ const Indicators = (() => {
    * (where resolving "is this one a bit closer than that one" actually
    * matters) gets more usable screen space than a strictly linear scale
    * would give it, while distant traffic still visibly separates into "how
-   * far, roughly" bands instead of a single distant blob. Deliberately
-   * capped at POLAR_MAX_RANGE_NM (not the full 50nm originally proposed) —
-   * relevance itself still governs what's shown at all; this only changes
-   * how what IS shown gets spaced out within that same range.
+   * far, roughly" bands instead of a single distant blob. The final band
+   * (15 to POLAR_MAX_RANGE_NM/50) is deliberately wide — it only ever holds
+   * high-altitude/contrail-relevant traffic (see relevance.js), which is
+   * inherently sparser than low-altitude local traffic, so one wide band
+   * is enough to keep them from collapsing onto the exact same point
+   * without needing the same fine-grained resolution the close bands have.
+   * The map's own range rings (EosMap.updateRangeRings, real geo circles)
+   * are drawn at these same nm values, but a 50nm ring's true geo radius
+   * doesn't fit on screen at RAW's zoom regardless — same as the 15nm ring
+   * already sometimes doesn't (see "Range rings" below) — so it's harmless
+   * that it's declared here even though it'll rarely if ever actually be
+   * visible; the banded *plot position* for far traffic is the part that
+   * matters.
    */
-  const RING_BANDS_NM = [2, 5, 10, POLAR_MAX_RANGE_NM];
+  const RING_BANDS_NM = [2, 5, 10, 15, POLAR_MAX_RANGE_NM];
 
   /**
    * Half-angle (deg) of RAW mode's forward field of view — 75° either side
