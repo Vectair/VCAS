@@ -253,14 +253,40 @@ banded proportion intact at every bearing while still never running
 off-screen. Both fixes verified with Node simulations (not just reasoned
 through) before shipping — see git history around this date.
 
+Same investigation, a third and independent bug: `EosMap.updateRangeRings`'s
+ring **labels** ("2"/"5"/"10"/"15") were placed at true geographic north
+(`Geo.destinationPoint(lat, lon, 0, nm*NM_TO_M)`) unconditionally. That's
+correct for AIR (always north-up — map bearing is always 0, so true north
+always lands at the top of the screen) but wrong for RAW, which is
+heading-up: the map itself rotates to the user's current heading, so a
+label fixed at true north drifts to whatever screen angle "north" currently
+happens to be. Confirmed via a real MapLibre simulation at a 30° heading:
+the 5/10/15nm labels all projected 260–500px off the *side* of the screen
+(only the small-radius 2nm label happened to stay on-screen) — meaning RAW
+mode's ring labels were essentially invisible except when facing very close
+to due north, which is exactly why the user reported being unable to tell
+which ring was which. Fixed by adding a `labelBearingDeg` parameter
+(defaults to 0/true-north, preserving AIR's already-correct behaviour) that
+RAW passes `userHeading` for, placing each label along dead-ahead — always
+"up" on a heading-up display, matching how a real heading-up ND places
+range labels — instead of true north. Re-verified with the same simulation
+approach: at the same 30° heading, the 2/5/10nm labels (whichever actually
+fit within the frame at all — see the anchor-alignment note above, the
+15nm ring's own true geo radius already doesn't fit on a phone screen at
+RAW's zoom) now all project correctly along the dead-ahead centreline
+regardless of current heading.
+
 **Testing convention for MapLibre-related changes:** this sandbox can't reach
 MapLibre's CDN or any real tile server (network egress policy blocks them).
 Verify camera/projection math with a *locally npm-installed* `maplibre-gl`
 package (`registry.npmjs.org` is allowlisted) driven via Playwright/headless
 Chromium with a minimal tile-less style
 (`{version:8, sources:{}, layers:[{type:"background",...}]}`), not by
-reasoning about it or trusting a code comment's claim. This caught two real
-bugs this session that pure code review missed.
+reasoning about it or trusting a code comment's claim. This caught three
+real bugs this session that pure code review missed — including one (the
+label-bearing bug above) only found by comparing RAW's real behaviour
+against AIR's already-correct one on a real device, not from reading the
+code in isolation.
 
 ## Range rings — real map layers, not a screen overlay
 

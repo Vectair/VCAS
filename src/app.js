@@ -963,7 +963,12 @@
     // competes with Hybrid's own real road/building detail rather than
     // aiding it, so Hybrid goes without rather than showing both.
     if (NavDisplayStyle.isRaw()) {
-      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM);
+      // Label bearing = current heading, not true north — RAW is heading-up
+      // (the map itself rotates to match userHeading), so a label fixed at
+      // true north drifts to whatever screen angle "north" currently is,
+      // swinging off-screen for anything but a heading near 0/360. See
+      // EosMap.updateRangeRings's own doc comment for the full story.
+      EosMap.updateRangeRings(userLat, userLon, Indicators.RING_BANDS_NM, userHeading);
     } else {
       EosMap.clearRangeRings();
     }

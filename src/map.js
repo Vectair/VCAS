@@ -119,7 +119,7 @@ const EosMap = (() => {
       }
       if (!_map.getSource("range-rings")) {
         _initRangeRingsLayer();
-        if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm);
+        if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm, _lastRingPosition.labelBearingDeg);
       } else {
         _applyRangeRingColor();
       }
@@ -307,10 +307,24 @@ const EosMap = (() => {
    * every position update while in NAV mode — cheap (a handful of geodesic
    * point calculations plus a setData()), same as the route line's own
    * per-update cost.
+   *
+   * @param {number} [labelBearingDeg=0]  True bearing each ring's nm label
+   *   is placed along. AIR is always north-up (map bearing 0), so true
+   *   north — the default — always lands at the top of the screen, which is
+   *   correct there. RAW is heading-up (the map itself rotates to the
+   *   user's current heading), so a label fixed at true north drifts to
+   *   whatever screen angle "north" currently happens to be — at anything
+   *   but a heading very close to 0/360 it swings the label for a big-radius
+   *   ring hundreds of pixels sideways, often clean off the edge of the
+   *   screen (confirmed via a real MapLibre simulation: at a 30° heading
+   *   the 5/10/15nm labels all projected off-screen, only 2nm stayed
+   *   visible). Callers in RAW mode must pass the user's current heading so
+   *   the label sits along dead-ahead (always "up" on a heading-up display)
+   *   instead, matching how a real heading-up ND places range labels.
    */
-  function updateRangeRings(lat, lon, bandsNm) {
+  function updateRangeRings(lat, lon, bandsNm, labelBearingDeg = 0) {
     if (!_map || !_map.getSource("range-rings")) return;
-    _lastRingPosition = { lat, lon, bandsNm };
+    _lastRingPosition = { lat, lon, bandsNm, labelBearingDeg };
 
     const ringFeatures = bandsNm.map(nm => ({
       type:       "Feature",
@@ -320,7 +334,7 @@ const EosMap = (() => {
     _map.getSource("range-rings").setData({ type: "FeatureCollection", features: ringFeatures });
 
     const labelFeatures = bandsNm.map(nm => {
-      const pt = Geo.destinationPoint(lat, lon, 0, nm * NM_TO_M); // true-north point on each ring
+      const pt = Geo.destinationPoint(lat, lon, labelBearingDeg, nm * NM_TO_M);
       return {
         type:       "Feature",
         properties: { label: String(nm) },
