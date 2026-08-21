@@ -206,60 +206,7 @@ const Indicators = (() => {
     return withMeta;
   }
 
-  /**
-   * Nudges apart indicators whose projected screen positions land too close
-   * together. Now that Geo.projectToPolarPosition() scatters aircraft across
-   * the whole plot by bearing AND distance rather than confining them to a
-   * shared edge, two indicators can end up close in ANY direction — not just
-   * along one shared axis — so this resolves plain 2D proximity: any pair
-   * closer than minGapPx is pushed apart along the line between their
-   * centres, split evenly between the two. A few passes handle chains (A
-   * pushed into B's space gets resolved on the next pass). Mutates and
-   * returns the same array; only meant to run on the already-capped/
-   * paginated subset actually being rendered, not the full relevant list.
-   *
-   * @param {Array} items      Items with x/y, as produced by build()/buildAll().
-   * @param {number} minGapPx  Minimum centre-to-centre spacing.
-   */
-  function declutter(items, minGapPx) {
-    const MAX_PASSES = 4;
-
-    for (let pass = 0; pass < MAX_PASSES; pass++) {
-      let movedAny = false;
-
-      for (let i = 0; i < items.length; i++) {
-        for (let j = i + 1; j < items.length; j++) {
-          const a = items[i], b = items[j];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const dist = Math.hypot(dx, dy);
-
-          if (dist === 0) {
-            // Exactly coincident — no direction to push along, so pick one.
-            a.x -= minGapPx / 2;
-            b.x += minGapPx / 2;
-            movedAny = true;
-          } else if (dist < minGapPx) {
-            const push = (minGapPx - dist) / 2;
-            const ux = dx / dist, uy = dy / dist;
-            a.x -= ux * push; a.y -= uy * push;
-            b.x += ux * push; b.y += uy * push;
-            movedAny = true;
-          }
-        }
-      }
-
-      if (!movedAny) break;
-    }
-
-    items.forEach(item => {
-      item.x = Math.round(item.x);
-      item.y = Math.round(item.y);
-    });
-
-    return items;
-  }
-
-  return { build, buildAll, capForViewportWidth, declutter, POLAR_MAX_RANGE_NM, RING_BANDS_NM, FOV_HALF_ANGLE_DEG };
+  return { build, buildAll, capForViewportWidth, POLAR_MAX_RANGE_NM, RING_BANDS_NM, FOV_HALF_ANGLE_DEG };
 })();
 
 if (typeof module !== "undefined") module.exports = Indicators;

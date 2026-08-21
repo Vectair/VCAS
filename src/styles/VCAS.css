@@ -699,15 +699,22 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 #compass-permission-btn:active { opacity: .8; }
 
 /* ---- Edge indicators (driving view) ---- */
+/* .indicator itself carries NO transform and NO layout (no flex/gap) — its
+   own left/top (set in ui.js to ind.x/ind.y) is the aircraft's true
+   plotted position, full stop, and nothing below is allowed to move it.
+   .indicator-shape and .indicator-label are each independently absolutely
+   positioned children instead of flex-stacked siblings, specifically so
+   the icon's own centre can be pinned exactly at that point while the
+   label is free to sit at any offset around it — see UI.
+   declutterRenderedIndicators's own doc comment for why this split
+   matters (a real device report: the whole icon+arrow+label bundle was
+   visibly sliding together off the aircraft's true position whenever
+   labels needed to deconflict, which is never correct — the icon's own
+   centre IS where the aircraft is). */
 .indicator {
   position: absolute;
   pointer-events: all;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
   cursor: pointer;
-  transform: translate(-50%, -50%);
   transition: opacity .3s;
 }
 
@@ -741,7 +748,10 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 .suppressed-dot.selected { box-shadow: 0 0 0 2px #ffff00; }
 
 .indicator-shape {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -758,7 +768,18 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   pointer-events: none;
 }
 
+/* Default position: 24px straight below the icon's own centre (angle 0 in
+   UI.declutterRenderedIndicators's own icon-local polar system), centred
+   via the transform below — matches the old flex-stacked look closely
+   enough for the common (no-overlap) case. Only ui.js's decluttering pass
+   ever changes left/top/transform from here, and only for aircraft whose
+   label actually collides with another aircraft's label or icon; it never
+   touches .indicator's or .indicator-shape's own position. */
 .indicator-label {
+  position: absolute;
+  left: 0;
+  top: 24px;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;

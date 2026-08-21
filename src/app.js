@@ -65,12 +65,6 @@
   // like switching modes or activating/clearing a route).
   let navFollowSuspended = false;
 
-  // Minimum spacing between edge-projected indicators sharing a screen edge
-  // (see Indicators.declutter) — an estimate matching the indicator's
-  // approximate rendered footprint (shape + label), not yet tuned against a
-  // real device.
-  const INDICATOR_DECLUTTER_GAP_PX = 68;
-
   // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) that has to
   // start below the compass tape's real rendered content — ticks/labels,
   // lubber line, digital heading, and (when a route is active) the info
@@ -1083,29 +1077,21 @@
 
     const pageStart = indicatorPage * cap;
     const shown = withinRange.slice(pageStart, pageStart + cap);
-    Indicators.declutter(shown, INDICATOR_DECLUTTER_GAP_PX);
 
     UI.renderIndicators(shown, onIndicatorClick);
     // Beyond-range traffic renders as bare edge dots, always in full (never
     // paginated — a dot carries no label, so it doesn't compete for the
     // same "keep it glanceable" room a page cap exists to protect).
     UI.renderSuppressedDots(beyondRange, onIndicatorClick);
-    // Indicators.declutter() above only pushes raw dot centres apart by a
-    // fixed radius before anything is rendered — it has no idea how wide a
-    // real callsign/type label is going to measure once actual text is in
-    // it. This second, DOM-measurement-based pass catches label boxes that
-    // still visibly overlap despite their dots being far enough apart,
-    // which point-only decluttering structurally can't (reported directly:
-    // several aircraft landing in the plot's outer band at once). Anchor
-    // must match exactly what Geo.projectToPolarPosition used to compute
-    // these positions in the first place, or the angle-only adjustment
-    // inside would be resolving overlaps around the wrong centre — RAW's
-    // real anchor is now the square's own centre/anchorY, not
-    // viewportWidth*0.5/viewportHeight*anchorY (that formula is still
-    // exactly right for Hybrid, which never sets `square`).
-    const declutterAnchorX = isRawView ? square.squareLeft + square.squareSize * 0.5 : vw * 0.5;
-    const declutterAnchorY = isRawView ? square.squareTop + square.squareSize * userState.anchorY : vh * (userState.anchorY ?? 0.8);
-    UI.declutterRenderedIndicators(declutterAnchorX, declutterAnchorY);
+    // Nudges apart only the rendered LABEL boxes that visibly overlap —
+    // never the icon or its direction arrow, which stay exactly at each
+    // aircraft's true plotted position (ind.x/ind.y) no matter what. No
+    // anchor argument needed any more: it operates per-aircraft, in a
+    // local frame centred on that aircraft's own already-fixed icon, not
+    // around the plot's shared ownship anchor the way an earlier version
+    // did (see the function's own doc comment for why that was wrong —
+    // it let a crowded label drag its icon+arrow along with it).
+    UI.declutterRenderedIndicators();
     // Scoped to withinRange, not allRelevant — "N of M shown, tap for more"
     // is about PAGINATION overflow within the current range; traffic held
     // back by the range selector instead is a separate concept (the

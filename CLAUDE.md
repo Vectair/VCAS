@@ -762,6 +762,94 @@ the plot's own computed radius (rounding only); the list panel showed all
 selected both it and its matching list row; clicking the range button
 fired the cycle callback.
 
+## Label decluttering was moving the whole icon+arrow+label bundle (2026-08-21)
+
+Direct report from the project owner, who correctly named both the bug
+and the fix before any code was touched: "the center of the icon is
+where the aircraft actually is... the only thing that should be
+deconflicting is the label... this should rotate about the icon" — i.e.
+the icon (and its direction arrow, which must stay glued to the icon)
+has to stay exactly at `Geo.projectToPolarPosition`'s own computed point,
+full stop; only the label is allowed to move, orbiting that fixed icon.
+
+**Confirmed by reading the code, not just taking the report at face
+value** — two real, independent bugs, both stemming from the SAME root
+cause: `.indicator`'s single element wrapped shape+label together and
+was itself the thing centred via `transform: translate(-50%,-50%)` and
+positioned via `left/top = ind.x/ind.y`.
+
+1. Even at rest (no overlap at all), the icon's own visual centre was
+   NEVER exactly at the true plotted point — `.indicator` was a flex
+   column (`display:flex; flex-direction:column; align-items:center;
+   gap:2px`) containing BOTH shape and label, and `translate(-50%,-50%)`
+   centred the WHOLE STACK's bounding box, not the shape alone. Since the
+   label's height varies (1 vs 2 text lines) and sits below the shape,
+   this silently shifted the icon upward from centre by roughly half the
+   label's height — small, but real, and present on every single render,
+   not just crowded ones.
+2. `UI.declutterRenderedIndicators()` re-parametrised each *entire*
+   `.indicator` element as (radius, angle) around the PLOT's shared
+   ownship anchor and, to resolve a label overlap, wrote a new `left/top`
+   for that whole element — meaning the icon and its direction arrow
+   physically slid along with the label whenever decluttering kicked in,
+   exactly the "moving as a group" the project owner was suspicious of.
+   (This was itself a fix for an EARLIER bug, documented above — that
+   version pushed .indicator freely in x/y and could invert distance
+   ordering. The radius-preservation part of that fix was correct and is
+   still in effect; what was still wrong is that it moved the icon at
+   all.)
+
+**Fix: decouple the DOM/CSS so the icon can be a fixed point and the
+label an independently-positioned satellite of it.** `.indicator` itself
+now carries no transform and no flex layout at all — it's purely an
+anchor: `left/top = ind.x/ind.y`, nothing else ever writes to those two
+properties again. `.indicator-shape` (icon + arrow) is now itself
+`position:absolute; left:0; top:0; transform:translate(-50%,-50%)` —
+centred exactly on `.indicator`'s own origin, i.e. exactly on the true
+point, permanently. `.indicator-label` is now also independently
+`position:absolute`, with a CSS default of `left:0; top:24px;
+transform:translate(-50%,-50%)` (24px straight below the icon's centre,
+approximating the old stacked look for the common no-overlap case).
+
+`UI.declutterRenderedIndicators()` was rewritten to operate in a
+per-aircraft LOCAL polar frame centred on that aircraft's own
+already-fixed icon — no plot-anchor argument at all any more (its
+signature dropped `anchorX, anchorY` entirely). For each `.indicator` it
+reads the label's current on-screen rect, derives `(radius, angle)`
+relative to ITS OWN icon (not the distant ownship anchor), and — exactly
+as before — only ever adjusts angle to resolve an overlap, never radius,
+so a label can't drift toward or away from its own icon either. The
+final step writes ONLY `.indicator-label`'s own `left/top/transform`;
+`.indicator` and `.indicator-shape` are never touched by this function at
+all, structurally, not just by convention.
+
+**Also removed: `Indicators.declutter()`** (`indicators.js`), the
+earlier/coarser pre-render pass that nudged raw `x`/`y` dot centres apart
+by a fixed gap before anything was on screen. Same root violation as bug
+#2 above, just at an earlier stage — it mutated the very
+`ind.x`/`ind.y` that becomes the icon's `.indicator` position, so an
+aircraft's icon could already be off its true point before
+`declutterRenderedIndicators()` ever ran. There's no reason left for it
+to exist once labels alone carry all deconfliction duty: two genuinely
+coincident aircraft are now allowed to render at (very nearly) the same
+icon position, which is actually more correct for a TCAS-style display —
+real traffic that's genuinely that close together SHOULD read as
+overlapping icons, not be nudged apart into a misleading "these are
+further apart than they really are" picture. Deleted the function, its
+`app.js` call site, and the now-unused `INDICATOR_DECLUTTER_GAP_PX`
+constant; updated the stale README.md paragraph that described the old
+behaviour.
+
+Verified with a real Playwright/Chromium render, not just reasoning:
+two aircraft placed 40px apart (close enough that their default-position
+labels overlap) — after decluttering, both `.indicator`'s own `left/top`
+were bit-for-bit unchanged from before the pass, `.indicator-shape`'s own
+rendered centre matched the true point to within rounding on all three
+test aircraft (including a third, isolated one with nothing to
+deconflict), the two crowded labels swung apart to opposite sides with
+no overlap remaining, and the isolated aircraft's label stayed exactly
+at its default straight-down position, untouched.
+
 **Label content: type + altitude, not type + distance (2026-08-21).**
 Explicit instruction, restating an earlier Stage 3 spec line that hadn't
 been implemented yet ("the basic info that should be on VCAS label is the
