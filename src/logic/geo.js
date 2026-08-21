@@ -170,8 +170,14 @@ const Geo = (() => {
    *   to keep the old unrestricted, per-bearing behaviour — used by Hybrid's
    *   edge indicators, which have no "round display" real estate to fit
    *   into and cover the full teardrop Relevance itself already computes.
+   * @param {number} [offsetX]  Added to the final x, unchanged otherwise —
+   *   lets a caller plot within a sub-region of the real viewport (see
+   *   computeSquarePlotLayout()) by passing that region's own width/height
+   *   as viewportWidth/viewportHeight above and its top-left corner here,
+   *   rather than this function needing to know about regions itself.
+   * @param {number} [offsetY]  Same, for y.
    */
-  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60, fovHalfAngleDeg = null) {
+  function projectToPolarPosition(relativeBearing, rangeNm, viewportWidth, viewportHeight, bandsNm, anchorY = 0.8, safeInset = 60, fovHalfAngleDeg = null, offsetX = 0, offsetY = 0) {
     if (fovHalfAngleDeg != null && Math.abs(relativeBearing) > fovHalfAngleDeg) return null;
 
     const cx = viewportWidth * 0.5;
@@ -202,8 +208,8 @@ const Geo = (() => {
     }
     const radiusPx = bandedRadiusFraction(rangeNm, bandsNm) * radiusScale;
 
-    const x = Math.round(cx + sinA * radiusPx);
-    const y = Math.round(cy - cosA * radiusPx); // screen Y runs inverted
+    const x = Math.round(offsetX + cx + sinA * radiusPx);
+    const y = Math.round(offsetY + cy - cosA * radiusPx); // screen Y runs inverted
 
     return { x, y };
   }
@@ -310,6 +316,49 @@ const Geo = (() => {
     return Math.min(deadAhead, edge);
   }
 
+  /**
+   * RAW's plot region is a true 1:1 square — "as large as an area as
+   * possible" within the available screen content, not an asymmetric shape
+   * that just uses whatever headroom a fixed anchorY happens to leave (the
+   * pre-2026-08-21 approach, which reliably left near-zero side margin on a
+   * plain portrait phone — the actual common case — defeating the whole
+   * point of ever having room left for a Stage 3 aircraft list there).
+   * Direct instruction, restating an earlier discussion that hadn't been
+   * built this way yet: portrait gets the square pinned to the TOP (full
+   * content width, matching height) with the list BELOW it; landscape gets
+   * it pinned to the LEFT (full content height, matching width) with the
+   * list to the RIGHT. Matches how a real ND's own traffic display and its
+   * surrounding data fields are laid out — a fixed-aspect instrument plus
+   * whatever data panel fits around it, not a shape that stretches to fill
+   * an arbitrary rectangle.
+   *
+   * The ONLY thing that decides plot vs list is which of contentWidth/
+   * contentHeight is smaller — there's no separate size negotiation, so
+   * this can be (and must be) the single shared source both the real
+   * camera's marker anchor (NavigationCameraEvaluator, for NAV_RAW) and the
+   * screen-space dots/rings/list (app.js/ui.js) call, or they WILL drift
+   * apart exactly like the rings-vs-dots coordinate-system mismatch
+   * documented above.
+   *
+   * @param {number} contentWidth   Full width available (RAW's square is
+   *   never inset from the screen's left/right edges).
+   * @param {number} contentTop     Y where usable content starts — real
+   *   chrome (top bar, guidance card) PLUS the compass tape/info strip's
+   *   own reserved height; see app.js's _rawSquareInputs().
+   * @param {number} contentHeight  Usable height from contentTop down to
+   *   the bottom chrome (bottom bar/route card) — already excludes both.
+   */
+  function computeSquarePlotLayout(contentWidth, contentTop, contentHeight) {
+    const portrait = contentWidth <= contentHeight;
+    const squareSize = Math.max(0, portrait ? contentWidth : contentHeight);
+    const squareLeft = 0;
+    const squareTop = contentTop;
+    const rows = portrait
+      ? { left: 0, top: contentTop + squareSize, width: contentWidth, height: Math.max(0, contentHeight - squareSize) }
+      : { left: squareSize, top: contentTop, width: Math.max(0, contentWidth - squareSize), height: contentHeight };
+    return { orientation: portrait ? "portrait" : "landscape", squareLeft, squareTop, squareSize, rows };
+  }
+
   return {
     calculateBearing,
     calculateDistanceMeters,
@@ -318,6 +367,7 @@ const Geo = (() => {
     bandedRadiusFraction,
     maxRadiusForBearing,
     circularPlotRadius,
+    computeSquarePlotLayout,
     projectToPolarPosition,
     projectPosition,
     destinationPoint,

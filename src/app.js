@@ -64,6 +64,27 @@
   // real device.
   const INDICATOR_DECLUTTER_GAP_PX = 68;
 
+  // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) that has to
+  // start below the compass tape's real rendered content — ticks/labels,
+  // lubber line, digital heading, and (when a route is active) the info
+  // strip — see UI.renderCompassRing's own internal layout math. A fixed
+  // worst-case constant rather than a live DOM measurement: the compass
+  // tape is an SVG overlay drawn AFTER the square's own layout is decided
+  // (its cx needs the square's contentTop to know where to start), so
+  // measuring it first would be circular; and this same number has to be
+  // shared with CameraController.followNav's real-camera anchor calc
+  // (see _rawChromeInsets() below) — using the SAME fixed constant in both
+  // rather than two different live measurements is what keeps them unable
+  // to drift apart, not just unlikely to.
+  const RAW_COMPASS_RESERVED_PX = 80;
+
+  // Small fixed margin for the plot's own edges WITHIN its square — not a
+  // chrome margin (real chrome is already fully excluded via
+  // squareContentTop/squareContentHeight below), just enough that a dot at
+  // the literal edge of the plot doesn't render flush against the square's
+  // own boundary.
+  const SQUARE_EDGE_MARGIN_PX = 16;
+
   // GPS course-over-ground smoothing — raw pos.coords.heading can be jittery
   // tick-to-tick (urban rail corridors, tunnels, etc.), and since every
   // indicator's screen position is (aircraft bearing − userHeading), that
@@ -575,7 +596,7 @@
     }
 
     if (mode === "nav") {
-      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
   }
@@ -592,7 +613,7 @@
     if (userLat === null) return;
     if (mode === "nav") {
       navFollowSuspended = false;
-      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
     } else {
       CameraController.transitionToAir(userLat, userLon);
     }
@@ -610,7 +631,7 @@
     if (userLat === null) return;
     applySpeedOverrideIfActive();
     if (mode === "nav") {
-      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     } else {
       refreshAirMode();
@@ -645,7 +666,7 @@
       EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
     }
     if (mode === "nav" && userLat !== null) {
-      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators(); // range rings appear/disappear immediately too
     }
   }
@@ -677,7 +698,7 @@
     WakeLock.enable();
     if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
     if (userLat !== null && userLon !== null) {
-      CameraController.transitionToNav(userLat, userLon, userHeading);
+      CameraController.transitionToNav(userLat, userLon, userHeading, _rawChromeInsets());
       refreshIndicators();
     }
   }
@@ -711,7 +732,7 @@
     userHeading = headingDeg;
     EosMap.updateUserPosition(userLat, userLon, userHeading, userSpeedMph);
     if (mode === "nav") {
-      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph);
+      if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
   }
@@ -894,45 +915,59 @@
 
   // ---- Driving view ----
 
-  function refreshIndicators() {
-    if (userLat === null) return;
+  /**
+   * Real DOM-measured layout numbers RAW's square plot (Geo.
+   * computeSquarePlotLayout) needs — the SINGLE place these are computed,
+   * consumed both by the screen-space rendering in refreshIndicators()
+   * below (dots/rings/list) and by CameraController.followNav's real-
+   * camera anchor calc (see that function's own doc comment for why
+   * passing it the SAME numbers, not separately re-measuring them, is what
+   * keeps the real user-marker and the screen-space square unable to drift
+   * apart). Cheap DOM reads only — safe to call once per GPS/compass tick
+   * and again per refreshIndicators() call.
+   */
+  function _rawChromeInsets() {
     const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
     // How much room the bottom chrome (ETA card and/or the bottom bar,
     // which can be stacked together when a route is active) actually
-    // occupies right now — kept only as a "keep dots clear of this"
-    // safe-margin (Geo.maxRadiusForBearing's safeInset), NOT subtracted
-    // from viewportHeight itself. It used to be subtracted directly (plus
-    // an extra flat 45px on top), which shrank the polar plot's own
-    // cy = viewportHeight*anchorY below the real map anchor —
-    // CameraController derives the user's true on-screen position from the
-    // FULL container height (see cameraController.js's _renderAnchoredFrame),
-    // so a shrunk viewportHeight here silently dragged every aircraft dot's
-    // origin upward relative to where the user marker and range rings
-    // actually sit, independent of (and compounding) the polar-scale clamp
-    // bug fixed in Geo.projectToPolarPosition.
-    let bottomObstructionHeight = 0;
+    // occupies right now.
+    let bottomInset = 0;
     const routeCard = document.getElementById("route-card");
     if (routeCard && !routeCard.classList.contains("hidden")) {
-      bottomObstructionHeight += routeCard.offsetHeight;
+      bottomInset += routeCard.offsetHeight;
     }
     const bottomBar = document.getElementById("bottom-bar");
     if (bottomBar && !bottomBar.classList.contains("hidden")) {
-      bottomObstructionHeight += bottomBar.offsetHeight;
+      bottomInset += bottomBar.offsetHeight;
     }
-    if (bottomObstructionHeight === 0) bottomObstructionHeight = 60;
+    if (bottomInset === 0) bottomInset = 60;
 
-    // Same idea as bottomObstructionHeight above, but for the Stage 3
-    // aircraft-list panel's own top edge — real top-bar (+ guidance card,
-    // when a route is active) height, so the panel doesn't render
-    // underneath either.
-    let topObstructionHeight = 0;
+    // Real top-bar (+ guidance card, when a route is active) height — the
+    // square's own contentTop adds RAW_COMPASS_RESERVED_PX on top of this
+    // so the square also clears the compass tape (see that constant's own
+    // comment for why it's a fixed worst-case number, not measured).
+    let chromeTopInset = 0;
     const topBar = document.getElementById("top-bar");
-    if (topBar) topObstructionHeight += topBar.offsetHeight;
+    if (topBar) chromeTopInset += topBar.offsetHeight;
     const guidanceCard = document.getElementById("nav-guidance-card");
     if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
-      topObstructionHeight += guidanceCard.offsetHeight;
+      chromeTopInset += guidanceCard.offsetHeight;
     }
+
+    const squareContentTop = chromeTopInset + RAW_COMPASS_RESERVED_PX;
+    return {
+      viewportWidth: vw, viewportHeight: vh,
+      chromeTopInset, bottomInset,
+      squareContentTop,
+      squareContentHeight: Math.max(0, vh - squareContentTop - bottomInset),
+    };
+  }
+
+  function refreshIndicators() {
+    if (userLat === null) return;
+    const insets = _rawChromeInsets();
+    const vw = insets.viewportWidth, vh = insets.viewportHeight;
 
     const userState = {
       lat: userLat, lon: userLon,
@@ -940,7 +975,13 @@
       speedMph: userSpeedMph,
       viewportWidth: vw,
       viewportHeight: vh,
-      safeInset: bottomObstructionHeight,
+      // Hybrid's own unrestricted teardrop (Geo.maxRadiusForBearing with no
+      // fovHalfAngleDeg) still scales against the full viewport with this
+      // as its "keep dots clear of the bottom chrome" margin — kept as the
+      // real chrome height for that case. RAW overrides this below with a
+      // small fixed in-square margin instead, since chrome is already
+      // fully excluded from the square's own bounds by that point.
+      safeInset: insets.bottomInset,
       metar: MetarProvider.getCached(),
     };
 
@@ -951,13 +992,34 @@
     }
     _updateGuidanceCard(camConfig && camConfig.maneuver);
 
-    // RAW's plot is a field-of-view-restricted circular display, matching a
-    // real TCAS/ND reference photo (forward arc only, not a full sweep) —
-    // see Indicators.FOV_HALF_ANGLE_DEG's own doc comment. Hybrid's edge
-    // indicators aren't a "round display" and keep the full teardrop
-    // Relevance itself already computes, so this stays unset there.
+    // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) — "as large
+    // an area as possible" within the available content, matching a real
+    // ND's fixed-aspect traffic display, NOT a shape that stretches to use
+    // whatever asymmetric headroom a full-viewport anchor happens to leave
+    // (the pre-2026-08-21 approach, which left near-zero side margin on a
+    // plain portrait phone — the common case — for the Stage 3 list panel
+    // to ever actually show in). Hybrid's edge indicators aren't a "round
+    // display" at all and keep the full teardrop Relevance computes against
+    // the plain full viewport, so none of this applies there.
     const isRawView = NavDisplayStyle.isRaw();
-    if (isRawView) userState.fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG;
+    let square = null;
+    if (isRawView) {
+      square = Geo.computeSquarePlotLayout(vw, insets.squareContentTop, insets.squareContentHeight);
+      userState.fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG;
+      // The within-square anchor fraction — NOT userState.anchorY's usual
+      // full-viewport meaning. Must equal NavigationCameraEvaluator's own
+      // STATE_PRESETS.NAV_RAW.anchorY (the fraction the real camera derives
+      // its full-viewport anchorY from for this exact square, so the real
+      // user-marker lands on the same point these screen-space dots plot
+      // against) — read directly from there rather than a second constant,
+      // so the two can't quietly drift out of sync with each other.
+      userState.anchorY = NavigationCameraEvaluator.STATE_PRESETS.NAV_RAW.anchorY;
+      userState.plotWidth = square.squareSize;
+      userState.plotHeight = square.squareSize;
+      userState.plotOffsetX = square.squareLeft;
+      userState.plotOffsetY = square.squareTop;
+      userState.plotSafeInset = SQUARE_EDGE_MARGIN_PX;
+    }
 
     const now = Date.now();
     for (const [hex, expiry] of suppressedUntil) {
@@ -999,14 +1061,18 @@
     // which point-only decluttering structurally can't (reported directly:
     // several aircraft landing in the plot's outer band at once). Anchor
     // must match exactly what Geo.projectToPolarPosition used to compute
-    // these positions in the first place (see that function/userState.anchorY
-    // above), or the angle-only adjustment inside would be resolving
-    // overlaps around the wrong centre.
-    UI.declutterRenderedIndicators(vw * 0.5, vh * (userState.anchorY ?? 0.8));
+    // these positions in the first place, or the angle-only adjustment
+    // inside would be resolving overlaps around the wrong centre — RAW's
+    // real anchor is now the square's own centre/anchorY, not
+    // viewportWidth*0.5/viewportHeight*anchorY (that formula is still
+    // exactly right for Hybrid, which never sets `square`).
+    const declutterAnchorX = isRawView ? square.squareLeft + square.squareSize * 0.5 : vw * 0.5;
+    const declutterAnchorY = isRawView ? square.squareTop + square.squareSize * userState.anchorY : vh * (userState.anchorY ?? 0.8);
+    UI.declutterRenderedIndicators(declutterAnchorX, declutterAnchorY);
     UI.setAircraftCount(shown.length, allRelevant.length, onCycleIndicatorPage);
 
     // TCAS/ND-style range rings — Raw only. Screen-space, sharing the same
-    // anchor/scale/FOV the aircraft dots above use (see
+    // square/scale/FOV the aircraft dots above use (see
     // UI.renderRangeRingsOverlay's own doc comment for why this replaced
     // EosMap's real geo-referenced MapLibre layer for RAW specifically —
     // that's still what AIR's own opt-in rings use, since AIR's real 1:1
@@ -1015,13 +1081,16 @@
     // reference, and it never adopted the banded scale in the first place.
     EosMap.clearRangeRings(); // RAW no longer uses the real-geo layer at all
     if (isRawView) {
-      UI.renderRangeRingsOverlay(vw, vh, userState.anchorY ?? 0.8, userState.safeInset, Indicators.RING_BANDS_NM, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
+      UI.renderRangeRingsOverlay(square.squareLeft, square.squareTop, square.squareSize, userState.anchorY, SQUARE_EDGE_MARGIN_PX, Indicators.RING_BANDS_NM, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
     } else {
       UI.clearRangeRingsOverlay();
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
-    // rotating road map already carries its own orientation cues.
+    // rotating road map already carries its own orientation cues. safeInset
+    // is the real top-bar(+guidance card) height here — not the default 60
+    // the function falls back to otherwise — so ticks start right below the
+    // real chrome instead of a magic number that happened to be close.
     if (isRawView) {
       // Compact vehicle/route strip below the heading tape — RAW's
       // equivalent of a real ND's flight-data strip (GS/TAS/ILS APP/
@@ -1032,32 +1101,25 @@
           ? { destName: routeDestName || "destination", distanceMeters: activeRoute.distanceMeters, durationSeconds: activeRoute.durationSeconds }
           : null,
       };
-      UI.renderCompassRing(vw, userHeading, undefined, vehicleInfo);
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, vehicleInfo);
     } else {
       UI.clearCompassRing();
     }
 
-    // Stage 3: sortable aircraft-list panel — Raw only, same rationale as
-    // the compass tape/range rings above. Deliberately built from
-    // allRelevant (the FULL relevant set), not the paginated `shown`
-    // subset the plot caps to (Indicators.capForViewportWidth) — the list
-    // is exactly the escape hatch for "more relevant traffic than the plot
-    // shows icons for", not a mirror of whatever page is currently up.
-    // Tapping a row for an aircraft not on the current icon page still
-    // opens its popup (at its computed, if unrendered, plot position); it
-    // doesn't auto-advance the page to bring the icon into view.
+    // Stage 3: sortable aircraft-list panel — Raw only, filling the exact
+    // rectangle complementary to the square (Geo.computeSquarePlotLayout's
+    // own `rows`) — below the square in portrait, to its right in
+    // landscape. Deliberately built from allRelevant (the FULL relevant
+    // set), not the paginated `shown` subset the plot caps to
+    // (Indicators.capForViewportWidth) — the list is exactly the escape
+    // hatch for "more relevant traffic than the plot shows icons for", not
+    // a mirror of whatever page is currently up. Tapping a row for an
+    // aircraft not on the current icon page still opens its popup (at its
+    // computed, if unrendered, plot position); it doesn't auto-advance the
+    // page to bring the icon into view.
     if (isRawView) {
       const listItems = _sortForRawList(allRelevant, rawListSortMode);
-      UI.renderAircraftList(
-        listItems,
-        {
-          viewportWidth: vw, viewportHeight: vh,
-          anchorY: userState.anchorY ?? 0.8, safeInset: userState.safeInset,
-          fovHalfAngleDeg: Indicators.FOV_HALF_ANGLE_DEG,
-          topInset: topObstructionHeight,
-        },
-        rawListSortMode, onRawListSortClick, onIndicatorClick
-      );
+      UI.renderAircraftList(listItems, square.rows, rawListSortMode, onRawListSortClick, onIndicatorClick);
     } else {
       UI.clearAircraftList();
     }

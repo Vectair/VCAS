@@ -84,6 +84,7 @@ const CameraController = (() => {
       pitch:   _lerp(_animFrom.pitch, _animTo.pitch, t),
       zoom:    _lerp(_animFrom.zoom, _animTo.zoom, t),
       anchorY: _lerp(_animFrom.anchorY, _animTo.anchorY, t),
+      anchorX: _lerp(_animFrom.anchorX, _animTo.anchorX, t),
       done: t >= 1,
     };
   }
@@ -129,12 +130,28 @@ const CameraController = (() => {
     //    Deriving the pan from the padded-center jumpTo actually produced,
     //    rather than assuming it's the raw center, keeps anchorY*containerHeight
     //    true regardless of how much padding is currently set.
+    //
+    //    anchorX gets the same treatment as anchorY, added 2026-08-21 for
+    //    RAW's square-region plot (see NavigationCameraEvaluator's NAV_RAW
+    //    branch): previously state.anchorX was computed by the evaluator
+    //    but silently dropped here — every state's real anchor was always
+    //    horizontally centered regardless of what anchorX said, which never
+    //    mattered while every state's own anchorX really was 0.5 (or, for
+    //    the unused "auto" viewport bias's 0.35 override, apparently never
+    //    exercised in practice). RAW's square anchor can now be genuinely
+    //    off-center (landscape pins the square to the LEFT), so this can no
+    //    longer be silently ignored — left/right has no padding concept the
+    //    way top/bottom does (setViewportPadding only ever sets top/bottom),
+    //    so the padded-center X is just the container's raw geometric middle.
     const containerHeight = _map.getContainer().offsetHeight;
+    const containerWidth  = _map.getContainer().offsetWidth;
     const pad = _map.getPadding();
     const paddedCenterY = (containerHeight + pad.top - pad.bottom) / 2;
+    const paddedCenterX = containerWidth / 2;
     const offsetY = containerHeight * state.anchorY - paddedCenterY;
-    if (offsetY !== 0) {
-      _map.panBy([0, -offsetY], { animate: false });
+    const offsetX = containerWidth * (state.anchorX != null ? state.anchorX : 0.5) - paddedCenterX;
+    if (offsetY !== 0 || offsetX !== 0) {
+      _map.panBy([-offsetX, -offsetY], { animate: false });
     }
   }
 
@@ -186,9 +203,9 @@ const CameraController = (() => {
     if (inProgress) {
       fromState = inProgress;
     } else {
-      // Bootstrap from the map's actual live transform — anchorY 0.5
-      // (true center) since a not-yet-anchored map has no prior offset to
-      // inherit from.
+      // Bootstrap from the map's actual live transform — anchorX/anchorY
+      // 0.5 (true center) since a not-yet-anchored map has no prior offset
+      // to inherit from.
       const c = _map.getCenter();
       fromState = {
         lat: c.lat, lon: c.lng,
@@ -196,6 +213,7 @@ const CameraController = (() => {
         pitch: _map.getPitch(),
         zoom: _map.getZoom(),
         anchorY: 0.5,
+        anchorX: 0.5,
       };
     }
 
@@ -236,8 +254,19 @@ const CameraController = (() => {
   /**
    * Process and synchronize active vehicle tracking telemetry frames.
    * Reconnected to NavigationCameraEvaluator for dynamic driving/routing state tracking.
+   *
+   * @param {object} [rawLayout]  { viewportWidth, viewportHeight,
+   *   squareContentTop, squareContentHeight } — only consumed by NAV_RAW's
+   *   square-anchor branch inside the evaluator. Passed straight through
+   *   from app.js's _rawChromeInsets(), the SAME numbers app.js's own
+   *   refreshIndicators() calls Geo.computeSquarePlotLayout with for the
+   *   screen-space dots/rings/list — deliberately not re-measured here, so
+   *   the real map's user-marker anchor and the screen-space square can
+   *   never drift apart the way independently-derived geometry has before
+   *   in this codebase (see CLAUDE.md). Omit for non-RAW callers/states;
+   *   the evaluator's NAV_RAW branch simply no-ops without it.
    */
-  function followNav(lat, lon, heading, speedMph) {
+  function followNav(lat, lon, heading, speedMph, rawLayout) {
     if (!_map) return;
 
     // 1. Package current runtime state telemetry vectors for the evaluator brain
@@ -251,6 +280,10 @@ const CameraController = (() => {
       routeGeometry: _routeGeometry,
       viewportPreset: _currentPreset.id,
       navDisplayStyle: (typeof NavDisplayStyle !== "undefined") ? NavDisplayStyle.get() : "hybrid",
+      viewportWidth: rawLayout ? rawLayout.viewportWidth : undefined,
+      viewportHeight: rawLayout ? rawLayout.viewportHeight : undefined,
+      squareContentTop: rawLayout ? rawLayout.squareContentTop : undefined,
+      squareContentHeight: rawLayout ? rawLayout.squareContentHeight : undefined,
     };
 
     // 2. Compute live camera values using NavigationCameraEvaluator state machine
@@ -263,6 +296,7 @@ const CameraController = (() => {
         pitch: _currentPreset.pitch,
         zoom: _currentPreset.zoom,
         anchorY: _currentPreset.anchorY,
+        anchorX: 0.5,
         maneuver: { exists: false, distanceMeters: 0, bearingDeltaDeg: 0 },
       };
     }
@@ -271,12 +305,14 @@ const CameraController = (() => {
     const pitch = cameraState.pitch;
     const zoom  = cameraState.zoom;
     const anchorY = cameraState.anchorY;
+    const anchorX = cameraState.anchorX != null ? cameraState.anchorX : 0.5;
 
     // Save evaluation snapshot for downstream data layers (e.g. frozen indicator pipelines)
     _lastEvaluated = {
       pitch: pitch,
       zoom: zoom,
       anchorY: anchorY,
+      anchorX: anchorX,
       heading: heading,
       maneuver: cameraState.maneuver,
       timestamp: Date.now()
@@ -308,15 +344,16 @@ const CameraController = (() => {
       pitch: pitch,
       zoom: zoom,
       anchorY: anchorY,
+      anchorX: anchorX,
     });
   }
 
   /**
    * Hard transition initialization into Driving Navigation View.
    */
-  function transitionToNav(lat, lon, heading) {
+  function transitionToNav(lat, lon, heading, rawLayout) {
     if (!_map) return;
-    followNav(lat, lon, heading, 0);
+    followNav(lat, lon, heading, 0, rawLayout);
   }
 
   /**

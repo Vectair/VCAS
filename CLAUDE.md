@@ -575,6 +575,120 @@ into view, or a two-sided layout when both left and right margins have
 room) should be treated as a new, separately-agreed feature, not an
 implied gap in this one.
 
+**Label content correction, same day: type + altitude ONLY, no callsign
+on the icon.** A real device screenshot showed `.indicator-label` still
+carrying callsign (e.g. "FDX5202 / B752 / 32,100ft") — this was always
+wrong per the original Stage 3 spec line ("the basic info that should be
+on VCAS label is the type and altitude... if it then displays an aircraft
+list... with the callsign"), just never actually implemented that way:
+the earlier "type + altitude" label pass (2026-08-21, see above) added
+altitude but left the pre-existing callsign div untouched. Fixed by
+removing it from both `ui.js`'s `renderIndicators()` markup and the now-
+dead `.indicator-label .callsign` CSS rules (VCAS.css) — deliberately NOT
+touched: `.air-label-box .callsign` (AIR markers), since AIR has no list
+panel to relegate callsign to and would lose its only identifier if
+callsign were dropped there too.
+
+**RAW's plot is now a true 1:1 square, not an asymmetric anchor-biased
+shape — a significant, foundational rework, same day.** The FOV-restricted
+circular plot (Stage 1) computed its radius from whatever headroom a
+fixed anchorY (0.8) happened to leave within the FULL viewport — on a
+plain portrait phone (the actual common case, not the landscape/
+infotainment case used to verify Stage 3 at the time) this reliably used
+nearly the full screen width too, leaving no real side margin for Stage
+3's list panel to ever show in. Reported directly: a real-device
+screenshot showed 5 tracked aircraft on the plot and NO list panel at
+all. Root cause wasn't a Stage-3-specific bug — it was that Stage 1 never
+actually built what was asked for at the time: "if we do just square off
+the display... can we fill the remaining space with additional
+information" (the project owner's own original framing, months earlier)
+describes the plot ITSELF as a bounded square with genuine leftover
+space, not a shape that organically consumes whatever room a full-
+viewport anchor leaves. Restated explicitly when the gap was reported:
+"the tcas portion will adjust to a 1:1 scale that fits as large an area
+as possible within the screen... portrait: the 1:1 will be the maximum
+width... placed at the top of the screen (below the compass tape and
+info)... below the 1:1 will be the rows... landscape: the 1:1 will be the
+maximum height... move to the left and the rows will be on the right."
+
+`Geo.computeSquarePlotLayout(contentWidth, contentTop, contentHeight)`
+(new, geo.js) is the single shared implementation: `squareSize = min(
+contentWidth, contentHeight)`, pinned to the top (portrait) or left
+(landscape), with the complementary rectangle (`rows`) always exactly
+"whatever's left" — no separate "is there room" negotiation the way the
+old side-margin approach needed. `app.js`'s `_rawChromeInsets()` is the
+one place that measures the real DOM chrome (top bar, guidance card,
+bottom bar/route card) and adds a fixed `RAW_COMPASS_RESERVED_PX` (80,
+worst-case ticks+labels+lubber+digital+info-strip — NOT live-measured,
+since the compass tape itself is drawn using the square's own contentTop,
+so measuring it first would be circular) to get `squareContentTop`/
+`squareContentHeight`; `Geo.projectToPolarPosition` gained `offsetX`/
+`offsetY` params so a caller can plot within a sub-region (the square)
+rather than the full viewport.
+
+**The harder half of this fix: keeping the REAL map camera's user-marker
+anchor aligned with the new square.** The square is purely a screen-space
+concept for RAW's dots/rings/list, but the real `.user-marker-halo`
+MapLibre marker (map.js) is positioned by the REAL camera's anchorX/
+anchorY (`CameraController._renderAnchoredFrame`, driven by
+`NavigationCameraEvaluator`'s per-state presets) — if only the screen-
+space square moved and the real camera's anchor stayed at its old flat
+0.5/0.80 full-viewport fraction, the marker would visibly drift off from
+the dots/rings around it, reproducing the exact "camera anchor math"
+bug class this file already documents at length, just triggered by new
+code instead of old. Fixed by: (1) `NavigationCameraEvaluator.evaluate()`
+gained an optional `ctx.viewportWidth`/`viewportHeight`/`squareContentTop`/
+`squareContentHeight` — when present and `targetState === "NAV_RAW"`, it
+calls the SAME `Geo.computeSquarePlotLayout()` and derives anchorX/anchorY
+(full-viewport fractions, its normal external contract) from the square's
+own centre/anchorY-within-square, superseding the flat preset and the
+phone-p/phone-l/auto viewport-bias overrides for this state specifically
+— those coarse per-device-class nudges are redundant once the per-frame
+calculation already adapts exactly to the real aspect ratio. (2)
+`app.js`'s `_rawChromeInsets()` is the ONE place that measures the real
+chrome — passed into BOTH `CameraController.followNav()` (→ the
+evaluator, for the real camera) and used directly in `refreshIndicators()`
+(→ `Geo.computeSquarePlotLayout`, for the screen-space square) — the same
+numbers reach both paths, not two independently-measured versions that
+could drift. (3) Incidental but necessary bug found along the way:
+`cameraController.js`'s `_renderAnchoredFrame`/`followNav`/`_startAnimTo`
+computed `anchorX` (via the evaluator) but then silently DROPPED it —
+`_renderAnchoredFrame` only ever panned by a Y offset, never X, so every
+state's real anchor was always horizontally centered regardless of what
+anchorX said (harmless before, since every state's anchorX really was
+0.5 — RAW's square can now be genuinely off-center in landscape, so this
+could no longer stay silently broken). Fixed by adding the equivalent X
+pan, mirroring the existing Y-pan pattern exactly (including its own
+"MapLibre panBy negates internally" gotcha).
+
+Verified two ways, not just one: (1) a pure Node simulation requiring
+`geo.js` and `navigationCameraEvaluator.js` directly, comparing the real
+camera's derived anchor (px) against the screen-space square's own anchor
+(px) across 5 device shapes (portrait phone, portrait with a route active,
+landscape phone, wide infotainment landscape, and a near-square tablet
+that resolves to landscape with a THIN ~96px rows column) — exact
+(0.0000px delta) match in every case, confirming the shared-function
+approach makes drift structurally impossible rather than just unlikely.
+(2) A real Playwright/Chromium render at the literal reported portrait
+phone size (412×915): the square now sits at the top with all 5 tracked
+aircraft correctly plotted inside it, and the list panel — previously
+absent entirely at this size — renders below it with all 5 rows visible,
+no overlap with the mocked top/bottom chrome. Landscape (915×412) verified
+the mirror layout: square on the left, list filling the right.
+
+**Lesson, adding to the ones already in this file: a repeated-but-
+unrecorded design decision doesn't stay findable just because it was
+said once.** The "square off the display, fill the remainder with
+information" framing was the project owner's own original description
+of Stage 1+3 together — but Stage 1 shipped as an anchor-biased shape
+that only coincidentally looked square-ish in the landscape/infotainment
+case used to verify it at the time, and nothing caught the mismatch
+until a real portrait-phone screenshot months later. Same category as
+the native-app-destination and 50nm-contrail-cap incidents earlier in
+this file — the fix each time isn't "remember harder," it's writing the
+actual number/shape/rule down somewhere durable the moment it's decided,
+not just the fact that a conversation about it happened.
+
 **Label content: type + altitude, not type + distance (2026-08-21).**
 Explicit instruction, restating an earlier Stage 3 spec line that hadn't
 been implemented yet ("the basic info that should be on VCAS label is the

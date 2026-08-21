@@ -246,7 +246,6 @@ const UI = (() => {
       el.style.left = ind.x + "px";
       el.style.top  = ind.y + "px";
 
-      const callsign = ind.aircraft.callsign || ind.aircraft.hex;
       const type     = ind.aircraft.type || "";
       const displayColor = _displayColor(ind.vis);
       const shapeSvg = AircraftSymbol.svg(ind.vis.shape, displayColor, 20, ind.vis.fillOpacity, {
@@ -261,16 +260,17 @@ const UI = (() => {
         ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${ind.relativeTrackDeg}deg) translateY(-18px)">${_directionArrowSvg(displayColor)}</div>`
         : "";
 
-      // Type + altitude — the two label fields the project owner actually
-      // wants (distance was here before; a dot's own plotted radius already
-      // encodes range, so a separate distance readout was redundant with the
-      // one thing a label is for: what you can't already tell by looking).
+      // Type + altitude only — no callsign. Distance was here before (a
+      // dot's own plotted radius already encodes range, redundant as label
+      // text); callsign was removed the same way once the Stage 3 list
+      // panel existed to hold it instead — the label is meant to be the
+      // absolute minimum glanceable at a distance, callsign lives in the
+      // list rows now, not duplicated on the icon too.
       const altitudeLabel = ind.aircraft.altitudeFt != null ? `${Math.round(ind.aircraft.altitudeFt).toLocaleString()}ft` : "";
 
       el.innerHTML = `
         <div class="indicator-shape">${arrowSvg}${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
-          <div class="callsign" style="color:${displayColor}">${callsign}</div>
           ${type ? `<div class="actype">${type}</div>` : ""}
           ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
         </div>`;
@@ -553,18 +553,22 @@ const UI = (() => {
    * codebase was about Hybrid/AIR's real road/building detail, which
    * doesn't exist in RAW.
    *
+   * @param {number} squareLeft, squareTop, squareSize  The 1:1 plot region
+   *   (Geo.computeSquarePlotLayout) — same region the dots plot within, not
+   *   the raw viewport, so an aircraft's dot and the ring around it always
+   *   agree by construction.
    * @param {number[]} bandsNm         Same array Indicators.RING_BANDS_NM
    *   and the dots' own Geo.projectToPolarPosition call use.
    * @param {number} fovHalfAngleDeg   Same Indicators.FOV_HALF_ANGLE_DEG
    *   the dots are restricted to.
    */
-  function renderRangeRingsOverlay(viewportWidth, viewportHeight, anchorY, safeInset, bandsNm, fovHalfAngleDeg, color) {
+  function renderRangeRingsOverlay(squareLeft, squareTop, squareSize, anchorY, safeInset, bandsNm, fovHalfAngleDeg, color) {
     const svg = document.getElementById("nav-range-rings-overlay");
     if (!svg) return;
 
-    const cx = viewportWidth * 0.5;
-    const cy = viewportHeight * anchorY;
-    const plotRadius = Geo.circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg);
+    const cx = squareLeft + squareSize * 0.5;
+    const cy = squareTop + squareSize * anchorY;
+    const plotRadius = Geo.circularPlotRadius(squareSize, squareSize, anchorY, safeInset, fovHalfAngleDeg);
     const fovRad = (fovHalfAngleDeg * Math.PI) / 180;
 
     let rings = "";
@@ -603,34 +607,30 @@ const UI = (() => {
     { key: "altitude", label: "ALT" },
     { key: "type",     label: "TYP" },
   ];
-  // Below this available width, there isn't room to show callsign+type+
-  // altitude+range legibly — the panel hides entirely rather than render
-  // an unreadably-cramped sliver. See the doc comment below for why this
-  // varies so much by device.
-  const MIN_PANEL_WIDTH_PX = 118;
-  const MAX_PANEL_WIDTH_PX = 220;
+  // Below these dimensions there isn't room to show callsign+type+altitude+
+  // range legibly (or even a header + a single row) — the panel hides
+  // entirely rather than render an unreadably-cramped sliver.
+  const MIN_PANEL_WIDTH_PX = 90;
+  const MIN_PANEL_HEIGHT_PX = 70;
   const PANEL_MARGIN_PX = 8;
 
   /**
-   * Sortable aircraft-list panel, RAW mode only — fills whatever side
-   * margin the FOV-restricted circular plot (Geo.circularPlotRadius) leaves
-   * empty beyond its own edge. Uses the EXACT same anchor/plot-radius math
-   * the dots and range-rings overlay use for "how much room is actually
-   * free", rather than guessing a fixed layout — a narrow phone portrait's
-   * circular plot already spans nearly edge-to-edge (see CLAUDE.md's "at
-   * least 3 types of sizing" discussion), so there's deliberately nothing
-   * to show there; a wider phone/landscape/car-infotainment screen has
-   * real side margin the plot doesn't use, and that's where this renders.
+   * Sortable aircraft-list panel, RAW mode only — fills the rectangle
+   * complementary to the 1:1 square plot (Geo.computeSquarePlotLayout's
+   * `rows`): below the square on portrait screens (square = full width),
+   * to its right on landscape screens (square = full height). Direct
+   * instruction: the plot is a fixed-aspect instrument, not a shape that
+   * stretches to soak up the whole screen — whatever's left over is
+   * exactly this panel's own region, not something it has to go compute
+   * "is there room" for itself the way the pre-square version did.
+   * Hidden entirely — not just empty — when that region is too small to
+   * be legible; see MIN_PANEL_WIDTH_PX/MIN_PANEL_HEIGHT_PX.
    *
    * @param {Array} items       Same shape as Indicators.build()'s output —
    *   already sorted by the caller according to `sortMode`; this function
    *   only renders in the order given, it doesn't sort.
-   * @param {object} layout     { viewportWidth, viewportHeight, anchorY,
-   *   safeInset, fovHalfAngleDeg, topInset }. topInset is how much of the
-   *   top of the screen real chrome (top bar + nav guidance card) occupies
-   *   — kept separate from safeInset (bottom chrome) so the panel's own
-   *   top edge clears the top bar the same way the plot's bottom clears
-   *   the bottom bar/route card.
+   * @param {object} rowsRect   { left, top, width, height } — the exact
+   *   region to fill, straight from Geo.computeSquarePlotLayout(...).rows.
    * @param {string} sortMode    One of "priority"|"range"|"altitude"|"type" —
    *   only used to mark which sort button reads as active; the caller
    *   already did the actual sorting (see app.js's _sortForRawList).
@@ -638,28 +638,20 @@ const UI = (() => {
    * @param {function} onRowClick   Called with the indicator item (same
    *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
    */
-  function renderAircraftList(items, layout, sortMode, onSortClick, onRowClick) {
+  function renderAircraftList(items, rowsRect, sortMode, onSortClick, onRowClick) {
     const panel = document.getElementById("raw-aircraft-list");
     if (!panel) return;
 
-    const { viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg, topInset } = layout;
-    const plotRadius = Geo.circularPlotRadius(viewportWidth, viewportHeight, anchorY, safeInset, fovHalfAngleDeg);
-    const fovRad = (fovHalfAngleDeg * Math.PI) / 180;
-    const cx = viewportWidth * 0.5;
-    const plotRightEdgeX = cx + plotRadius * Math.sin(fovRad);
-    const availableWidth = viewportWidth - plotRightEdgeX - PANEL_MARGIN_PX * 2;
-
-    if (availableWidth < MIN_PANEL_WIDTH_PX) {
+    if (rowsRect.width < MIN_PANEL_WIDTH_PX || rowsRect.height < MIN_PANEL_HEIGHT_PX) {
       panel.classList.add("hidden");
       panel.innerHTML = "";
       return;
     }
 
-    const panelWidth = Math.min(availableWidth, MAX_PANEL_WIDTH_PX);
-    panel.style.left   = (viewportWidth - PANEL_MARGIN_PX - panelWidth) + "px";
-    panel.style.width  = panelWidth + "px";
-    panel.style.top    = (topInset + PANEL_MARGIN_PX) + "px";
-    panel.style.bottom = (safeInset + PANEL_MARGIN_PX) + "px";
+    panel.style.left   = (rowsRect.left + PANEL_MARGIN_PX) + "px";
+    panel.style.top    = (rowsRect.top + PANEL_MARGIN_PX) + "px";
+    panel.style.width  = (rowsRect.width - PANEL_MARGIN_PX * 2) + "px";
+    panel.style.height = (rowsRect.height - PANEL_MARGIN_PX * 2) + "px";
 
     const header = RAW_LIST_SORT_MODES.map(m =>
       `<button type="button" class="raw-list-sort-btn${m.key === sortMode ? " active" : ""}" data-sort="${m.key}">${m.label}</button>`

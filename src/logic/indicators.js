@@ -93,8 +93,24 @@ const Indicators = (() => {
     // before the first followNav() call); safeInset likewise falls back to
     // its own default.
     const anchorY = userState.anchorY;
-    const safeInset = userState.safeInset;
     const fovHalfAngleDeg = userState.fovHalfAngleDeg;
+    // RAW's plot lives inside a 1:1 square sub-region of the real viewport
+    // (Geo.computeSquarePlotLayout), not the full viewport itself — these
+    // default back to the plain viewport with no offset when unset, so
+    // Hybrid (which never sets them) is completely unaffected.
+    const plotWidth = userState.plotWidth != null ? userState.plotWidth : viewportWidth;
+    const plotHeight = userState.plotHeight != null ? userState.plotHeight : viewportHeight;
+    const plotOffsetX = userState.plotOffsetX || 0;
+    const plotOffsetY = userState.plotOffsetY || 0;
+    // safeInset means "real chrome height to stay clear of" for Hybrid's
+    // unrestricted, full-viewport teardrop — but the square ALREADY
+    // excludes all real chrome from its own bounds (see app.js's
+    // _rawChromeInsets), so reusing that same ~60-100px value as margin
+    // WITHIN the square would carve out a needlessly huge chunk of a
+    // region that's already chrome-free. plotSafeInset (set only for RAW)
+    // is a small fixed in-square margin instead; falling back to safeInset
+    // keeps Hybrid's existing behaviour exactly as it was.
+    const safeInset = userState.plotSafeInset != null ? userState.plotSafeInset : userState.safeInset;
 
     return aircraftList
       .filter(a => a.lastSeenSeconds < staleThresholdSeconds * 3) // hard cut
@@ -111,7 +127,7 @@ const Indicators = (() => {
         // RAW's forward field of view — callers must skip rendering those
         // (still relevant/tracked for Hybrid/logging, just not drawable
         // inside RAW's arc-restricted plot).
-        const pos = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, viewportWidth, viewportHeight, RING_BANDS_NM, anchorY, safeInset, fovHalfAngleDeg);
+        const pos = Geo.projectToPolarPosition(relativeBearing, vis.slantRangeNm, plotWidth, plotHeight, RING_BANDS_NM, anchorY, safeInset, fovHalfAngleDeg, plotOffsetX, plotOffsetY);
         const x = pos ? pos.x : null;
         const y = pos ? pos.y : null;
         // Direction-of-travel indicator — the aircraft's own ground track,

@@ -120,6 +120,11 @@ const NavigationCameraEvaluator = (() => {
         userLat, userLon, userSpeedMph,
         viewportPreset, navDisplayStyle,
       } = ctx;
+      // ctx also optionally carries viewportWidth/viewportHeight/
+      // squareContentTop/squareContentHeight — real DOM-measured numbers
+      // (not destructured above since only NAV_RAW's square-anchor branch,
+      // step 9b below, reads them) used to align this state's anchor with
+      // RAW's own screen-space square plot. See that branch for why.
 
       const currentTimeMs = Date.now();
       const rawSpeedMph   = userSpeedMph || 0;
@@ -186,12 +191,46 @@ const NavigationCameraEvaluator = (() => {
       const bias = VIEWPORT_BIASES[vp] || VIEWPORT_BIASES["full"];
 
       pitch   = pitch + (bias.pitchBias || 0);
-      anchorY = (bias.anchorYOverride !== null && bias.anchorYOverride !== undefined) 
-        ? bias.anchorYOverride 
+      anchorY = (bias.anchorYOverride !== null && bias.anchorYOverride !== undefined)
+        ? bias.anchorYOverride
         : anchorY + (bias.anchorYBias || 0);
-      anchorX = (bias.anchorXOverride !== null && bias.anchorXOverride !== undefined) 
-        ? bias.anchorXOverride 
+      anchorX = (bias.anchorXOverride !== null && bias.anchorXOverride !== undefined)
+        ? bias.anchorXOverride
         : anchorX;
+
+      // 9b. NAV_RAW's anchor is a special case, computed AFTER (superseding)
+      // the viewport-bias blending above rather than through it. RAW's own
+      // screen-space plot (dots/rings/list — see Geo.computeSquarePlotLayout,
+      // app.js's refreshIndicators) lives inside a 1:1 square sized to fit
+      // the available content area, not the raw full viewport — portrait
+      // pins it to the top (full width), landscape pins it to the left
+      // (full height). The REAL map camera's anchor (which positions the
+      // real user-marker MapLibre layer, map.js's _userMarker) has to land
+      // at that SAME point or the marker visibly drifts from the screen-
+      // space dots/rings around it — exactly the anchor-mismatch bug class
+      // this project has hit more than once (see CLAUDE.md's "Camera
+      // anchor math"). ctx.squareContentTop/squareContentHeight are plain
+      // numbers the caller (CameraController.followNav) measures from the
+      // DOM once per call — passed in rather than measured here so this
+      // function stays free of DOM access itself.
+      //
+      // basePreset.anchorY (0.80) is reused here as the fraction WITHIN the
+      // square (not of the full viewport, its usual meaning for every other
+      // state) — same "ownship sits low, room ahead" convention, just
+      // scoped to the square's own bounds instead of the screen's. The
+      // viewport-bias phone-p/phone-l/auto overrides above are deliberately
+      // NOT applied to NAV_RAW: they're coarse per-device-class nudges for
+      // states whose anchor is otherwise a flat constant, superseded here by
+      // a per-frame calculation that already adapts exactly to the real
+      // portrait/landscape aspect, not just a device-class guess at it.
+      if (targetState === "NAV_RAW" && ctx.viewportWidth && ctx.viewportHeight && ctx.squareContentHeight != null) {
+        const square = Geo.computeSquarePlotLayout(ctx.viewportWidth, ctx.squareContentTop || 0, ctx.squareContentHeight);
+        const withinSquareAnchorY = STATE_PRESETS.NAV_RAW.anchorY;
+        const anchorXPx = square.squareLeft + square.squareSize * 0.5;
+        const anchorYPx = square.squareTop + square.squareSize * withinSquareAnchorY;
+        anchorX = anchorXPx / ctx.viewportWidth;
+        anchorY = anchorYPx / ctx.viewportHeight;
+      }
 
       if (bias.maxPitch !== null && bias.maxPitch !== undefined) {
         pitch = Math.min(pitch, bias.maxPitch);

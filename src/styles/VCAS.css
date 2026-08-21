@@ -745,13 +745,6 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude
   color: #f0f0f0;
 }
 
-.indicator-label .callsign {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  line-height: 1.3;
-}
-
 .indicator-label .actype {
   font-size: 10px;
   color: var(--text-secondary);
@@ -1246,7 +1239,6 @@ body[data-nav-state="turn_approach"] { }
 
 /* ---- Responsive tweaks ---- */
 @media (max-width: 400px) {
-  .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
   .indicator-shape svg       { width: 17px; height: 17px; }
   .theme-btn                 { padding: 2px 5px; }
