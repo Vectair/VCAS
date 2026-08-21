@@ -49,6 +49,35 @@ Things that are deliberately fine for now (personal use, single user) but
   leave it as-is for now, but move it somewhere actually visible in the
   main UI before release.
 
+- **RAW controls (range selector, and mode switching generally) —
+  revisit the interaction design.** Project owner (2026-08-21): current
+  tap-to-cycle range button is "acceptable for now" but flagged for a
+  design pass before V1. Raised directly by a real A320 EFIS control
+  panel reference photo showing physical rotary knobs — one for ND mode
+  (ROSE/VOR/ILS/NAV/ARC/PLAN), one for range (10/20/40/80/160/320) —
+  asking whether VCAS should replicate literal rotary-knob controls for
+  its own Hybrid/Raw/Air mode switch and range selector. Assessed and
+  agreed: **not** as literal drag-to-rotate gestures — VCAS is a
+  one-handed, glance-while-driving app, and a rotate gesture demands more
+  sustained precision/attention than a single tap, a real regression
+  against the app's core safety premise (matches how automotive UX
+  guidance, and Apple/Google's own driving-mode rules, steer away from
+  drag/rotate controls generally). Two different conclusions per control,
+  both agreed:
+  - **Mode switch (Hybrid/Raw/Air):** keep the flat 3-button row. A
+    dial styled to look like the reference hardware (tap-a-label, not
+    drag) would cost MORE screen space (labels arranged radially) for
+    zero interaction benefit over what's already there — no reason to
+    change this one.
+  - **Range selector:** the one place a real knob has a genuine
+    functional edge a tap-to-cycle button lacks — jumping directly from
+    (e.g.) 2nm to 50nm in one action instead of stepping through every
+    intermediate value. Worth capturing, but via a tap-based interaction
+    (e.g. tap-and-hold fans out all 5 values as flat, directly-tappable
+    targets) rather than a literal rotate gesture — same "direct access"
+    benefit, none of the drag-gesture safety downside. Not yet built;
+    revisit alongside the rest of the range-selector design before V1.
+
 ## Architecture map
 
 - `src/app.js` — orchestration/glue: GPS watch, mode state (nav/air,
