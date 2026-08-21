@@ -987,8 +987,17 @@
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
     // rotating road map already carries its own orientation cues.
-    if (NavDisplayStyle.isRaw()) {
-      UI.renderCompassRing(vw, userHeading);
+    if (isRawView) {
+      // Compact vehicle/route strip below the heading tape — RAW's
+      // equivalent of a real ND's flight-data strip (GS/TAS/ILS APP/
+      // arrival time), adapted to what's actually relevant driving a car.
+      const vehicleInfo = {
+        speedMph: userSpeedMph,
+        route: activeRoute
+          ? { destName: routeDestName || "destination", distanceMeters: activeRoute.distanceMeters, durationSeconds: activeRoute.durationSeconds }
+          : null,
+      };
+      UI.renderCompassRing(vw, userHeading, undefined, vehicleInfo);
     } else {
       UI.clearCompassRing();
     }

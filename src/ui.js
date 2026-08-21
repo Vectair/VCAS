@@ -6,6 +6,15 @@ const UI = (() => {
   let _popupTimer = null;
   const POPUP_DISMISS_MS = 4000;
 
+  // Destination names ultimately come from geocoding search results (see
+  // orsGeocoder.js), which can echo back place names built from free-text
+  // user input — escape before dropping into innerHTML-built SVG/HTML.
+  function _escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[ch]));
+  }
+
   // ---- ADS-B status pill ----
 
   function setAdsbStatus(state, text) {
@@ -290,7 +299,16 @@ const UI = (() => {
    * @param {number} safeInset     Top clearance to draw below (matches the
    *   same safe-area constant used for range rings/indicator plotting).
    */
-  function renderCompassRing(viewportWidth, headingDeg, safeInset = 60) {
+  /**
+   * @param {object} [vehicleInfo]  { speedMph, route: {destName, distanceMeters, durationSeconds} | null }.
+   *   Drawn as a compact strip below the heading tape's own tick labels —
+   *   RAW's equivalent of a real ND's flight-data strip (GS/TAS/ILS APP/
+   *   arrival time), adapted to what's actually relevant driving a car
+   *   instead of flying: current speed, and — when a route is active —
+   *   distance/ETA to destination. Omit for no strip (matches prior
+   *   behaviour exactly).
+   */
+  function renderCompassRing(viewportWidth, headingDeg, safeInset = 60, vehicleInfo = null) {
     const svg = document.getElementById("nav-compass-ring");
     if (!svg) return;
 
@@ -332,7 +350,29 @@ const UI = (() => {
     const digital = `<text x="${cx}" y="${tickTopY - 22}" text-anchor="middle"
                 style="fill:#f0f0f0; font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
 
-    svg.innerHTML = ticks + pointer + digital;
+    let infoStrip = "";
+    if (vehicleInfo) {
+      // One shared <text> assignment per call (svg.innerHTML is set once,
+      // below) rather than a separate render call, so this can never
+      // clobber — or be clobbered by — the tape markup above.
+      const stripY = tickTopY + 14 + 14 + 20;
+      const speedLabel = `SPD ${Math.round(vehicleInfo.speedMph)} MPH`;
+      infoStrip += `<text x="${cx}" y="${stripY}" text-anchor="middle"
+                  style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">${speedLabel}</text>`;
+      if (vehicleInfo.route) {
+        const { destName, distanceMeters, durationSeconds } = vehicleInfo.route;
+        const distLabel = distanceMeters >= 1000 ? (distanceMeters / 1000).toFixed(1) + "km" : Math.round(distanceMeters) + "m";
+        const arrivalMs = Date.now() + durationSeconds * 1000;
+        const d = new Date(arrivalMs);
+        const arrivalLabel = d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
+        const shortDest = destName.length > 22 ? destName.slice(0, 21) + "…" : destName;
+        const routeLine = `${_escapeHtml(shortDest)} · ${distLabel} · ETA ${arrivalLabel}`;
+        infoStrip += `<text x="${cx}" y="${stripY + 18}" text-anchor="middle"
+                    style="fill:#f0f0f0; font-size:12px" opacity="0.85">${routeLine}</text>`;
+      }
+    }
+
+    svg.innerHTML = ticks + pointer + digital + infoStrip;
     svg.classList.remove("hidden");
   }
 

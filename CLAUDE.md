@@ -366,14 +366,29 @@ left/right a small fixed margin (20px) independent of `safeInset`, which
 more than doubled the effective plot radius in testing (89px → 193px on a
 412px-wide viewport).
 
-Not yet done, discussed but not built: repurposing the space the plot's
-arc-not-circle shape leaves empty (a real TCAS/ND fills it with flight
-data above the compass tape) with vehicle/route info, plus a sortable
-aircraft list (callsign/type/altitude, default-sorted by the same
-visibility-likelihood scoring the indicators use, re-sortable by
-range/altitude/type) in whatever space remains, with tap-to-highlight
-linking between a list row and its on-plot icon. Ask before assuming this
-was abandoned if picking the RAW work back up — it's the agreed next step,
+**Vehicle/route info strip — done (2026-08-21).** `UI.renderCompassRing()`
+takes an optional `vehicleInfo` param (`{ speedMph, route }`) and draws a
+compact strip below the heading tape's tick labels — RAW's equivalent of a
+real ND's flight-data strip (GS/TAS/ILS APP/arrival time), adapted to what
+a car actually has: current speed always shown, plus destination/distance/
+ETA when a route is active (reusing `activeRoute`/`routeDestName`, the
+same state the bottom route-card already tracks — no new data source).
+Folded into the *same* `svg.innerHTML` assignment as the tape itself
+rather than a second render call, deliberately — two separate calls would
+each overwrite the other's markup on that shared SVG element. Destination
+names ultimately come from geocoding search results (free-text user
+input), so they're HTML-escaped before going into the innerHTML-built
+markup (`UI._escapeHtml`, new) — verified via Playwright that a `<b>`/`&`/
+`"`-laced destination name renders as literal escaped text, not live
+markup, plus a real long name to confirm truncation (22 chars + `…`)
+doesn't break mid-escape.
+
+Not yet done: a sortable aircraft list (callsign/type/altitude,
+default-sorted by the same visibility-likelihood scoring the indicators
+use, re-sortable by range/altitude/type) filling whatever space the plot's
+arc-not-circle shape still leaves empty, with tap-to-highlight linking
+between a list row and its on-plot icon. Ask before assuming this was
+abandoned if picking the RAW work back up — it's the agreed next step,
 not a rejected idea.
 
 ## Contrail visibility — Relevance range + Visibility score (2026-08-21)
