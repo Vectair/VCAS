@@ -1547,6 +1547,106 @@ magnetic declination (a few to +15-20° regional offset from true north,
 never corrected anywhere in this codebase) if the error is a small,
 consistent rotation rather than a wild one.
 
+## Navigation-side status check (2026-08-22)
+
+Direct question: "where are we with the navigation side of things?" —
+prompted by remembering VCAS has two co-equal pillars (navigation and
+identification, see top of this file) and wanting a status read on the
+less-recently-touched one, since most of this session's work has been
+identification/RAW-mode/chrome-focused. Read through
+`requestRouteTo`/`_showRouteCard`/`_updateGuidanceCard` (app.js),
+`orsProvider.js`, `maneuverTracker.js`, and `routeGeometry.js` fresh
+rather than going off memory, since a real code read is what actually
+found the two gaps below — neither was previously written down anywhere.
+
+**Working, not just "built":** destination search (name/address via ORS
+geocoding, debounced, position-biased) and tap-the-map, both landing on
+the same `requestRouteTo()`; a real 3-layer glow/line/highlight route
+polyline; the turn-by-turn guidance card reading ORS's own real
+instruction text/street names via `ManeuverTracker.nextManeuver()`, with
+a genuinely live distance-to-next-maneuver countdown
+(`RouteGeometry.distanceToIndex()` against the user's actual snapped
+position, not ORS's static per-step distance); and a real camera state
+machine (`NavigationCameraEvaluator`) that follows the actual route
+polyline through curves, not straight-line heading.
+
+**Two real gaps found by reading the code, not previously documented:**
+
+1. **No off-route detection or rerouting.** `RouteGeometry.nearestOnLine()`
+   always snaps to the nearest point on the ORIGINAL route polyline
+   regardless of how far the user actually is from it — there's no
+   deviation check anywhere in `app.js`, so straying off the planned route
+   leaves every downstream consumer (route line, guidance-card instruction,
+   distance-to-maneuver) silently referencing a route the user may no
+   longer be on. No automatic recovery; the only "fix" today is manually
+   clearing and re-requesting the route. A real feature to build, not a
+   quick fix — noted here so it isn't rediscovered from scratch, not
+   attempted this session.
+2. **Route card ETA/distance/arrival-clock don't count down.**
+   `_showRouteCard()` (app.js) writes `route-dist-text`/`route-eta-text`/
+   `route-eta-arrival` exactly once, right when the route is first
+   calculated, straight from `activeRoute.distanceMeters`/`durationSeconds`
+   — the route's full-trip totals from request time. Unlike the guidance
+   card's own live per-maneuver countdown, these three numbers are frozen
+   for the whole journey. **Fixed the same session, see the follow-up
+   entry immediately below** — this bullet describes the bug that
+   prompted it.
+
+Both written into README's "Known Limitations" section immediately, per
+this file's own repeated lesson about durable memory — a fresh finding
+that only exists in conversation history is exactly the kind of thing
+that gets silently re-discovered later otherwise.
+
+### Follow-up: live-updating route card (2026-08-22, same day)
+
+Fixed gap #2 above. New `_updateRouteCard()` (app.js) replaces
+`_showRouteCard()`'s one-time DOM writes: recomputes remaining distance
+via `RouteGeometry.nearestOnLine()` + `RouteGeometry.distanceToIndex()`
+against the user's current position and the route's own final coordinate
+index (`coords.length - 1`) — the exact same snapping primitives
+`ManeuverTracker.nextManeuver()` already uses for the guidance card's
+live countdown, not a separately-invented calculation. Remaining duration
+is derived by scaling the route's own ORS-declared total duration by the
+remaining-distance fraction (`totalDuration * (remainingDistance /
+totalDistance)`) rather than summing per-step durations — deliberately
+simpler and more robust: it works even when `activeRoute.steps` is empty
+(a real, already-documented possibility — see `orsProvider.js`'s own
+comment on unexpected response shapes), and ORS's declared total duration
+already reflects that route's real mix of road-type speeds, which a
+live-GPS-speed-based estimate would not (traffic lights/turns make
+instantaneous speed too noisy for a stable countdown). Arrival clock
+re-derives from `Date.now() + remainingDurationSeconds*1000` each call,
+same formula as before, just fed a live remaining duration instead of the
+static total.
+
+Called from the same place `_updateGuidanceCard()` already runs —
+`refreshIndicators()`, itself triggered by every GPS fix and the 500ms
+extrapolation tick (see "Power efficiency pass" above) — rather than a
+new timer. This is deliberately consistent with that pass's own
+established principle (don't add an uncoordinated third trigger to an
+already-multi-triggered pipeline) and cheap enough not to matter: three
+`textContent` writes on leaf DOM nodes, nothing like the indicator-layer
+cost that pass was actually built to address. `_showRouteCard()` itself
+now just unhides the card and calls `_updateRouteCard()` once for the
+initial paint, same function either way — no separate "first paint"
+formula to keep in sync with the live one.
+
+Scoped to NAV mode only, matching the guidance card's own existing
+`mode !== "nav"` gate — `refreshIndicators()` is never called in AIR mode,
+so the route card's countdown simply stops advancing (not incorrectly
+frozen-and-wrong, just paused) if the user checks AIR mode mid-route,
+resuming correctly the moment they switch back. Not treated as a gap:
+route/guidance state has always been a NAV-mode concept in this codebase.
+
+Verified with a Node-level simulation requiring `routeGeometry.js`
+directly (no DOM needed for the math itself): a straight 3-point route,
+checking remaining distance at the start (~full total), midpoint (~half),
+and near the end (small remainder) all matched hand-computed expectations,
+and the proportional duration scaling tracked distance proportionally as
+designed. README's "Route card ETA/distance don't count down live" bullet
+removed now that it's fixed; the off-route/rerouting gap (#1 above) is
+still open and unchanged.
+
 ## Recurring: blank screen / zero interactivity on load — transient script failure, not a code bug (seen at least twice now)
 
 Symptom, exact both times: map area completely blank (just the themed

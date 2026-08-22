@@ -1020,6 +1020,7 @@
       userState.anchorY = camConfig.anchorY;
     }
     _updateGuidanceCard(camConfig && camConfig.maneuver);
+    _updateRouteCard();
 
     // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) — "as large
     // an area as possible" within the available content, matching a real
@@ -1429,18 +1430,59 @@
 
   function _showRouteCard() {
     document.getElementById("route-dest-name").textContent = routeDestName;
-    document.getElementById("route-dist-text").textContent = _fmtDistance(activeRoute.distanceMeters);
-    document.getElementById("route-eta-text").textContent  = _fmtDuration(activeRoute.durationSeconds);
+    _updateRouteCard();
+    document.getElementById("route-card").classList.remove("hidden");
+    _showGuidanceCard();
+  }
+
+  /**
+   * Recomputes and writes the route card's distance/ETA/arrival-clock from
+   * the user's CURRENT position along the route, rather than the one-time
+   * trip-start totals `_showRouteCard()` used to write and never touch
+   * again. Called on the same cadence `_updateGuidanceCard()` already is
+   * (every GPS fix + the 500ms extrapolation tick, via refreshIndicators())
+   * — see that call site — not a new timer.
+   */
+  function _updateRouteCard() {
+    if (!activeRoute) return;
+
+    // Falls back to the route's own full trip totals (what used to be
+    // shown permanently) when there's no GPS fix yet or the route has no
+    // usable geometry, rather than showing nothing.
+    let remainingDistanceMeters = activeRoute.distanceMeters;
+    let remainingDurationSeconds = activeRoute.durationSeconds;
+
+    const coords = activeRoute.geometry && activeRoute.geometry.coordinates;
+    if (userLat !== null && userLon !== null && Array.isArray(coords) && coords.length >= 2) {
+      // Same snapping primitives ManeuverTracker.nextManeuver() already
+      // uses for the guidance card's own live countdown — not a separately
+      // invented calculation — just targeting the route's FINAL coordinate
+      // index instead of the current step's end.
+      const { segIdx, t } = RouteGeometry.nearestOnLine(coords, userLon, userLat);
+      remainingDistanceMeters = RouteGeometry.distanceToIndex(coords, segIdx, t, coords.length - 1);
+      // Duration scales proportionally against the route's own ORS-declared
+      // total duration/distance, rather than summing activeRoute.steps'
+      // individual durations — simpler, and works even when steps is empty
+      // (a real possibility per orsProvider.js's own fallback), and ORS's
+      // declared pace for the whole route already reflects its real mix of
+      // road-type speeds better than the user's live/instantaneous GPS
+      // speed would (too noisy across traffic lights/turns for a stable
+      // countdown).
+      remainingDurationSeconds = activeRoute.distanceMeters > 0
+        ? activeRoute.durationSeconds * (remainingDistanceMeters / activeRoute.distanceMeters)
+        : 0;
+    }
+
+    document.getElementById("route-dist-text").textContent = _fmtDistance(remainingDistanceMeters);
+    document.getElementById("route-eta-text").textContent  = _fmtDuration(remainingDurationSeconds);
     const arrivalEl = document.getElementById("route-eta-arrival");
     if (arrivalEl) {
-      const arrivalMs = Date.now() + activeRoute.durationSeconds * 1000;
+      const arrivalMs = Date.now() + remainingDurationSeconds * 1000;
       const d  = new Date(arrivalMs);
       const hh = d.getHours().toString().padStart(2, "0");
       const mm = d.getMinutes().toString().padStart(2, "0");
       arrivalEl.textContent = hh + ":" + mm;
     }
-    document.getElementById("route-card").classList.remove("hidden");
-    _showGuidanceCard();
   }
 
   function _hideRouteCard() {
