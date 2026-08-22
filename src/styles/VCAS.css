@@ -151,7 +151,14 @@ body[data-mode="nav"][data-nav-style="raw"] {
 html, body {
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* B612 — Airbus's own flight-deck typeface (see index.html's Google
+     Fonts link for why). Only weights 400/700 are loaded; the 600/800/900
+     weights used elsewhere in this file fall back to the nearest of those
+     two rather than a synthesized in-between — a normal, accepted
+     simplification, not a bug. System-font fallback chain kept after it in
+     case the Google Fonts request itself fails (e.g. offline first paint
+     before the PWA's cached copy catches up). */
+  font-family: 'B612', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg-dark);
   color: var(--text-primary);
   font-size: 14px;

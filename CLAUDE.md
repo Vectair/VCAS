@@ -1130,6 +1130,59 @@ CSS, or extending the bevel language to popup buttons like
 `.pop-suppress-btn`/`.pop-log-btn`) should be treated as a new,
 separately-agreed follow-up, not an implied gap in this one.
 
+### Typography: B612 (2026-08-22, same rebrand)
+
+Direct instruction, separate from and after the palette/button work above:
+"Google font B612 is used on Airbus flight decks so that is the font we
+will use in VCAS." Unlike the rest of the cockpit rebrand — which is
+*inspired by* the reference photo's material, deliberately not a literal
+recreation (see the rebrand section's own framing above) — B612 is a
+literal match: it's the actual Airbus-designed, Google Fonts-hosted
+typeface used on real PFD/ND/ECAM displays, not an approximation chosen
+for a similar look.
+
+Loaded via Google Fonts (`index.html`'s `<head>`, alongside the existing
+MapLibre CSS link) — `preconnect` hints for `fonts.googleapis.com`/
+`fonts.gstatic.com` plus the actual stylesheet link, weights 400/700 only
+(`family=B612:wght@400;700`). Set as the lead font in the `html, body`
+rule (`src/styles/VCAS.css`), ahead of the pre-existing system-font
+fallback chain (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+sans-serif`) — kept as a fallback rather than replaced, in case the
+Google Fonts request itself fails (e.g. first paint while offline, before
+the PWA's cached copy of the stylesheet is available).
+
+**Only 400/700 loaded, not every weight this stylesheet references**
+(some rules use 600/800/900 — `grep -n "font-weight:" VCAS.css` for the
+full list). Browsers fall back to the nearest *actually loaded* weight
+rather than synthesizing an in-between one, so 600 renders at 400 or 700
+(whichever the browser's matching algorithm picks) and 800/900 render at
+700 — a normal, accepted simplification (most sites ship 2-4 weights, not
+every numeric value used in their CSS), not a bug to chase.
+
+**Deliberately NOT applied to the three developer-only debug panels**
+(`#viewport-dev-panel`/VIEW, `#speed-sim-panel`/SPD, `#log-panel`/LOG —
+all gated behind hidden developer mode per the "Architecture map"'s own
+history) — left on their existing `ui-monospace, "Cascadia Code", "Fira
+Code", monospace` stack. Same scope boundary the palette/button pass
+above already drew: these are developer tooling, not primary app chrome,
+and weren't part of what was asked. (B612 Mono — a real companion
+monospace face, also actually used for numeric cockpit readouts — would
+be a natural fit if these panels are ever brought into scope, but that's
+a new, separately-agreed follow-up, not an implied gap in this one.)
+
+Verified two ways: (1) the Google Fonts CSS endpoint itself, fetched with
+a real browser User-Agent (this sandbox's plain `curl` — no UA — gets
+served an empty stylesheet; Google Fonts varies its response by UA to
+serve the right format, so this matters for verification, not just for
+real users) confirms `B612` actually resolves to real `woff2` sources at
+400 and 700. (2) A real Playwright/Chromium render of a harness loading
+the actual `index.html` font `<link>` tags + `VCAS.css` reports
+`document.fonts.status === "loaded"` and `getComputedStyle(el).fontFamily`
+resolving to `B612` first in the chain — not just requested, confirmed
+actually applied and rendered (the sample screenshot shows B612's
+distinctive geometric, open-counter character, matching its cockpit-
+legibility design brief).
+
 ## Power efficiency pass (2026-08-22)
 
 Direct report: "it seems to consume quite a lot of power... can we improve
