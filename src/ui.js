@@ -13,6 +13,20 @@ const UI = (() => {
   // this on every call, rather than the highlight vanishing after one frame.
   let _selectedHex = null;
 
+  // Diffed-by-hex element caches for the NAV/RAW indicators layer (full
+  // icons and suppressed range-selector edge dots) — see renderIndicators()
+  // and renderSuppressedDots() below for why: this layer used to be torn
+  // down and rebuilt from scratch on every call, at up to 2-5Hz between GPS
+  // fixes and the 500ms extrapolation render tick (app.js), the same cost
+  // pattern EosMap.renderAirMarkers (map.js) was already rewritten to avoid
+  // for AIR mode. Kept as separate maps (not one, keyed only by hex) since
+  // an aircraft can move between "full indicator" and "suppressed dot"
+  // tiers (the ND range selector) between renders — a hex reused across
+  // tiers must get a fresh element of the new type, not have the old one
+  // silently mutated into looking like the other.
+  let _indicatorEls = new Map();     // hex -> .indicator element
+  let _suppressedDotEls = new Map(); // hex -> .suppressed-dot element
+
   // Destination names ultimately come from geocoding search results (see
   // orsGeocoder.js), which can echo back place names built from free-text
   // user input — escape before dropping into innerHTML-built SVG/HTML.
@@ -233,18 +247,25 @@ const UI = (() => {
     return `<svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true"><path d="M5 0 L10 9 L5 6.5 L0 9 Z" fill="${color}"/></svg>`;
   }
 
+  // Diffs by hex rather than tearing every indicator down and rebuilding it
+  // (see _indicatorEls's own comment for why) — reuses each aircraft's
+  // existing outer .indicator element across calls (position + inner
+  // shape/label markup still refreshed every time, since those genuinely
+  // do change most ticks — track/altitude/color/relevance-reason), avoiding
+  // the container-level teardown and re-binding a fresh click listener for
+  // aircraft that were already on screen. Every element still gets
+  // re-appended each call (reused or new) to keep DOM order matching
+  // `indicators`' own priority order — cheap (moves an existing node,
+  // doesn't recreate it) but necessary, see the appendChild call below.
   function renderIndicators(indicators, onClickFn) {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
-    container.innerHTML = "";
+
+    const seenHexes = new Set();
 
     indicators.forEach(ind => {
       const hex = ind.aircraft.hex;
-      const el = document.createElement("div");
-      el.className = "indicator" + (ind.isStale ? " stale" : "") + (hex === _selectedHex ? " selected" : "");
-      el.dataset.hex = hex;
-      el.style.left = ind.x + "px";
-      el.style.top  = ind.y + "px";
+      seenHexes.add(hex);
 
       const type     = ind.aircraft.type || "";
       const displayColor = _displayColor(ind.vis);
@@ -268,16 +289,56 @@ const UI = (() => {
       // list rows now, not duplicated on the icon too.
       const altitudeLabel = ind.aircraft.altitudeFt != null ? `${Math.round(ind.aircraft.altitudeFt).toLocaleString()}ft` : "";
 
-      el.innerHTML = `
+      const innerHtml = `
         <div class="indicator-shape">${arrowSvg}${shapeSvg}</div>
         <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
           ${type ? `<div class="actype">${type}</div>` : ""}
           ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
         </div>`;
 
-      el.addEventListener("click", () => { selectAircraft(hex); onClickFn(ind); });
+      let el = _indicatorEls.get(hex);
+      if (el) {
+        el.classList.toggle("stale", !!ind.isStale);
+        el.style.left = ind.x + "px";
+        el.style.top  = ind.y + "px";
+        el.innerHTML = innerHtml;
+        // Click handler reads this mutable box on every click rather than
+        // capturing `ind`/`onClickFn` directly, so a reused element's
+        // single addEventListener (bound once, below) always dispatches
+        // against whichever aircraft/callback is current — no re-binding
+        // needed each render, same as EosMap.renderAirMarkers' `entry`.
+        el._clickState.ind = ind;
+        el._clickState.onClickFn = onClickFn;
+      } else {
+        el = document.createElement("div");
+        el.className = "indicator" + (ind.isStale ? " stale" : "") + (hex === _selectedHex ? " selected" : "");
+        el.dataset.hex = hex;
+        el.style.left = ind.x + "px";
+        el.style.top  = ind.y + "px";
+        el.innerHTML = innerHtml;
+        el._clickState = { ind, onClickFn };
+        el.addEventListener("click", () => { selectAircraft(hex); el._clickState.onClickFn(el._clickState.ind); });
+        _indicatorEls.set(hex, el);
+      }
+      // Re-append every element (reused or new) in `indicators`' own order —
+      // appendChild() on a node that already has this same parent just MOVES
+      // it to the end rather than recreating it, so this stays cheap, but it
+      // matters for correctness: declutterRenderedIndicators() (below) reads
+      // .indicator elements back out via container.querySelectorAll() and
+      // relies on THAT order matching indicators' own priority order (see
+      // its doc comment). Without this, a reused element would keep
+      // whatever DOM position it was first created at even after its
+      // priority rank changed on a later tick, silently feeding decluttering
+      // a stale processing order.
       container.appendChild(el);
     });
+
+    for (const [hex, el] of _indicatorEls) {
+      if (!seenHexes.has(hex)) {
+        el.remove();
+        _indicatorEls.delete(hex);
+      }
+    }
   }
 
   /**
@@ -295,9 +356,12 @@ const UI = (() => {
    * that produced the full-icon set) already sit exactly on the edge at
    * the correct bearing — this function only decides how to DRAW them.
    *
-   * Deliberately appended to #indicators-layer rather than clearing it —
-   * called right after renderIndicators() each frame, which already did
-   * the one-time container.innerHTML = "" reset for both.
+   * Appended to #indicators-layer rather than clearing it — called right
+   * after renderIndicators() each frame, which owns the full icons in the
+   * same layer and never touches suppressed-dot elements. Diffed by hex
+   * for the same reason renderIndicators() is (see _indicatorEls's own
+   * comment): this can run at up to 2-5Hz between GPS fixes and the 500ms
+   * extrapolation render tick.
    *
    * @param {Array} items      Same shape as renderIndicators()'s input,
    *   for the subset beyond the selected range — unpaginated, always all
@@ -311,17 +375,39 @@ const UI = (() => {
     const container = document.getElementById("indicators-layer");
     if (!container) return;
 
+    const seenHexes = new Set();
+
     items.forEach(ind => {
       const hex = ind.aircraft.hex;
-      const el = document.createElement("div");
-      el.className = "suppressed-dot" + (hex === _selectedHex ? " selected" : "");
-      el.dataset.hex = hex;
-      el.style.left = ind.x + "px";
-      el.style.top  = ind.y + "px";
-      el.style.background = _displayColor(ind.vis);
-      el.addEventListener("click", () => { selectAircraft(hex); onClickFn(ind); });
-      container.appendChild(el);
+      seenHexes.add(hex);
+
+      let el = _suppressedDotEls.get(hex);
+      if (el) {
+        el.style.left = ind.x + "px";
+        el.style.top  = ind.y + "px";
+        el.style.background = _displayColor(ind.vis);
+        el._clickState.ind = ind;
+        el._clickState.onClickFn = onClickFn;
+      } else {
+        el = document.createElement("div");
+        el.className = "suppressed-dot" + (hex === _selectedHex ? " selected" : "");
+        el.dataset.hex = hex;
+        el.style.left = ind.x + "px";
+        el.style.top  = ind.y + "px";
+        el.style.background = _displayColor(ind.vis);
+        el._clickState = { ind, onClickFn };
+        el.addEventListener("click", () => { selectAircraft(hex); el._clickState.onClickFn(el._clickState.ind); });
+        container.appendChild(el);
+        _suppressedDotEls.set(hex, el);
+      }
     });
+
+    for (const [hex, el] of _suppressedDotEls) {
+      if (!seenHexes.has(hex)) {
+        el.remove();
+        _suppressedDotEls.delete(hex);
+      }
+    }
   }
 
   /**
@@ -531,6 +617,12 @@ const UI = (() => {
   function clearIndicators() {
     const container = document.getElementById("indicators-layer");
     if (container) container.innerHTML = "";
+    // Must be reset alongside the DOM wipe above — otherwise renderIndicators()/
+    // renderSuppressedDots() would think a hex's element is still attached
+    // (it's in the map) and try to reuse/reposition a node that's no longer
+    // in the document instead of creating and appending a fresh one.
+    _indicatorEls.clear();
+    _suppressedDotEls.clear();
   }
 
   // Range rings are now real map layers (see map.js's EosMap.updateRangeRings/

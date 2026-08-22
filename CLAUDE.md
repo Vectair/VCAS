@@ -130,6 +130,10 @@ Things that are deliberately fine for now (personal use, single user) but
   See "ADS-B data source" below — this is the most volatile part of the
   app right now.
 - `src/ui.js` — indicator DOM rendering, compass tape, popups.
+  `renderIndicators`/`renderSuppressedDots` diff by hex and reuse existing
+  DOM elements (2026-08-22, see "Power efficiency pass" below) rather than
+  tearing the `#indicators-layer` container down every call — same reason
+  and same pattern as `EosMap.renderAirMarkers`.
 
 ## ADS-B data source — SETTLED, read before touching
 
@@ -1143,13 +1147,9 @@ drains rather than guessing. Findings, roughly biggest-to-smallest:
    `UI.renderIndicators()`, then `UI.declutterRenderedIndicators()`'s
    `getBoundingClientRect()` layout-thrash across every icon/label/leader
    candidate) can run 2-5×/sec, not the ~2Hz the 500ms tick alone would
-   suggest. **Not fixed this pass** — real fix is a bigger rendering-
-   pipeline rework (diff `renderIndicators()` by hex and reuse DOM nodes,
-   the same pattern `EosMap.renderAirMarkers` already uses for exactly
-   this reason — see that entry in "Architecture map") that the project
-   owner deliberately deferred to a later, larger pass rather than doing
-   inline here. Flagging so it isn't rediscovered from scratch: this is
-   the single biggest remaining lever if further reduction is wanted.
+   suggest. The two-triggers part itself is unchanged (still deliberate —
+   see #4's ADS-B/METAR note) but the expensive full-rebuild half of this
+   is now fixed, see the follow-up entry below.
 2. **Fixed: the compass/device-orientation sensor listened continuously,
    not just while its readings were used.** `onCompassHeading()` already
    discarded every reading above `CONFIG.GPS_HEADING_MIN_SPEED_MPH`
@@ -1188,11 +1188,77 @@ drains rather than guessing. Findings, roughly biggest-to-smallest:
 
 **Not done, explicitly out of scope for this pass** (per direct
 instruction — this pass covers only the "safe wins," items 2 and 3
-above): the `renderIndicators()` DOM-diffing rework (item 1), and no
-attempt to pause GPS/fetch/render loops on Page Visibility (`document.
-hidden`) — VCAS is a screen-on navigation app by design (WakeLock keeps
-the screen alive while navigating), so background-tab pausing has limited
-real-world payoff here and wasn't investigated further this pass.
+above): no attempt to pause GPS/fetch/render loops on Page Visibility
+(`document.hidden`) — VCAS is a screen-on navigation app by design
+(WakeLock keeps the screen alive while navigating), so background-tab
+pausing has limited real-world payoff here and wasn't investigated
+further this pass.
+
+### Follow-up: `renderIndicators()` DOM-diffing rework (2026-08-22, same day)
+
+The "single biggest remaining lever" flagged above — applied the same
+session, once explicitly asked to go ahead. `UI.renderIndicators()` (the
+NAV/RAW full-icon layer) and `UI.renderSuppressedDots()` (the ND
+range-selector's bare edge dots, same `#indicators-layer`) both did
+`container.innerHTML = ""` + full rebuild every call — exactly the cost
+pattern `EosMap.renderAirMarkers` was already rewritten to avoid for AIR
+mode (see "Architecture map"), just never applied to NAV/RAW's own
+indicators, which are the more DOM-heavy of the two (label decluttering's
+`getBoundingClientRect()` reads/writes on top).
+
+Reworked both to diff by hex against two new module-level caches
+(`_indicatorEls`, `_suppressedDotEls` — kept separate, not one map, since
+a hex can move between "full indicator" and "suppressed dot" tiers
+between renders as the range selector changes, and needs a fresh element
+of the new type rather than the old one mutated to look like the other).
+A reused element gets its position/inner shape+label markup refreshed in
+place (those genuinely do change most ticks) and keeps its original click
+listener — the listener reads a mutable `el._clickState` box for the
+current `ind`/`onClickFn` rather than a stale closure, so it never needs
+rebinding, same pattern `EosMap.renderAirMarkers`' `entry` object already
+uses. Aircraft no longer present get `.remove()`d and dropped from the
+map; new ones get created and appended, same as before.
+
+**A real ordering bug caught before shipping, not just assumed away:**
+`declutterRenderedIndicators()` reads `.indicator` elements back out via
+`container.querySelectorAll()` and relies on THAT DOM order matching
+`indicators`' own priority order (a higher-priority aircraft's label
+claims its preferred candidate first — see that function's own doc
+comment). The original full-rebuild-every-tick approach got this for
+free, since elements were always re-appended in array order. A first diff
+draft only appended NEW elements, leaving reused ones parked at whatever
+DOM position they were first created at — meaning a reused aircraft's
+priority rank could silently drift out of sync with its DOM position over
+many ticks as other aircraft's relative priority changed around it,
+feeding decluttering a stale processing order. Fixed by having every
+element (reused or new) call `container.appendChild(el)` every render —
+on a node that already has that same parent this just MOVES it to the
+end rather than recreating it, so it stays cheap while keeping the
+"DOM order == current priority order" guarantee intact by construction.
+
+`clearIndicators()` (called on switching into AIR mode) now also clears
+both caches alongside its existing `container.innerHTML = ""` — without
+that, the maps would keep referencing now-detached nodes and the next
+NAV/RAW render would try to reuse/reposition elements that were never
+re-attached, instead of creating fresh ones.
+
+Verified with a real Playwright/Chromium harness (this project's
+established convention) driving the real `ui.js`/`aircraftSymbol.js`
+against stubbed `ThemeManager`/`ColorblindMode`/`NavDisplayStyle`, across
+two scripts: (1) element identity survives across ticks for an unchanged
+aircraft (tagged with a custom property, confirmed still present — proof
+of actual reuse, not just "looks the same"), positions update correctly
+on reused elements, removed aircraft are actually removed from the DOM,
+DOM order matches a reordered `indicators` array after the appendChild
+fix, a click always dispatches the CURRENT tick's data rather than a
+stale one captured at element-creation time, a full-indicator-to-
+suppressed-dot tier swap leaves no stale element of the old type behind,
+and `clearIndicators()` correctly forces fresh elements on the next
+render rather than reusing stale references; (2) `declutterRenderedIndicators()`
+runs cleanly across several diffed ticks with two overlapping-by-default
+aircraft, `selectAircraft()`'s `.selected` class survives element reuse
+without needing to be re-applied, and final label rects come out
+genuinely non-overlapping. All checks passed.
 
 ## Sandbox environment notes
 
