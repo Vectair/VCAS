@@ -1182,7 +1182,37 @@ magnetic declination (a few to +15-20° regional offset from true north,
 never corrected anywhere in this codebase) if the error is a small,
 consistent rotation rather than a wild one.
 
-## General conventions established this session
+## Recurring: blank screen / zero interactivity on load — transient script failure, not a code bug (seen at least twice now)
+
+Symptom, exact both times: map area completely blank (just the themed
+background, no tiles/markers), bottom bar shows the raw static
+placeholder text from `index.html` itself (`"No aircraft in range"` —
+`UI.setAircraftCount()` never ran to overwrite it), ADS-B status pill
+neutral/grey (never attempted a fetch), and **every button on screen is
+dead** — mode toggle, settings gear, route pin, all unresponsive. HTML/CSS
+render fine (they don't need JS); nothing underneath is alive.
+
+**Root cause**: `index.html` loads 25+ separate `<script>` tags
+synchronously with zero retry or error handling. If even one request
+hiccups — plausible right after a fresh deploy while GitHub Pages' CDN is
+still propagating, which is exactly when this has been reported both
+times — a later script referencing that missing script's globals throws a
+`ReferenceError` immediately, halting execution before `app.js`'s own
+`init()` ever gets to wire up event listeners. Confirmed NOT a real code
+regression each time by (1) a full syntax sweep across every touched file
+and (2) tracing every renamed/new function reference back to a real call
+site — both clean both times; a plain reload resolved it both times, which
+is the actual signature of a load-order/network-timing issue, not a logic
+bug.
+
+**Not yet done, worth doing eventually**: the current mitigation is
+"notice the exact symptom pattern, ask for a reload" — works, but this is
+the second time it's happened and the underlying fragility (no error
+handling on 25+ blocking synchronous script loads) is still unaddressed.
+A real fix — bundling into fewer files, or at minimum wrapping the script
+tags with load-error detection that shows a "reload" prompt instead of a
+silently-dead UI — hasn't been scoped or requested yet. Flag rather than
+silently re-diagnosing from scratch a third time if it recurs again.
 
 - Don't guess at third-party API shapes — verify against real, current docs
   (GitHub READMEs are usually reachable even when the service's own domain
