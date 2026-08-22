@@ -65,6 +65,24 @@ const CONFIG = {
   // stays hidden from NAV indicators before becoming eligible again.
   SUPPRESS_DURATION_SECONDS: 180,
 
+  // ---- Off-route detection / rerouting ----
+  // How far (perpendicular distance to the route polyline) counts as
+  // "off route" — generous enough to absorb ordinary GPS error and minor
+  // lane/carriageway offsets without false-triggering, tight enough to
+  // still catch a genuinely missed turn. Not mode-scoped (driving/cycling/
+  // walking all share it) — a V1 simplification, revisit if walking/cycling
+  // field use shows this needs its own tighter value the way GPS_HEADING_
+  // MIN_SPEED_MPH does.
+  OFF_ROUTE_THRESHOLD_METERS: 50,
+  // How long the user must stay CONTINUOUSLY beyond that threshold before
+  // a reroute actually fires — hysteresis against momentary GPS noise or
+  // briefly crossing a nearby parallel road/overpass, not a real deviation.
+  // Also doubles as the retry backoff if a reroute request itself fails
+  // (network hiccup, ORS error) — see _rerouteFromCurrentPosition() in
+  // app.js — so this stays reasonably short rather than tuned purely for
+  // the detection side.
+  OFF_ROUTE_REROUTE_DELAY_SECONDS: 6,
+
   // ---- Ground/Low-Altitude Clutter Suppression ----
   // Similar to a TCAS altitude filter — hides aircraft below a fixed height
   // so busy airports don't flood the display with taxiing/ground traffic.

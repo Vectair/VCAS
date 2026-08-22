@@ -1644,8 +1644,87 @@ checking remaining distance at the start (~full total), midpoint (~half),
 and near the end (small remainder) all matched hand-computed expectations,
 and the proportional duration scaling tracked distance proportionally as
 designed. README's "Route card ETA/distance don't count down live" bullet
-removed now that it's fixed; the off-route/rerouting gap (#1 above) is
-still open and unchanged.
+removed now that it's fixed.
+
+### Follow-up: off-route detection + rerouting (2026-08-22, same day)
+
+Fixed gap #1 above too, same session, once explicitly asked to go ahead.
+Two new `CONFIG` constants (`config.js`): `OFF_ROUTE_THRESHOLD_METERS`
+(50) — a flat perpendicular-distance cutoff from the route polyline —
+and `OFF_ROUTE_REROUTE_DELAY_SECONDS` (6) — how long the user has to stay
+continuously beyond that threshold before a reroute actually fires, and
+also (see below) the retry backoff on a failed reroute.
+
+**Detection** (`_checkOffRoute()`, app.js): measures the user's REAL
+perpendicular distance to the route — `RouteGeometry.nearestOnLine()` to
+find the nearest point, then `Geo.calculateDistanceMeters()` for the
+actual gap — deliberately a different question from what
+`_updateRouteCard()`/`ManeuverTracker` already compute (distance-ALONG
+the route from a snapped position, which always finds a nearest point
+regardless of how far away it really is and says nothing about deviation
+by itself). `_offRouteSinceMs` tracks when the user was FIRST found
+beyond the threshold, reset to `null` the moment they're back within it —
+a real deviation has to persist continuously for the full dwell delay,
+not just accumulate on-and-off, before `_rerouteFromCurrentPosition()`
+actually fires. Called from the same `refreshIndicators()` cadence
+`_updateRouteCard()`/`_updateGuidanceCard()` already run on (every GPS fix
++ the 500ms tick) — not a new timer, consistent with the same principle
+the power-efficiency pass and the ETA follow-up above both already
+established for this function.
+
+**Rerouting** (`_rerouteFromCurrentPosition()`, app.js): re-requests from
+`OrsProvider` using the user's current position as the new start and
+`routeDestLat`/`routeDestLon` — new module state, set once in
+`requestRouteTo()` and left untouched by a reroute — as the still-unchanged
+destination, so the user never has to re-pick anything. Two race
+conditions handled deliberately, not assumed away:
+
+- `_rerouteInFlight` guards against firing a second reroute request while
+  one's already out (the dwell check re-runs on every tick, including
+  while a slow request is still pending).
+- `_routeRequestToken` (new module state, same pattern `_destSearchToken`
+  already uses for the debounced destination search) guards against a
+  STALE reroute response clobbering a route the user has since cleared or
+  replaced with a different destination while the old request was still
+  in flight — captured before the `await`, checked after; a mismatch means
+  a newer request has superseded this one, so the stale result is
+  discarded rather than applied.
+
+A failed reroute (network hiccup, ORS error) doesn't retry on the very
+next tick — it resets `_offRouteSinceMs` to "now," so `_checkOffRoute()`
+only fires again once the same dwell delay has re-elapsed, avoiding
+hammering ORS every ~500ms-1s while genuinely off-route and failing.
+
+**UI feedback**: `_updateGuidanceCard()` shows "Rerouting…" (with a ↻
+icon) whenever `_rerouteInFlight` is true, overwriting whatever the old
+(now-wrong) instruction was for however long the request takes, rather
+than leaving stale guidance on screen — reuses the guidance card's
+existing DOM, no new UI element. Deliberately does NOT force
+`navFollowSuspended = false` or recenter the camera the way the initial
+`requestRouteTo()` does — a background reroute triggered mid-drive
+shouldn't yank the camera out from under a driver who may have manually
+panned away for a reason; only an explicit user action (picking a route)
+earns that.
+
+Verified with a Node simulation against the real `geo.js`/`routeGeometry.js`
+(not just reasoned through): a point exactly on the route reads as
+0m/on-route, a ~200m-offset point clearly exceeds the threshold, a small
+~20m offset (GPS-noise-sized) correctly stays within it. The dwell-timer
+state machine — reimplemented in the test to the exact same logic
+`_checkOffRoute()` uses — was checked against three scenarios: continuous
+deviation fires at exactly the dwell delay, a brief on-again-off-again
+blip that never sustains the full delay never fires, and a deviation that
+briefly returns on-route then goes off again correctly RESTARTS the dwell
+timer from the second departure rather than accumulating time across the
+on-route gap — all three matched hand-derived expectations exactly.
+
+**Not yet done / explicitly flagged rather than assumed fine:** the 50m
+threshold is a flat constant, not mode- or road-type-aware (see README's
+Known Limitations) — untuned against real field data, same caveat this
+file already carries for the driving-tuned camera speed thresholds. Also
+untested against a live ORS response for the same sandbox-network-access
+reason `ManeuverTracker`'s own steps parsing carries — worth confirming a
+real reroute request/response round-trips correctly once deployed.
 
 ## Recurring: blank screen / zero interactivity on load — transient script failure, not a code bug (seen at least twice now)
 

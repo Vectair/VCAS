@@ -28,6 +28,30 @@
   // Route state tracking
   let activeRoute   = null;
   let routeDestName = "";
+  // The destination itself, kept separately from activeRoute — a reroute
+  // (below) needs to re-request FROM the user's current position TO this
+  // same point, without making the user re-pick it. Set once in
+  // requestRouteTo(), untouched by a reroute (only the geometry/steps in
+  // activeRoute change), cleared alongside everything else in
+  // clearActiveRoute().
+  let routeDestLat = null, routeDestLon = null;
+  // Off-route detection / rerouting (see _checkOffRoute()/
+  // _rerouteFromCurrentPosition() below). _offRouteSinceMs is the
+  // timestamp the user was FIRST found beyond CONFIG.OFF_ROUTE_THRESHOLD_
+  // METERS from the active route, null while on-route — a real deviation
+  // has to persist for CONFIG.OFF_ROUTE_REROUTE_DELAY_SECONDS before a
+  // reroute actually fires, so momentary GPS noise or briefly crossing a
+  // nearby parallel road doesn't trigger one. _rerouteInFlight guards
+  // against firing a second request while one is already in progress.
+  let _offRouteSinceMs = null;
+  let _rerouteInFlight = false;
+  // Incremented on every requestRouteTo()/_rerouteFromCurrentPosition() call
+  // — same pattern as _destSearchToken below — so a slow/stale request that
+  // resolves after being superseded by a newer one (user cleared the route
+  // and picked a different destination while a reroute was still in
+  // flight, say) can tell it's stale and discard its own result instead of
+  // clobbering whatever's actually active now.
+  let _routeRequestToken = 0;
 
   // NAV indicator paging — which page of the ranked relevant-aircraft pool
   // is currently on screen, when there are more than the viewport cap.
@@ -1021,6 +1045,7 @@
     }
     _updateGuidanceCard(camConfig && camConfig.maneuver);
     _updateRouteCard();
+    _checkOffRoute();
 
     // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) — "as large
     // an area as possible" within the available content, matching a real
@@ -1365,6 +1390,7 @@
 
   async function requestRouteTo(lat, lon, label) {
     if (!userLat) return;
+    const myToken = ++_routeRequestToken;
 
     const btn = document.getElementById("btn-test-route");
     if (btn) { btn.disabled = true; }
@@ -1377,12 +1403,17 @@
 
     if (btn) { btn.disabled = false; }
 
+    if (myToken !== _routeRequestToken) return; // superseded by a newer request
+
     if (!route) {
       console.warn("Route request failed — check network or ORS availability/API key.");
       return;
     }
 
     activeRoute   = route;
+    routeDestLat  = lat;
+    routeDestLon  = lon;
+    _offRouteSinceMs = null; // fresh route from here — definitionally on it
     // A search result already has a real place name — much more useful on
     // the route card than raw coordinates, which is all tap-to-pick has.
     routeDestName = `${MODE_ICONS[routeMode]} ${label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`}`;
@@ -1411,6 +1442,10 @@
   function clearActiveRoute() {
     activeRoute   = null;
     routeDestName = "";
+    routeDestLat  = null;
+    routeDestLon  = null;
+    _offRouteSinceMs = null;
+    _rerouteInFlight = false;
     if (destPickActive) toggleDestPickMode();
     EosMap.clearRoute();
     CameraController.clearRoute();
@@ -1483,6 +1518,84 @@
       const mm = d.getMinutes().toString().padStart(2, "0");
       arrivalEl.textContent = hh + ":" + mm;
     }
+  }
+
+  /**
+   * Off-route detection — measures the user's real perpendicular distance
+   * to the active route polyline (not the "snapped" distance-along-route
+   * figures _updateRouteCard()/ManeuverTracker use, which always find a
+   * nearest point regardless of how far away it actually is). Beyond
+   * CONFIG.OFF_ROUTE_THRESHOLD_METERS continuously for
+   * CONFIG.OFF_ROUTE_REROUTE_DELAY_SECONDS triggers a reroute — the dwell
+   * requirement is deliberate hysteresis so momentary GPS noise or briefly
+   * crossing a nearby parallel road doesn't fire one. Called from the same
+   * refreshIndicators() cadence _updateRouteCard()/_updateGuidanceCard()
+   * already run on (every GPS fix + the 500ms tick), not a separate timer.
+   */
+  function _checkOffRoute() {
+    if (!activeRoute || userLat === null || userLon === null) { _offRouteSinceMs = null; return; }
+    const coords = activeRoute.geometry && activeRoute.geometry.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return;
+
+    const { point } = RouteGeometry.nearestOnLine(coords, userLon, userLat);
+    const distanceMeters = Geo.calculateDistanceMeters(userLat, userLon, point[1], point[0]);
+
+    if (distanceMeters <= CONFIG.OFF_ROUTE_THRESHOLD_METERS) {
+      _offRouteSinceMs = null;
+      return;
+    }
+
+    if (_offRouteSinceMs === null) {
+      _offRouteSinceMs = Date.now();
+      return;
+    }
+
+    const offRouteMs = Date.now() - _offRouteSinceMs;
+    if (offRouteMs >= CONFIG.OFF_ROUTE_REROUTE_DELAY_SECONDS * 1000 && !_rerouteInFlight) {
+      _rerouteFromCurrentPosition();
+    }
+  }
+
+  /**
+   * Re-requests a route FROM the user's current position TO the same
+   * destination they originally picked (routeDestLat/Lon — untouched by
+   * this, only activeRoute's own geometry/steps change) and swaps it in,
+   * without making the user re-pick anything. Guarded by _rerouteInFlight
+   * against firing a second request while one's already out, and by
+   * _routeRequestToken (same pattern as _destSearchToken above) against a
+   * stale response clobbering a route the user has since cleared or
+   * replaced while this was in flight.
+   */
+  async function _rerouteFromCurrentPosition() {
+    if (_rerouteInFlight || !activeRoute || routeDestLat === null || userLat === null) return;
+    _rerouteInFlight = true;
+    const myToken = ++_routeRequestToken;
+
+    const route = await OrsProvider.getRoute(
+      { lat: userLat, lon: userLon },
+      { lat: routeDestLat, lon: routeDestLon },
+      routeMode
+    );
+
+    _rerouteInFlight = false;
+    if (myToken !== _routeRequestToken) return; // superseded by a newer request
+
+    if (!route) {
+      // Retry after the same dwell delay rather than hammering ORS every
+      // tick while genuinely off-route and failing (network hiccup, ORS
+      // error) — _checkOffRoute() only fires again once _offRouteSinceMs
+      // is this old.
+      _offRouteSinceMs = Date.now();
+      console.warn("Reroute request failed — will retry.");
+      return;
+    }
+
+    activeRoute = route;
+    _offRouteSinceMs = null; // freshly rerouted — definitionally on it now
+
+    EosMap.showRoute(route.geometry);
+    CameraController.setRouteActive(route.geometry);
+    _updateRouteCard();
   }
 
   function _hideRouteCard() {
@@ -1560,6 +1673,17 @@
     const actionEl = document.getElementById("ngc-action-text");
     const iconEl   = document.getElementById("ngc-maneuver-icon");
     if (!actionEl || !iconEl) return;
+
+    // Surfaces the background reroute rather than leaving the old (now
+    // wrong) instruction on screen for however long the request takes —
+    // overwritten the moment _rerouteFromCurrentPosition() resolves and
+    // the next tick's ManeuverTracker call runs against the new route.
+    if (_rerouteInFlight) {
+      actionEl.textContent = "Rerouting…";
+      iconEl.textContent = "↻";
+      iconEl.style.transform = "rotate(0deg)";
+      return;
+    }
 
     const hasSteps = Array.isArray(activeRoute.steps) && activeRoute.steps.length > 0;
     const routeManeuver = (hasSteps && userLat !== null && userLon !== null)
