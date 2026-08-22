@@ -1092,6 +1092,96 @@ label-vs-other-icon overlaps in the actual rendered DOM: zero remaining,
 including in the dense case, and every icon's own rendered centre still
 matched its true plotted point exactly.
 
+## Compass "won't settle / settles wrong" while stationary (2026-08-22)
+
+Reported directly: standing still holding the phone, the heading doesn't
+settle or settles pointing the wrong way — "when mobile the compass works
+much better," which pins this squarely on `compassHeading.js` (the
+device-orientation fallback, only ever consulted below
+`CONFIG.GPS_HEADING_MIN_SPEED_MPH`/5mph; GPS course takes over entirely
+once actually moving, and that path wasn't reported as a problem).
+
+**A real sandbox limitation, stated plainly rather than glossed over**:
+unlike the MapLibre geometry bugs earlier in this session, a real
+magnetometer/device-orientation reading can't be produced in this
+environment at all — there's no hardware here, and no way to fabricate a
+physically-meaningful compass value the way a locally-installed MapLibre
+instance could be driven with synthetic map state. What COULD still be
+verified without a device: the base alpha→heading conversion's
+correctness against the actual W3C DeviceOrientation spec (a documentation/
+math question, not a hardware one), and the event-handling/smoothing
+LOGIC itself, by dispatching synthetic `deviceorientationabsolute`/
+`deviceorientation` events with controlled `alpha`/`absolute` properties
+at a real Chromium instance via Playwright — this doesn't prove the
+compass points the right way on a real phone, but it does prove the code
+around the sensor reading is doing what it claims to.
+
+**Finding 1 — re-derived the `360 - alpha` conversion from the spec's own
+coordinate frame definition, not just re-asserted it.** Per spec, `alpha`
+is a rotation of the device frame around Z (right-hand rule, Z pointing
+out of the screen) relative to Earth's frame; alpha=0 means the device's
+own "up" edge points at north, and — by the right-hand rule with Z
+pointing up — a positive alpha rotation is counter-clockwise as seen from
+above, i.e. alpha INCREASES as the device turns toward west. A compass
+heading increases turning the OTHER way (toward east). `360 - alpha` is
+exactly the flip needed to convert one rotational sense to the other
+while keeping the same zero-point. Verified via Playwright: alpha=0 →
+heading=0, alpha=90 → heading=270, both matching this derivation exactly.
+**This part was NOT the bug** — it checks out independent of any real
+device. (The screen-rotation correction two lines below it in the same
+function remains genuinely unverified against real hardware — matters
+for landscape/dash-mounted use, not this stationary-portrait report.)
+
+**Finding 2 — the actual fix, a real gap**: `_extractHeadingDeg()` never
+checked `event.absolute` before trusting a generic `alpha` reading as a
+compass heading. Per spec, a NON-absolute `deviceorientation` event's
+alpha can be relative to an arbitrary reference (e.g. wherever the device
+happened to be pointing when listening started) with NO fixed
+relationship to true/magnetic north at all — a documented real-world
+gotcha with this API. The dedicated `deviceorientationabsolute` event
+always fires with `absolute:true` by construction, so this only actually
+matters on the fallback path (plain `"deviceorientation"`, used when a
+browser doesn't support the dedicated absolute event) — exactly the
+scenario where silently treating a non-earth-referenced alpha as ground
+truth would produce a heading that's consistently, but essentially
+arbitrarily, wrong. Fixed by requiring `event.absolute === true` before
+the alpha branch runs at all (the `webkitCompassHeading`/iOS branch is
+inherently absolute and needs no such guard). Verified: a synthetic event
+with `absolute:false` now produces zero callback invocations — the
+reading is rejected outright, not just ignored downstream.
+
+**Finding 3 — heavier smoothing for stationary noise**: `SMOOTH_FACTOR`
+lowered from 0.25 to 0.1. Justified specifically because this module is
+ONLY ever consulted in the stationary/slow regime — there's no competing
+"must track a fast real turn" responsiveness need the way GPS heading
+smoothing has (see `GPS_HEADING_SMOOTH_FACTOR`, deliberately left
+untouched), so it's safe to lean hard toward stability. Real magnetometer
+noise/interference (nearby metal, electronics — common exactly in the
+stationary-indoor-testing scenario this was reported against) is the
+likely dominant source of visible "won't settle" jitter that no amount of
+correct math alone fixes; heavier damping is the direct mitigation.
+Verified via Playwright: after converging to a steady reading, a single
+90°-different sample now only nudges the smoothed estimate by ~6°
+(vector-EMA math, not a naive linear 9° estimate) instead of snapping
+toward it — confirms a single noisy/outlier sample can no longer dominate
+one update the way it could at the old factor.
+
+**Status: needs real-device field re-test**, honestly — Findings 2 and 3
+are well-reasoned and verified at the logic level, but neither can be
+confirmed to actually resolve the reported symptom without the project
+owner testing on their own phone again. If it's still wrong after this,
+the next things to check in order: (a) whether the fallback event name
+resolves to `deviceorientationabsolute` or plain `deviceorientation` on
+their specific device (the `event.absolute` guard would then be rejecting
+ALL readings on that device if it never fires with `absolute:true`,
+which would look like "heading never updates at all" rather than "wrong
+direction" — a different, distinguishable symptom worth asking about
+specifically); (b) the still-unverified screen-rotation correction, if
+they're testing landscape/mounted rather than handheld portrait; (c)
+magnetic declination (a few to +15-20° regional offset from true north,
+never corrected anywhere in this codebase) if the error is a small,
+consistent rotation rather than a wild one.
+
 ## General conventions established this session
 
 - Don't guess at third-party API shapes — verify against real, current docs
