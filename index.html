@@ -25,14 +25,19 @@
   <!-- MapLibre GL JS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css" />
 
-  <!-- B612 — the actual typeface used on Airbus flight deck displays
-       (PFD/ND/ECAM), designed by Airbus with Google Fonts specifically for
-       cockpit legibility. Chosen to extend the cockpit-panel rebrand (see
-       CLAUDE.md) from color/shape into typography — this is the one part
-       of that rebrand that's a literal, not just inspired-by, match. -->
+  <!-- B612 / B612 Mono — the actual typefaces used on Airbus flight deck
+       displays (PFD/ND/ECAM), designed by Airbus with Google Fonts
+       specifically for cockpit legibility. Chosen to extend the
+       cockpit-panel rebrand (see CLAUDE.md) from color/shape into
+       typography — this is the one part of that rebrand that's a literal,
+       not just inspired-by, match. B612 Mono only ships weight 400 (no
+       bold) — used specifically for the numeric/digital-readout areas a
+       real Airbus panel itself renders in monospace (ND heading/range,
+       PFD-style ETA/distance readouts, TCAS/ND altitude tags, the aircraft
+       detail popup's data rows), not applied app-wide the way B612 is. -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono&display=swap" />
 
   <!-- App styles -->
   <link rel="stylesheet" href="src/styles/VCAS.css?v=__BUILD_ID__" />

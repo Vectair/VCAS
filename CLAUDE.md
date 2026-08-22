@@ -1165,10 +1165,9 @@ all gated behind hidden developer mode per the "Architecture map"'s own
 history) — left on their existing `ui-monospace, "Cascadia Code", "Fira
 Code", monospace` stack. Same scope boundary the palette/button pass
 above already drew: these are developer tooling, not primary app chrome,
-and weren't part of what was asked. (B612 Mono — a real companion
-monospace face, also actually used for numeric cockpit readouts — would
-be a natural fit if these panels are ever brought into scope, but that's
-a new, separately-agreed follow-up, not an implied gap in this one.)
+and weren't part of what was asked. B612 Mono (below) was later added
+specifically to the app's own numeric-readout areas, still deliberately
+excluding these three panels for the same reason.
 
 Verified two ways: (1) the Google Fonts CSS endpoint itself, fetched with
 a real browser User-Agent (this sandbox's plain `curl` — no UA — gets
@@ -1182,6 +1181,60 @@ resolving to `B612` first in the chain — not just requested, confirmed
 actually applied and rendered (the sample screenshot shows B612's
 distinctive geometric, open-counter character, matching its cockpit-
 legibility design brief).
+
+#### Follow-up: B612 Mono for numeric readouts (2026-08-22, same day)
+
+Direct instruction: "include the monospace for the areas that is utilized
+in the Airbus" — i.e. don't apply B612 Mono blanket-wide, apply it
+specifically where a real Airbus panel itself renders digits in
+monospace (PFD/ND digital tapes, MCDU/data-page numeric columns), mirroring
+that same "display face for labels, monospace for digital values"
+convention VCAS's own reference photo shows. Added `family=B612+Mono` to
+the existing Google Fonts link (`index.html`) — only weight 400 ships for
+B612 Mono (no real bold face; a `font-weight:600/700/800` rule on it gets
+the browser's own synthesized bold, same accepted simplification as B612
+itself) — then scoped `font-family: 'B612 Mono', monospace` to the actual
+numeric-readout elements, leaving every label/text element on regular
+B612:
+
+- `.route-eta-time` / `.route-eta-arrival` / `#route-dist-text` — the
+  ETA card's big time/arrival-clock/distance readouts, VCAS's own
+  equivalent of a real ND's flight-data strip (see "Vehicle/route info
+  strip" above) — but NOT `#route-dest-name` (a place name) or
+  `.route-eta-sub` as a whole, which shares that span with the place name.
+- `.indicator-label .indicator-altitude` and `.air-label-box
+  .indicator-altitude` — the NAV/RAW and AIR traffic tag altitude figures
+  (a real TCAS/ND altitude readout is digital) — but not `.actype`
+  (aircraft type text) alongside it.
+- `#popup .pop-val` — the aircraft detail popup's Distance/Altitude/
+  Bearing/Speed/Updated values, VCAS's own data-page equivalent of an
+  MCDU/ND secondary page's aligned numeric columns — but not `.pop-key`
+  (the label beside each value) or `.pop-callsign`/`.pop-type` (text, not
+  digits).
+- `#btn-raw-range` — the ND-style range-selector button's digit readout
+  (e.g. "10NM"), matching a real ND's own range annunciation.
+- `#nav-compass-ring text` — a single rule covering every raw SVG `<text>`
+  element `ui.js`'s `renderCompassRing()` generates (heading tick labels,
+  the digital heading box, the speed/route info strip), rather than
+  threading `font-family` into each of that function's inline
+  `style="..."` strings individually — none of those inline styles set
+  `font-family` themselves, so the external rule always wins.
+
+Still deliberately excluded: the three developer-only debug panels (VIEW/
+SPD/LOG, see above) and the Stage 3 aircraft-list panel's `.rlr-meta` row
+text (mixes type text with alt/range figures inline — "B738 · 5,200ft ·
+12.4nm" — rather than being a clean digits-only readout the way the
+others above are, so it stayed on B612 rather than being force-split).
+
+Verified with a real Playwright/Chromium render of a harness reproducing
+each target element against the actual `VCAS.css`: every listed selector
+resolves its computed `font-family` to `'B612 Mono', monospace`, every
+adjacent label/text element (destination name, pop-key, actype) correctly
+stays on `B612`'s regular display face, and the rendered screenshot shows
+B612 Mono's fixed-width digit shapes on the numeric values next to
+proportional B612 text on the labels beside them — not just requested,
+confirmed actually applied per-element, matching the intended "digital
+readout vs. display label" split a real cockpit panel itself uses.
 
 ## Power efficiency pass (2026-08-22)
 
