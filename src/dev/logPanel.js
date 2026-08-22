@@ -51,6 +51,14 @@ const LogPanel = (() => {
   function _open()  { _menuOpen = true;  document.getElementById("lp-menu").classList.remove("hidden"); _render(); }
   function _close() { _menuOpen = false; document.getElementById("lp-menu")?.classList.add("hidden"); }
 
+  /** Lets callers (app.js's refreshIndicators) skip computing the full
+   * Indicators.buildAll() pass — a relevance/visibility scan over every
+   * tracked aircraft, not just the ones NAV shows — when this panel isn't
+   * even open to display it. update() below already no-ops its own render
+   * in that case; this lets the caller avoid the far more expensive
+   * upstream computation too. */
+  function isOpen() { return _menuOpen; }
+
   /**
    * @param {Array} trackedList  Result of Indicators.buildAll(aircraftList, userState, staleThresholdSeconds).
    * @param {object} userState   { lat, lon, heading, speedMph }
@@ -116,5 +124,5 @@ const LogPanel = (() => {
     if (_menuOpen) _render(); // refresh fallback-count badge if it just changed
   }
 
-  return { init, update };
+  return { init, update, isOpen };
 })();

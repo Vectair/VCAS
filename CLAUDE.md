@@ -1126,6 +1126,74 @@ CSS, or extending the bevel language to popup buttons like
 `.pop-suppress-btn`/`.pop-log-btn`) should be treated as a new,
 separately-agreed follow-up, not an implied gap in this one.
 
+## Power efficiency pass (2026-08-22)
+
+Direct report: "it seems to consume quite a lot of power... can we improve
+it's every use?" Read through the GPS/sensor/render loop in app.js,
+map/cameraController.js, and ui.js before changing anything, to find real
+drains rather than guessing. Findings, roughly biggest-to-smallest:
+
+1. **`refreshIndicators()` runs from two independent, uncoordinated
+   triggers** — every single GPS fix (`onGpsSuccess`, in `mode === "nav"`)
+   AND a separate 500ms `renderTickTimer` (`_extrapolationRenderTick`,
+   added 2026-08-20 for extrapolation smoothing — see the "Architecture
+   map" entry for `aircraftExtrapolation.js`) — so the full pipeline
+   (camera/square-layout math, `Indicators.build()`, a full
+   `container.innerHTML = ""` + rebuild of every indicator element in
+   `UI.renderIndicators()`, then `UI.declutterRenderedIndicators()`'s
+   `getBoundingClientRect()` layout-thrash across every icon/label/leader
+   candidate) can run 2-5×/sec, not the ~2Hz the 500ms tick alone would
+   suggest. **Not fixed this pass** — real fix is a bigger rendering-
+   pipeline rework (diff `renderIndicators()` by hex and reuse DOM nodes,
+   the same pattern `EosMap.renderAirMarkers` already uses for exactly
+   this reason — see that entry in "Architecture map") that the project
+   owner deliberately deferred to a later, larger pass rather than doing
+   inline here. Flagging so it isn't rediscovered from scratch: this is
+   the single biggest remaining lever if further reduction is wanted.
+2. **Fixed: the compass/device-orientation sensor listened continuously,
+   not just while its readings were used.** `onCompassHeading()` already
+   discarded every reading above `CONFIG.GPS_HEADING_MIN_SPEED_MPH`
+   (5mph) — GPS course wins once actually moving, see "Compass 'won't
+   settle'" above — but `CompassHeading.stop()` (it exists) was never
+   called anywhere; `start()` ran once at init and the magnetometer/
+   gyro listener stayed live for the entire session regardless of speed,
+   waking the JS thread on every sensor reading during the majority of an
+   actual drive for data that was immediately thrown away. Fixed by
+   toggling `CompassHeading.stop()`/`start()` in `onGpsSuccess` on the
+   same speed threshold, gated behind a new `compassPermissionGranted`
+   flag so it never races iOS's one-time permission-gesture requirement.
+   Both calls are idempotent (compassHeading.js's own `_listening` check),
+   so calling on every GPS fix is safe/cheap.
+3. **Fixed: `Indicators.buildAll()` — a full relevance/visibility pass over
+   every tracked aircraft, not just the ones NAV shows — ran unconditionally
+   on every `refreshIndicators()` call, purely to feed the LOG ground-truth
+   panel.** `LogPanel.update()` already no-ops its own DOM render when the
+   panel's menu isn't open, but the expensive upstream computation feeding
+   it ran regardless — real cost paid every ~500ms-1s for a panel that's
+   closed the vast majority of the time (it's a diagnostic/observation
+   tool, not primary UI). Added `LogPanel.isOpen()` and skip the
+   `buildAll()` call entirely when closed. Trade-off, accepted as fine for
+   a diagnostic panel: `_tracked` can be up to one tick (≤500ms) stale
+   right after re-opening the panel, self-healing on the next call.
+4. **Confirmed NOT an issue, checked rather than assumed:** MapLibre isn't
+   forced into continuous repaint anywhere (no `repaint`/`preserveDrawing
+   Buffer` overrides in map.js) — it renders on-demand as designed.
+   `CameraController`'s frame-driven `jumpTo()`/`panBy()` animation loop
+   (see "Camera anchor math" above) is bounded to ~400ms per redirect and
+   self-cancels/redirects via a single `_animFrameHandle`, not stacking
+   multiple concurrent loops when GPS fixes arrive faster than the anim
+   duration. ADS-B polling (3s) and METAR refresh (15min) were left
+   untouched — deliberate existing cadences, not identified as the
+   dominant cost here relative to #1-#3 above.
+
+**Not done, explicitly out of scope for this pass** (per direct
+instruction — this pass covers only the "safe wins," items 2 and 3
+above): the `renderIndicators()` DOM-diffing rework (item 1), and no
+attempt to pause GPS/fetch/render loops on Page Visibility (`document.
+hidden`) — VCAS is a screen-on navigation app by design (WakeLock keeps
+the screen alive while navigating), so background-tab pausing has limited
+real-world payoff here and wasn't investigated further this pass.
+
 ## Sandbox environment notes
 
 Outbound network is policy-filtered; blocked domains seen this session

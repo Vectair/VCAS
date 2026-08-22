@@ -13,6 +13,13 @@
   let userSpeedMph = 0;
   let aircraftList = [];
   let gpsWatchId = null;
+  // Set once CompassHeading is actually allowed to listen (Android: always,
+  // once initCompassHeading() runs; iOS: only after the user grants the
+  // explicit permission prompt) — lets onGpsSuccess safely stop()/start()
+  // the sensor listener based on speed without racing iOS's one-time
+  // permission gesture (see the power-efficiency note by CompassHeading.stop()
+  // below for why this toggling exists at all).
+  let compassPermissionGranted = false;
   let fetchTimer = null;
   let renderTickTimer = null;
   let lastFetchTime = null;
@@ -589,6 +596,22 @@
       userHeading = _smoothGpsHeading(pos.coords.heading);
     }
 
+    // Power: the device-orientation sensor (magnetometer/gyro) keeps the
+    // JS thread waking on every reading for as long as something is
+    // listening, whether or not onCompassHeading() actually uses the
+    // value — and it never does above GPS_HEADING_MIN_SPEED_MPH (GPS
+    // course wins there, see onCompassHeading's own matching check). Most
+    // of an actual drive is spent above that threshold, so stop()ing the
+    // listener there — and start()ing it again once slow/stopped, where
+    // it's the only source of heading — cuts a continuous sensor drain
+    // down to just the stationary/slow portion of a session where it's
+    // actually read. Both calls are idempotent (no-op if already in the
+    // requested state), so this is safe to run on every single GPS fix.
+    if (compassPermissionGranted) {
+      if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) CompassHeading.stop();
+      else CompassHeading.start(onCompassHeading);
+    }
+
     if (!window._mapInitialised) {
       window._mapInitialised = true;
       EosMap.init("map", userLat, userLon, _effectiveMapTheme(ThemeManager.getResolved()));
@@ -715,10 +738,14 @@
       UI.showCompassPermissionBanner(true, async () => {
         const granted = await CompassHeading.requestPermission();
         UI.showCompassPermissionBanner(false);
-        if (granted) CompassHeading.start(onCompassHeading);
+        if (granted) {
+          compassPermissionGranted = true;
+          CompassHeading.start(onCompassHeading);
+        }
       });
     } else {
       // Android/others: no explicit permission needed.
+      compassPermissionGranted = true;
       CompassHeading.start(onCompassHeading);
     }
   }
@@ -1054,11 +1081,21 @@
 
     // Ground-truth log panel gets everything tracked, unfiltered — including
     // aircraft the relevance gate excluded, since logging "the algorithm was
-    // wrong to hide this" is the whole point.
-    LogPanel.update(
-      Indicators.buildAll(currentAircraft, userState, CONFIG.STALE_THRESHOLD_SECONDS),
-      userState
-    );
+    // wrong to hide this" is the whole point. Indicators.buildAll() is a
+    // full second relevance/visibility pass over every tracked aircraft
+    // (not just the ones NAV shows) — real cost, run every ~500ms-1s by
+    // this function's own callers, purely to feed a panel that's closed
+    // the vast majority of the time (LogPanel.update() already no-ops its
+    // own render then). Skipping the computation itself when the panel
+    // isn't open leaves _tracked briefly stale for at most one tick after
+    // it's re-opened (the next refreshIndicators() call sees isOpen()
+    // true and refreshes it), which is a fine trade for a diagnostic tool.
+    if (LogPanel.isOpen()) {
+      LogPanel.update(
+        Indicators.buildAll(currentAircraft, userState, CONFIG.STALE_THRESHOLD_SECONDS),
+        userState
+      );
+    }
 
     // ND range selector split — vis.slantRangeNm is the SAME figure
     // Indicators.build() plotted the dot's radius from (see indicators.js),
