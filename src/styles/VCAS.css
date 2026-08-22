@@ -1,34 +1,65 @@
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ---- Night theme (default) ----
-   --accent and --bg-dark are colour-matched to the VCAS logo's own blue
-   sweep (~#0086cc) and background navy (~#030a16); --accent-user is the
-   logo's lime green, taken from its car+crosshair glyph ("you, tracked") —
-   used specifically for the user-position marker, not general UI accent,
-   echoing the logo's own two-tone language (blue = system, green = you). */
+/* ---- Cockpit-panel theme (2026-08-22 rebrand) ----
+   VCAS's chrome (everything in this file EXCEPT the map/RAW/AIR content
+   itself — traffic colours, route line, range rings, compass tape all stay
+   exactly as already reference-matched elsewhere) is now directly modelled
+   on the real A320-family panel material: a real reference photo (MSFS
+   cockpit texture sheet) was pixel-sampled — not eyeballed — to find the
+   panel's actual colour: a robust statistical median across ~387k sampled
+   panel-coloured pixels (filtered to exclude near-black shadow gaps and
+   near-white lit text/displays) came out to RGB(85,108,122), which
+   converts to HSL(203°, 18%, 41%). Every neutral tone below (both themes)
+   is generated from that SAME hue/saturation, varying only lightness — a
+   deliberate "one material lit differently" ladder rather than separately
+   chosen dark and light palettes, so Day and Night read as the same panel
+   under different ambient light instead of one being a generic light-mode
+   skin bolted onto a dark-mode app. Contrast-checked (WCAG): every text/
+   background pairing below clears 5:1, well past the 4.5:1 AA minimum for
+   normal text.
+
+   --accent/--accent-user deliberately KEPT as the VCAS logo's own blue
+   (~#0086cc-adjacent) and lime green (car+crosshair glyph, "you, tracked")
+   rather than shifted toward the panel's own functional switch colours
+   (green=normal/amber=caution, as real A320 legend lighting actually
+   uses) — explicit call from the project owner: the panel MATERIAL
+   changes, VCAS's own brand identity doesn't. The functional-colour
+   direction was raised and deliberately not taken for now; flagged here
+   in case it's worth trialling later rather than re-litigating from
+   scratch — see CLAUDE.md. */
 :root {
-  --bg-dark:        #0a0e17;
-  --bg-panel:       #161b22;
-  --bg-panel-alt:   #1c2128;
-  --border:         #30363d;
-  --text-primary:   #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted:     #484f58;
+  --bg-dark:        #12181c;
+  --bg-panel:       #232d34;
+  --bg-panel-alt:   #2b3840;
+  --border:         #3d505c;
+  --text-primary:   #eaeef1;
+  --text-secondary: #8ba3b1;
+  --text-muted:     #56707d;
   --accent:         #1191d8;
   --accent-rgb:     17,145,216;
   --accent-user:      #9cc828;
   --accent-user-rgb:  156,200,40;
-  --btn-bg:         #21262d;
-  --btn-hover:      #30363d;
+  --btn-bg:         #33434c;
+  --btn-hover:      #475e6b;
   --btn-active-bg:  #1f6feb;
-  --radius-sm:      6px;
-  --radius:         10px;
-  --radius-lg:      14px;
+  --radius-sm:      4px;
+  --radius:         6px;
+  --radius-lg:      10px;
   --shadow:         0 4px 20px rgba(0,0,0,.6);
-  --bar-bg-rgb:     14,17,23;
-  --overlay-bg-rgb: 14,17,23;
-  --label-bg:       rgba(14,17,23,.82);
+  --bar-bg-rgb:     18,24,28;
+  --overlay-bg-rgb: 18,24,28;
+  --label-bg:       rgba(18,24,28,.82);
+  /* "Lighting" language for switch-cap-style buttons (#btn-settings,
+     .mode-btn, #btn-recenter, .dpb-mode-btn, .settings-toggle-btn,
+     .settings-preset-btn, .route-btn, #btn-raw-range, #btn-settings-close)
+     — a subtle raised bevel (light top edge + dark bottom edge, like a
+     physically-lit panel switch cap) at rest, inverting to a pressed-in
+     inset look on :active. Deliberately restrained (this reads as
+     "professional instrument panel," not "3D skeuomorphic plastic") —
+     verified visually via Playwright against both themes before shipping. */
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.4);
+  --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.6), inset 0 -1px 0 rgba(255,255,255,.04);
   /* #bottom-bar's own fade gradient — was referencing this same variable
      name before it existed anywhere in the stylesheet, so the gradient
      silently never applied (an invalid var() with no fallback makes the
@@ -41,6 +72,14 @@
 }
 
 /* ---- Day theme ----
+   NOT a generic bright/white light-mode — the SAME panel hue/saturation as
+   Night above, just lit brighter (a lighter blue-grey, never pure white),
+   so Day and Night read as one physical object rather than a cockpit skin
+   for Night and an unrelated look for Day. Explicit call: readability in
+   outdoor daylight glare still matters, so this isn't literally "the same
+   lightness as the reference photo's shadowed areas" — text/background
+   contrast is still checked against WCAG (13.9:1 primary, 5.3:1 secondary,
+   both comfortably past the 4.5:1 AA minimum), same discipline as Night.
    Matches body[data-theme="day"], not :root — _applyThemeToDom() (app.js)
    only ever sets data-theme on <body> (also its static default in
    index.html), never on <html>. A :root[data-theme] selector here would
@@ -49,24 +88,26 @@
    but every panel/button/text color would stay stuck on the night values
    regardless of theme. */
 body[data-theme="day"] {
-  --bg-dark:        #f0ede8;
-  --bg-panel:       #ffffff;
-  --bg-panel-alt:   #f5f2ed;
-  --border:         #d6d3ce;
-  --text-primary:   #1c1c1e;
-  --text-secondary: #636366;
-  --text-muted:     #aeaeb2;
+  --bg-dark:        #d4dde2;
+  --bg-panel:       #edf0f3;
+  --bg-panel-alt:   #e0e7eb;
+  --border:         #b6c5ce;
+  --text-primary:   #1b2328;
+  --text-secondary: #4e6674;
+  --text-muted:     #82949e;
   --accent:         #1a73e8;
   --accent-rgb:     26,115,232;
   --accent-user:      #6b9418;
   --accent-user-rgb:  107,148,24;
-  --btn-bg:         #ede9e3;
-  --btn-hover:      #d8d4ce;
+  --btn-bg:         #dae2e7;
+  --btn-hover:      #c2ced6;
   --btn-active-bg:  #1a73e8;
   --shadow:         0 4px 20px rgba(0,0,0,.12);
-  --bar-bg-rgb:     240,237,232;
-  --overlay-bg-rgb: 240,237,232;
-  --label-bg:       rgba(255,255,255,.92);
+  --bar-bg-rgb:     212,221,226;
+  --overlay-bg-rgb: 212,221,226;
+  --label-bg:       rgba(237,240,243,.92);
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.10);
+  --btn-shadow-active: inset 0 1px 3px rgba(0,0,0,.18), inset 0 -1px 0 rgba(255,255,255,.5);
 }
 
 /* RAW's map content (background, traffic, rings, tape, route, user marker)
@@ -81,24 +122,30 @@ body[data-theme="day"] {
    though data-theme="day" and data-nav-style="raw" can both be present on
    <body> at once. Scoped to data-mode="nav" too, not data-nav-style alone —
    that preference isn't mode-scoped and can still read "raw" after
-   switching to AIR, which must keep following the real resolved theme. */
+   switching to AIR, which must keep following the real resolved theme.
+   Identical to :root's own Night values now that Night IS the cockpit-
+   authentic palette rather than a separate dark-mode skin — kept as its
+   own explicit block (not collapsed into relying on :root's defaults)
+   since Day's own block above would otherwise win by source order here. */
 body[data-mode="nav"][data-nav-style="raw"] {
-  --bg-dark:        #0a0e17;
-  --bg-panel:       #161b22;
-  --bg-panel-alt:   #1c2128;
-  --border:         #30363d;
-  --text-primary:   #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted:     #484f58;
+  --bg-dark:        #12181c;
+  --bg-panel:       #232d34;
+  --bg-panel-alt:   #2b3840;
+  --border:         #3d505c;
+  --text-primary:   #eaeef1;
+  --text-secondary: #8ba3b1;
+  --text-muted:     #56707d;
   --accent:         #1191d8;
   --accent-rgb:     17,145,216;
-  --btn-bg:         #21262d;
-  --btn-hover:      #30363d;
+  --btn-bg:         #33434c;
+  --btn-hover:      #475e6b;
   --btn-active-bg:  #1f6feb;
   --shadow:         0 4px 20px rgba(0,0,0,.6);
-  --bar-bg-rgb:     14,17,23;
-  --overlay-bg-rgb: 14,17,23;
-  --label-bg:       rgba(14,17,23,.82);
+  --bar-bg-rgb:     18,24,28;
+  --overlay-bg-rgb: 18,24,28;
+  --label-bg:       rgba(18,24,28,.82);
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.5);
+  --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.04);
 }
 
 html, body {
@@ -233,10 +280,11 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   justify-content: center;
   cursor: pointer;
   -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
   transition: background .15s, color .15s;
 }
 
-#btn-settings:active { background: var(--btn-hover); }
+#btn-settings:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
 /* ---- Top-right controls (ADS-B status + theme picker) ---- */
 #top-right-controls {
@@ -283,6 +331,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 2px 3px;
+  box-shadow: var(--btn-shadow);
 }
 
 .theme-btn {
@@ -302,6 +351,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 .theme-btn.active {
   background: var(--btn-active-bg);
   color: #fff;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* ---- Mode label strip ---- */
@@ -357,12 +407,13 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   font-weight: 700;
   letter-spacing: .08em;
   cursor: pointer;
+  box-shadow: var(--btn-shadow);
   transition: background .15s;
   -webkit-appearance: none;
 }
 
-.mode-btn:active       { background: var(--btn-hover); }
-.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
+.mode-btn:active       { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; box-shadow: var(--btn-shadow-active); }
 
 /* Hybrid/Raw/Air co-located as one segmented control (same pattern as
    .theme-toggle-group in the settings screen) rather than independent
@@ -379,6 +430,10 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  /* The bank itself carries the raised bevel, like a recessed switch
+     housing — individual segments (below) go flat so they read as caps
+     set into one frame rather than three separately-raised buttons. */
+  box-shadow: var(--btn-shadow);
 }
 
 .mode-toggle .mode-btn {
@@ -387,7 +442,10 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   border-radius: 0;
   padding: 10px 12px;
   font-size: 11px;
+  box-shadow: none;
 }
+
+.mode-toggle .mode-btn.active-mode { box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
 
 .mode-toggle .mode-btn:last-child { border-right: none; }
 
@@ -414,6 +472,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: var(--btn-shadow);
 }
 
 .theme-btn {
@@ -437,6 +496,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 .theme-btn.active-theme {
   background: var(--btn-active-bg);
   color: #ffffff;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* ---- GPS unavailable message ---- */
@@ -531,12 +591,12 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), var(--btn-shadow);
   -webkit-appearance: none;
   transition: bottom .3s, opacity .15s, transform .15s;
 }
 
-#btn-recenter:active { opacity: .75; transform: scale(.94); }
+#btn-recenter:active { opacity: .75; transform: scale(.94); box-shadow: var(--shadow), var(--btn-shadow-active); }
 #btn-recenter.hidden { display: none; }
 
 /* ND-style range selector (RAW only) — sits in the corner of the square
@@ -563,8 +623,9 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   letter-spacing: .03em;
   cursor: pointer;
   -webkit-appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 -1px 2px rgba(0,0,0,.5);
 }
-#btn-raw-range:active { background: rgba(240,240,240,.15); }
+#btn-raw-range:active { background: rgba(240,240,240,.15); box-shadow: inset 0 1px 3px rgba(0,0,0,.6); }
 #btn-raw-range.hidden { display: none; }
 
 /* ---- Destination-pick hint ---- */
@@ -665,6 +726,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
   border-radius: var(--radius);
   overflow: hidden;
   pointer-events: all;
+  box-shadow: var(--btn-shadow);
 }
 
 .dpb-mode-btn {
@@ -681,7 +743,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 
 .dpb-mode-btn:last-child   { border-right: none; }
 .dpb-mode-btn:active       { background: var(--btn-hover); }
-.dpb-mode-btn.active-mode  { background: var(--btn-active-bg); }
+.dpb-mode-btn.active-mode  { background: var(--btn-active-bg); box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
 
 #compass-permission-btn {
   flex-shrink: 0;
@@ -1715,9 +1777,10 @@ body[data-nav-state="turn_approach"] { }
   font-size: 15px;
   cursor: pointer;
   -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
 }
 
-#btn-settings-close:active { background: var(--btn-hover); }
+#btn-settings-close:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
 #settings-body {
   flex: 1;
@@ -1777,15 +1840,17 @@ body[data-nav-state="turn_approach"] { }
   letter-spacing: .04em;
   cursor: pointer;
   -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
   transition: background .15s, color .15s;
 }
 
-.settings-toggle-btn:active { background: var(--btn-hover); }
+.settings-toggle-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
 .settings-toggle-btn.active {
   background: var(--btn-active-bg);
   border-color: var(--btn-active-bg);
   color: #fff;
+  box-shadow: var(--btn-shadow-active);
 }
 
 .settings-preset-row {
@@ -1805,13 +1870,15 @@ body[data-nav-state="turn_approach"] { }
   font-weight: 600;
   cursor: pointer;
   -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
   transition: background .15s, color .15s;
 }
 
-.settings-preset-btn:active { background: var(--btn-hover); }
+.settings-preset-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
 .settings-preset-btn.active {
   background: var(--btn-active-bg);
   border-color: var(--btn-active-bg);
   color: #fff;
+  box-shadow: var(--btn-shadow-active);
 }

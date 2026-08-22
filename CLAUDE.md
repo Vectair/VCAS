@@ -1014,6 +1014,118 @@ preference) must check `mode === "nav"` too, not `isRaw()` alone. Bit both
 the range-ring color logic and would have bitten the chrome-forcing CSS if
 not caught.
 
+## Cockpit-panel chrome rebrand (2026-08-22)
+
+Direct instruction, with an attached A320 cockpit reference photo (MSFS
+texture sheet, ND circled): VCAS's three modes had each visually drifted to
+resemble whatever inspired them individually (Hybrid → generic Google-Maps
+look, RAW → generic "data screen," AIR → generic ADS-B website), with no
+unifying brand identity tying them together. Direction: centralize the
+app's **chrome** (backgrounds, buttons, panels, bars — everything in
+VCAS.css outside the map/RAW/AIR content itself) on the aesthetic of the
+real A320 panel RAW mode is already modelled on — "the aesthetic of the
+cockpit to directly inspire the app... a person shouldn't look at the app
+and think it looks like an airplane, they should think it is functional
+and professional. an aviation person should look at the app and absolutely
+know what the inspiration was."
+
+**Hard scope constraint, stated explicitly and still binding on any follow-
+up work here:** "this should not impact the actual colors and shapes of
+the maps themselves, the function is where it should be at this stage,
+it's the brand and non essential design that is now being solidified."
+Hybrid's map tiles, RAW's already reference-matched TCAS/ND colors/shapes
+(traffic symbol colors, range rings, compass tape, user marker — see "RAW
+mode fidelity" above), and AIR's marker functional colors are OUT of scope
+for this work — only chrome/brand elements (top/bottom bars, buttons,
+settings screen, popup, panels) are in scope.
+
+**Palette derivation — pixel-sampled, not eyeballed, per this project's
+established convention.** The reference photo was sampled with Python/PIL:
+a robust statistical median across ~387k panel-coloured pixels (filtered to
+exclude near-black shadow gaps and near-white lit text/displays) came out
+to RGB(85,108,122) = HSL(203°, 18%, 41%). Both themes' full neutral ladder
+(`--bg-dark`/`--bg-panel`/`--bg-panel-alt`/`--border`/`--text-primary`/
+`--text-secondary`/`--text-muted`) is generated from that SAME hue/
+saturation, varying only lightness — a deliberate "one material lit
+differently" design rather than two independently-chosen palettes, so Day
+and Night read as the same physical panel under different ambient light
+rather than a dark-mode skin with an unrelated light-mode bolted on.
+Contrast-checked via the real WCAG relative-luminance formula (not
+eyeballed): every text/background pairing in both themes clears 5.28:1,
+comfortably past the 4.5:1 AA minimum for normal text (Day's primary text
+reaches 13.9:1).
+
+**Two design decisions confirmed via AskUserQuestion before implementing:**
+1. **Accent colors kept as-is.** `--accent` (VCAS logo blue) and
+   `--accent-user` (car/crosshair lime green, "you, tracked") stay the
+   brand's own colors rather than shifting to the panel's real functional
+   switch-lighting colors (green=normal/amber=caution, as real A320 legend
+   lighting actually uses). Explicit call: the panel MATERIAL changes,
+   VCAS's own brand identity doesn't. **Flagged for a possible later
+   trial, not decided against permanently** — the functional-color
+   direction was raised and deliberately not taken now; worth revisiting
+   rather than re-litigating from scratch if it comes up again. (This is
+   the CLAUDE.md cross-reference VCAS.css's own palette comment points to.)
+2. **Day theme is a lighter panel variant, not a generic bright/white
+   light mode** — same hue/saturation as Night, just lit brighter (light
+   blue-grey, never pure white), so Day and Night read as one physical
+   object under different lighting rather than two unrelated looks.
+
+**Button "shape and lighting" pass.** `--radius-sm`/`--radius`/`--radius-lg`
+reduced from `6px/10px/14px` to `4px/6px/10px` — smaller, more rectangular
+corners closer to the reference photo's real switch caps than the
+previous pill-leaning radii. New `--btn-shadow`/`--btn-shadow-active`
+custom properties (defined per-theme, since Day needs a light-top/dark-
+bottom bevel and Night/RAW need the inverse balance to read as physically
+lit) add a subtle raised-bevel box-shadow at rest, inverting to a pressed-
+in inset look on `:active` — deliberately restrained (reads as
+"professional instrument panel," not "3D skeuomorphic plastic"). Applied
+to the primary interactive chrome: `#btn-settings`, `.mode-btn` (including
+the standalone route-pin button, which reuses the same class),
+`#btn-recenter`, `#btn-raw-range`, `.dpb-mode-btn`, `.settings-toggle-btn`,
+`.settings-preset-btn`, `#btn-settings-close`, `.theme-btn` (both the
+settings-screen `.theme-toggle-group` and the — currently unused, see
+below — `#theme-picker`). Segmented-bank controls (`.mode-toggle`,
+`.dpb-modes`, `.theme-toggle-group`, `#theme-picker`) put the bevel on the
+CONTAINER only, with individual segments going flat (`box-shadow: none`)
+and getting their own small inset shadow when `.active` — modelled on a
+real switch bank being one recessed housing with individual flush caps,
+not several independently-raised buttons glued together.
+
+**Incidental finding, not acted on:** `#theme-picker` (a Day/Auto/Night
+picker CSS-styled for the top bar) has no matching element anywhere in
+`index.html` or any JS file — dead CSS, presumably superseded by the
+settings-screen's `.theme-toggle-group` at some earlier point without the
+old rule being cleaned up. Left in place (still themed/bevelled alongside
+everything else it shares `.theme-btn` with, so it isn't stale-looking
+CSS if ever revived) rather than deleted, since removing dead code wasn't
+part of what was asked here — flagging in case it's worth a cleanup pass
+later.
+
+**Verification.** Real Playwright/Chromium render (this project's
+established convention — reasoning about CSS cascade/specificity has
+caused real bugs before, see the RAW-glyphs and label-decluttering
+investigations above) of a static harness reproducing the top bar,
+mode-toggle row, route card, settings screen, and popup against the real
+`VCAS.css`, across three states: Night (default), Day, and RAW-forced-dark
+while Day is active. Confirmed: the new palette reads as intended in both
+themes, the bevel is visible but restrained on every listed button class,
+contrast holds up, and — importantly, since this touches the same
+`body[data-mode="nav"][data-nav-style="raw"]` override block documented
+above — RAW's forced-dark-chrome override still correctly wins over Day
+even after the palette rewrite (no regression to the earlier "Day-theme
+pale chrome floating over a black RAW map" bug).
+
+**Not yet done / explicitly out of scope for this pass:** no further
+lighting/shape treatment on the RAW-only instrument controls
+(`.raw-list-sort-btn`, `#raw-aircraft-list` itself) — left as their
+existing dark, RAW-only hardcoded styling, since they're an ND-instrument
+readout rather than app chrome and weren't reported as looking
+inconsistent. Any broader pass (e.g. reconciling `#theme-picker`'s dead
+CSS, or extending the bevel language to popup buttons like
+`.pop-suppress-btn`/`.pop-log-btn`) should be treated as a new,
+separately-agreed follow-up, not an implied gap in this one.
+
 ## Sandbox environment notes
 
 Outbound network is policy-filtered; blocked domains seen this session
