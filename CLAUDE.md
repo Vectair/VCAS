@@ -78,6 +78,19 @@ Things that are deliberately fine for now (personal use, single user) but
     benefit, none of the drag-gesture safety downside. Not yet built;
     revisit alongside the rest of the range-selector design before V1.
 
+- **Script-load fragility — no error handling on 25+ synchronous
+  `<script>` tags.** Seen at least twice now (see "Recurring: blank
+  screen / zero interactivity on load" below for the full symptom/root-
+  cause writeup): if any one of `index.html`'s script requests hiccups
+  (plausible right after a fresh deploy, while GitHub Pages' CDN is still
+  propagating), the whole app silently dies — blank map, every button
+  dead, no error shown to the user, only a reload fixes it. Fine for now
+  since it's rare and a reload always works, but a single-user app can
+  get away with "just reload it" in a way VCAS can't once other people
+  are relying on it. Real fix — bundling into fewer requests, or at
+  minimum load-error detection that shows a "reload" prompt instead of a
+  silently-dead UI — not yet scoped.
+
 ## Architecture map
 
 - `src/app.js` — orchestration/glue: GPS watch, mode state (nav/air,
