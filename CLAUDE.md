@@ -114,6 +114,13 @@ deferrable the moment anyone else is using it:
 Everything else on the Pre-V1 checklist (RAW controls redesign, etc.)
 stays correctly deferred — explicitly not a Beta blocker.
 
+A third thing surfaced and fixed the same day, not from the checklist but
+from directly asking "does sharing this with multiple people affect fair
+use / rate limits anywhere?" — the adsb.fi relay had no protection against
+multiple concurrent testers' polling aggregating past adsb.fi's own 1
+req/s limit. See "ADS-B data source" below, "Follow-up: server-side
+throttling for Beta," for the full fix and verification.
+
 ### Crash/error reporter (2026-08-23)
 
 Built specifically for this milestone: "I would just need a record of
@@ -331,13 +338,108 @@ random shared secret was generated on this side (owner was on a phone)
 and baked directly into `relay.php` before handoff rather than asking
 them to pick one. Owner deployed it to their existing Bluehost hosting at
 `https://vectair.org/adsb-relay/relay.php` (not committed to this repo —
-same handoff-file pattern as the parked central log below; ask whether
-the owner still has it if this ever needs touching again). `src/config.js`
-now has `ADSB_RELAY_URL`/`ADSB_RELAY_KEY` filled in with that URL and the
+same handoff-file pattern as the now-deployed central log above; ask
+whether the owner still has the deploy files if this ever needs touching
+again — this session found them still sitting in scratchpad from the
+original build, saving a full re-derivation). `src/config.js` now has
+`ADSB_RELAY_URL`/`ADSB_RELAY_KEY` filled in with that URL and the
 matching secret, and `adsbExchangeClient.js`'s `adsb_fi` provider routes
 through it automatically (falls back to calling adsb.fi directly — which
 still works outside a browser, e.g. curl/Node, but not in the deployed
 app — only if those config values are ever blanked out).
+
+### Follow-up: server-side throttling for Beta (2026-08-23)
+
+Prompted by a direct question — "does multiple people using the app in
+multiple locations affect the call rate log etc?" — asked before handing
+VCAS to Beta testers, not something that had been considered yet. Read
+through the actual deployed `relay.php` to answer it precisely rather
+than guessing: it was (and still needed to be) a pure 1:1 pass-through,
+no caching, no rate-limiting of its own. Every VCAS client polls
+independently every `CONFIG.REFRESH_INTERVAL_SECONDS` (3s), and — the
+actual finding — **every tester, wherever they physically are, funnels
+through this ONE relay on ONE server IP.** adsb.fi's own documented limit
+is 1 request/second; one user alone stays comfortably under that, but a
+few concurrent testers with independent, unsynchronized 3s timers can
+realistically push the *aggregate* rate the relay presents to adsb.fi
+past 1 req/s — arithmetic, not a hypothetical, the moment more than one
+person is using the app at once. (Also assessed and flagged as lower-risk
+in the same pass: OpenRouteService, shared API key but no polling loop,
+only per-user-action calls; MapTiler, a monthly tile quota rather than a
+per-second one, so a concurrent-tester risk of exhausting it early rather
+than of an instant violation.)
+
+Fixed with two mechanisms in `relay.php`, doing different jobs:
+1. **A global rate gate** (`reserve_upstream_slot()`) — the actual hard
+   guarantee, never lets the relay call adsb.fi more than once per
+   `MIN_UPSTREAM_INTERVAL_S` (1.05s — deliberate headroom over the raw
+   1.0s limit, not pacing exactly on the line where clock jitter between
+   servers could tip a borderline request over anyway), regardless of how
+   many different locations are asking or how many PHP processes are
+   handling them concurrently. Ordinary PHP hosting runs each request in
+   its own process with no shared memory to lean on, so this is a
+   file-locked (`flock()`) timestamp file, not an in-process counter — the
+   lock is used only to atomically RESERVE the next slot (read, compute,
+   write, release) before sleeping out the wait, not held for the whole
+   sleep, so it doesn't itself become a bottleneck.
+2. **A short-lived (`CACHE_TTL_S` = 3s) per-location response cache** — a
+   pure optimization on top of #1, not what provides the safety guarantee
+   (#1 alone already holds regardless of cache hit rate, e.g. every
+   tester in a different city). Cache key is lat/lon rounded to ~1.1km and
+   dist rounded to the nearest 25nm — coarse on purpose, testers a short
+   distance apart land on the same entry without trying to be clever about
+   exact overlap.
+
+**A bounded give-up path** (`MAX_WAIT_S` = 6s): if honoring the throttle
+would mean holding a request open longer than that, it stops waiting and
+either serves a stale cache entry for that exact location (if one exists)
+or returns a `429` — a fast, honest "try again shortly" beats a hung
+connection once the queue backs up further than a handful of concurrent,
+genuinely different locations would ever produce for "a very small number
+of people." `adsbExchangeClient.js`'s existing `!response.ok` handling
+already treats any non-200 status generically (empty aircraft list for
+that poll, retried next 3s tick) — confirmed by reading it, not assumed —
+so this needed zero app-side changes to degrade gracefully.
+
+**Known, accepted simplification, not silently swept under the rug:** the
+cache does NOT prevent a one-time "cold simultaneous burst to a
+brand-new location" — if several requests for the exact same never-before-
+cached area arrive at truly the same instant, each independently sees a
+cache miss and each queues its own (still safely throttled, still
+correctly-answered) upstream call, rather than only the first one calling
+and the rest waiting on its result. A per-key lock would close this, but
+given the actual scale here (a few known testers, and the gap self-heals
+the moment any one of them succeeds and populates the cache within the 3s
+TTL), that complexity wasn't judged worth adding.
+
+Verified with real concurrent load against a mocked upstream (a tiny PHP
+router logging each call's timestamp+params, standing in for adsb.fi),
+not reasoned through — and needed two passes to get a clean signal, worth
+noting as its own lesson: the first attempt used PHP's built-in dev
+server with a small worker pool (8), which turned out to itself queue
+some of the concurrent test requests *before* they ever reached the
+throttle logic, masking the exact behavior being tested (the `MAX_WAIT_S`
+give-up path never fired, even for bursts that should have exceeded it).
+Recognized as a test-harness artifact — not present on real PHP-FPM/
+mod_php hosting, which hands out far more concurrent handlers — and fixed
+by raising the local worker count, after which the intended behavior was
+clean: 6 concurrent requests to the same location all correctly served
+(and confirmed via the mock's own call log that only that batch's cache
+misses reached upstream); 5 concurrent requests to 5 distinct locations
+each got back their own correct data, never another's, with upstream
+calls spaced ≥1.05s apart exactly; a 12-request burst against distinct
+locations — deliberately far beyond any realistic Beta load — served 11
+of them correctly (serialized, ≥1.05s apart, up to ~10.5s for the last)
+and gave up cleanly with a `429` in ~25ms for the one request that would
+have needed to wait past `MAX_WAIT_S`, rather than hanging.
+
+Shipped as an update, not committed to this repo (same as the relay
+itself) — `relay.php` (overwrite the live one), a new `cache/` subfolder
+with its own `.htaccess` (same reasoning as `logs/.htaccess`: blocks
+direct web access to the rate-limiter's timestamp file and cached
+responses), and `UPDATE_INSTRUCTIONS.md`, handed to the project owner via
+`SendUserFile`. No `config.js` changes needed — same URL, same secret,
+request/response shape unchanged from the app's point of view.
 
 Also worth remembering for whenever the native-app transition (see top of
 this file) actually happens: a real native app's HTTP requests aren't
