@@ -182,12 +182,17 @@ splash mechanism at all (see the still-open, not-yet-built iOS
 thread). A real in-page `#launch-screen` overlay (`index.html`) is what
 actually renders the requested content: `icon-512.png` at up to 220px
 (`42vw`, up from whatever small size the OS auto-splash was choosing),
-"VCAS", the tagline "Visual Contact Awareness System" (VCAS's real
-expansion — confirmed directly with the project owner, since nothing in
-the codebase spelled it out anywhere before this), and a bottom credit
-line, "Proudly powered by adsb.fi, MapLibre and MapTiler" — the project
-owner's own exact wording — with each of the three names linking to its
-real homepage.
+the tagline "Visual Contact Awareness System" (VCAS's real expansion —
+confirmed directly with the project owner, since nothing in the codebase
+spelled it out anywhere before this), and a bottom credit line, "Proudly
+powered by adsb.fi, MapLibre and MapTiler" — the project owner's own
+exact wording — with each of the three names linking to its real
+homepage. A standalone "VCAS" text line was drafted between the logo and
+the tagline in the first version, then removed the same day at the
+project owner's correction: the name is already legible in the logo
+itself (the lime-green "VCAS" wordmark integrated into the artwork, see
+the icon-redesign history above), so a second, separate text repeat of it
+was redundant rather than reinforcing.
 
 Present in the raw HTML (not injected by JS) so it's on screen the
 instant the document parses, same reasoning as the inline crash reporter
