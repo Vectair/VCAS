@@ -84,12 +84,114 @@ Things that are deliberately fine for now (personal use, single user) but
   cause writeup): if any one of `index.html`'s script requests hiccups
   (plausible right after a fresh deploy, while GitHub Pages' CDN is still
   propagating), the whole app silently dies — blank map, every button
-  dead, no error shown to the user, only a reload fixes it. Fine for now
-  since it's rare and a reload always works, but a single-user app can
-  get away with "just reload it" in a way VCAS can't once other people
-  are relying on it. Real fix — bundling into fewer requests, or at
-  minimum load-error detection that shows a "reload" prompt instead of a
-  silently-dead UI — not yet scoped.
+  dead, no error shown to the user, only a reload fixes it. **Half fixed
+  for Beta (2026-08-23):** the crash/error reporter (see "Beta test
+  milestone" below) now catches and records exactly this failure —
+  including the specific script that failed to load, not just the
+  downstream symptom — so it's no longer invisible when it happens to a
+  tester. The USER-FACING half is still open: nothing yet shows a tester
+  "something broke, tap to reload" in the moment — they'd still just see
+  a dead blank screen, only now you'd also have a record of why. Real
+  fix for that half — bundling into fewer requests, or a visible reload
+  prompt — still not built.
+
+## Beta test milestone (2026-08-23)
+
+Declared as its own interim goal, distinct from the Pre-V1 checklist
+above: "something that looks good and mostly works... isn't polished,
+it's essentially just collecting data on usability." Handed to a small
+number of people the project owner knows personally, not a public
+release — meaning the bar is lower than V1 on polish, but two things
+from the Pre-V1 checklist above are still genuinely blocking rather than
+deferrable the moment anyone else is using it:
+
+- **adsb.fi attribution** — their usage terms require visible credit;
+  the personal-use-only justification for burying it in Settings no
+  longer holds once someone else is using the app. **Not yet moved** —
+  still pending.
+- **Script-load fragility** — see the checklist entry above. The
+  data-collection half is now done (this entry); the visible reload-
+  prompt half is still open.
+
+Everything else on the Pre-V1 checklist (RAW controls redesign, etc.)
+stays correctly deferred — explicitly not a Beta blocker.
+
+### Crash/error reporter (2026-08-23)
+
+Built specifically for this milestone: "I would just need a record of
+the stuff they can't see or can't describe, as well as the spotability
+log" — testers are non-technical friends, not developers; they can tell
+the project owner directly what they don't like, but a silent crash with
+no error message is something they have no way to describe at all. The
+existing LOG panel/central endpoint (see "Central observation log"
+above) already covers the spottability side; this covers the other half.
+
+Lives entirely as an inline `<script>` block, the literal first thing in
+`index.html`'s `<head>` — deliberately NOT `src/dev/*.js` like everything
+else in that folder. Two reasons, both hard requirements, not style
+preference:
+1. It has to register its `window` error listeners before ANY of the
+   25+ script tags below it get a chance to fail — including the exact
+   documented "blank screen" bug, where an early script fails to load
+   and a LATER one throws a `ReferenceError` using its missing globals.
+   A `<script src="...">` for this reporter itself could be the thing
+   that fails to load, defeating the entire point — inline HTML has no
+   separate network request to fail.
+2. `LOG_ENDPOINT`/`LOG_ENDPOINT_KEY` are duplicated here from
+   `config.js` rather than read from it, for the same reason — `config.js`
+   may not have loaded yet when the exact failure this exists to catch
+   happens. **Keep these two values in sync with `config.js` by hand** if
+   either ever changes (rotating the shared secret, moving the endpoint) —
+   there's no single source of truth here by design, and that's a real
+   maintenance cost worth remembering, not an oversight.
+
+**Catches two distinct failure modes, not just one**, found by working
+through what `window`'s error events actually carry:
+- A **resource load failure** (a `<script>`/`<link>` that never
+  downloaded at all — the actual ROOT CAUSE of the blank-screen bug) —
+  fires a plain, non-bubbling `Event` on the failing element itself, not
+  on `window`. Only visible at all via a **capture-phase** listener
+  (`addEventListener("error", fn, true)`) on an ancestor — a bubble-phase
+  listener (the default) never sees it. Reports the failing script/
+  stylesheet's own URL.
+- A **runtime error** (including the documented DOWNSTREAM
+  `ReferenceError` symptom, and any other uncaught exception) — a real
+  `ErrorEvent` dispatched directly on `window`, message/filename/line/
+  stack all included. Distinguished from the resource-failure case by
+  checking `event.target === window`.
+- Also listens for `unhandledrejection` (uncaught promise rejections) —
+  a separate event type, not covered by the `error` listener at all.
+
+**Guards against the reporter itself becoming a new source of
+instability**, not just assumed safe:
+- **De-duped and capped** (`MAX_REPORTS = 20` per page load, keyed by
+  `message@source:line`) — something throwing in a tight loop (every
+  animation frame, say) can't flood the endpoint or a tester's mobile
+  data with hundreds of copies of the same crash.
+- **Cannot self-trigger a report loop.** The reporting `fetch()` call's
+  own promise is `.catch()`-handled — if left unhandled, a *failed
+  report* (endpoint down, network error) would itself fire the
+  reporter's own `unhandledrejection` listener, which would try to
+  report the failure to report, forever. `keepalive: true` lets the
+  request survive if the tab closes right as it fires; a synchronous
+  throw from `fetch()` itself (e.g. a strict CSP) is also caught, for
+  the same reason.
+- Payloads get a `"kind": "error"` field — spottability observations
+  (see "Central observation log") have no such field, so both land in
+  the same log/GitHub mirror without needing a second endpoint, fully
+  distinguishable when reading it back.
+
+Verified with a real Playwright/Chromium harness reproducing the actual
+inline script (extracted verbatim from `index.html`, not retyped) against
+a mocked log endpoint (`page.route`), not reasoned through: a genuine
+runtime error is caught and reported; the SAME error thrown twice is
+reported only once (dedup); an unhandled promise rejection is caught
+separately; a real failing `<script src>` is caught via the capture-phase
+listener and correctly labelled `resource-load-error` with its own URL;
+30 rapid-fire distinct errors hit the 20-report cap exactly, not more;
+and — the specific self-trigger risk — pointing the mocked endpoint at a
+hard network failure for two full seconds produced exactly one outbound
+request, never a runaway retry loop.
 
 ## Architecture map
 

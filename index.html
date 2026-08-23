@@ -2,6 +2,104 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+
+  <!-- Beta crash/error reporter — inline, literally the first thing in
+       <head>, deliberately NOT a separate src/dev/*.js file. Its whole
+       purpose is catching failures in the 25+ script tags below (see
+       CLAUDE.md's "Recurring: blank screen" entry) — including the exact
+       documented case where an early script fails to load and a LATER one
+       throws a ReferenceError using its missing globals. If this were its
+       own external script it could be the one thing that fails to load,
+       defeating the point; being inline HTML means it's always present the
+       moment the document parses, before anything else gets a chance to
+       break. Self-contained on purpose: LOG_ENDPOINT/LOG_ENDPOINT_KEY are
+       duplicated from config.js rather than read from it, since config.js
+       itself may not have loaded yet when the failure this exists to catch
+       happens. Keep these two values in sync with config.js by hand if
+       either ever changes.
+
+       Registered in the CAPTURE phase (the `true` third argument) — a
+       <script>/<link> that fails to LOAD fires a plain (non-bubbling)
+       Event on that element itself, not on window, so only a capture-phase
+       listener on an ancestor sees it at all; a genuine runtime error
+       (including the downstream ReferenceError case above) fires a real
+       ErrorEvent on window directly either way. One listener distinguishes
+       both by checking event.target. -->
+  <script>
+  (function () {
+    "use strict";
+    var LOG_ENDPOINT     = "https://vectair.org/vcas-log/log.php";
+    var LOG_ENDPOINT_KEY = "k8uBvSSbtZ_5lTB8dAaImH9ozO3wYd5pJpY72tHkr50";
+    // Hard cap + de-dup so something throwing in a tight loop (e.g. every
+    // animation frame) can't flood the endpoint or a tester's data plan —
+    // one real crash is useful signal, a few hundred copies of it aren't.
+    var MAX_REPORTS = 20;
+    var reportCount = 0;
+    var seen = {};
+
+    function report(payload) {
+      var sig = payload.message + "@" + payload.source + ":" + payload.line;
+      if (seen[sig] || reportCount >= MAX_REPORTS) return;
+      seen[sig] = true;
+      reportCount++;
+
+      payload.kind      = "error";
+      payload.timestamp = new Date().toISOString();
+      payload.url       = location.href;
+      payload.userAgent = navigator.userAgent;
+
+      if (typeof fetch !== "function") return;
+      try {
+        var headers = { "Content-Type": "application/json" };
+        if (LOG_ENDPOINT_KEY) headers["X-VCAS-Key"] = LOG_ENDPOINT_KEY;
+        // .catch(noop) is load-bearing, not decorative — an unhandled
+        // rejection from OUR OWN reporting fetch would otherwise be caught
+        // by our own unhandledrejection listener below and try to report
+        // itself, forever. keepalive:true lets the request survive if the
+        // tab closes right as it fires.
+        fetch(LOG_ENDPOINT, { method: "POST", headers: headers, body: JSON.stringify(payload), keepalive: true })
+          .catch(function () {});
+      } catch (e) {
+        // fetch() itself throwing synchronously (e.g. a strict CSP) must
+        // never cascade into another error report.
+      }
+    }
+
+    window.addEventListener("error", function (event) {
+      var t = event.target;
+      if (t && t !== window && t.tagName && (t.tagName === "SCRIPT" || t.tagName === "LINK")) {
+        // A script/stylesheet failed to LOAD — the actual root cause of
+        // the documented blank-screen bug, not just its downstream symptom.
+        report({
+          type: "resource-load-error",
+          message: "Failed to load: " + (t.src || t.href || ""),
+          source: t.src || t.href || "",
+          line: 0, col: 0, stack: "",
+        });
+        return;
+      }
+      report({
+        type: "onerror",
+        message: event.message || "",
+        source: event.filename || "",
+        line: event.lineno || 0,
+        col: event.colno || 0,
+        stack: (event.error && event.error.stack) ? String(event.error.stack) : "",
+      });
+    }, true); // capture phase — required to see non-bubbling resource load errors
+
+    window.addEventListener("unhandledrejection", function (event) {
+      var reason = event.reason;
+      report({
+        type: "unhandledrejection",
+        message: (reason && reason.message) ? reason.message : String(reason),
+        source: "", line: 0, col: 0,
+        stack: (reason && reason.stack) ? String(reason.stack) : "",
+      });
+    });
+  })();
+  </script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />

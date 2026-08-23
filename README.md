@@ -283,6 +283,8 @@ If neither is reachable (offline, endpoint down, or nothing configured and `logS
 
 `logs/` is gitignored — it will contain real GPS coordinates and timestamps and must never be committed.
 
+**Crash/error reporting** runs alongside this, automatically, with no button to press. An inline script at the very top of `index.html`'s `<head>` — before anything else that could fail — listens for uncaught runtime errors, unhandled promise rejections, and failed script/stylesheet loads, and POSTs each one to the same `CONFIG.LOG_ENDPOINT` (tagged `"kind": "error"` so it's distinguishable from a sighting observation in the same log). De-duped and capped at 20 reports per page load so a repeating error can't flood the endpoint. This exists for Beta testers who can describe what they don't like about the app but have no way to describe a silent crash — see CLAUDE.md's "Crash/error reporter" entry for the full design rationale (why it has to be inline rather than its own file, why it duplicates `LOG_ENDPOINT`/`LOG_ENDPOINT_KEY` from `config.js` instead of reading them).
+
 ---
 
 ## File Structure
