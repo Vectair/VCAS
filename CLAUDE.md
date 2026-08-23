@@ -2239,6 +2239,14 @@ A real fix — bundling into fewer files, or at minimum wrapping the script
 tags with load-error detection that shows a "reload" prompt instead of a
 silently-dead UI — hasn't been scoped or requested yet. Flag rather than
 silently re-diagnosing from scratch a third time if it recurs again.
+The reload-prompt half (detection + visible banner) is now done — see
+"Beta test milestone" above. The service worker added below (see
+"App-shell service worker") also mitigates this from a different angle:
+it doesn't reduce the NUMBER of script requests (the "bundling" idea
+above, still not done), but on any load after the first, those ~30
+requests are served from cache instead of hitting the network at all —
+real hardening against the exact failure mode here, just not the same
+fix as bundling would be.
 
 - Don't guess at third-party API shapes — verify against real, current docs
   (GitHub READMEs are usually reachable even when the service's own domain
@@ -2251,3 +2259,111 @@ silently re-diagnosing from scratch a third time if it recurs again.
   the code, read and update that comment rather than leaving it stale next
   to changed behavior — several bugs this session were partly caused by
   code drifting away from what its own comments claimed.
+
+## App-shell service worker (2026-08-23)
+
+Prompted by a PWABuilder PWA-score screenshot the project owner shared
+while working through the icon/launch-screen investigation above — VCAS
+scored 17/45 with red flags on "Service Worker" (VCAS had none at all)
+and "App Capabilities." Rather than chasing the score itself, walked
+through what each flagged gap would actually buy the app and recommended
+only the one with real value: an app-shell service worker. Explicitly
+**not** pursued: offline "mode" (VCAS's core function is live GPS/ADS-B,
+which can't work offline regardless), push notifications/background sync
+(no real infra for it and nothing this glance-while-driving app should be
+notifying about when closed), and manifest metadata fields like
+`screenshots`/`categories`/`shortcuts`/`id` (only matter for a Play/
+Microsoft Store listing, which isn't the current plan — see the top of
+this file on the PWA-vs-native question). `share_target` (letting another
+app share an address into VCAS as a destination) was flagged as a
+genuinely interesting *feature* idea, but a new feature, not a scoring
+fix — not built.
+
+**What it actually does**: `sw.js` (repo root, so its default scope
+covers everything under `/VCAS/`, matching the manifest's own `scope`)
+caches the app shell — the ~30 local `<script>`/`<link>` tags plus the
+document itself — using three different strategies depending on what's
+actually safe to cache and for how long:
+- **The document/navigation itself**: network-first, falling back to the
+  last cached copy only if the network genuinely fails. It has no
+  cache-busting query and must stay live on a normal connection.
+- **Same-origin assets carrying the `?v=<build-id>` query** (every local
+  script/stylesheet/manifest/icon link — stamped by `deploy-pages.yml`'s
+  existing `sed` step) — cache-first, safe to keep forever: a new deploy
+  is a new URL, automatically a cache miss. A same-path-different-`?v=`
+  entry gets evicted the moment its replacement is cached, so old
+  deploys' assets don't accumulate forever without needing a per-deploy
+  cache-name bump or a real generation-tracking scheme — an accepted
+  simplification given VCAS's actual scale (a handful of testers,
+  roughly-daily deploys), not a hidden gap.
+- **Third-party CDN assets** (MapLibre JS/CSS from jsdelivr, the B612/
+  B612 Mono Google Fonts stylesheet) — stale-while-revalidate: serve
+  instantly from cache if present, always refresh the cache in the
+  background so a copy never gets pinned forever. These aren't versioned
+  by URL at all (no `?v=` — jsdelivr's `@4` is a semver range, not an
+  exact pin), so cache-first-forever would risk staleness the way it
+  wouldn't for the build-id-stamped local assets.
+
+**No install-time precache list, on purpose** — that would need this file
+regenerated per deploy with an exact file manifest, real complexity for
+what's meant to be a *minimal* shell cache. Entries populate lazily as the
+app actually requests them, starting from the very first successful load.
+
+**Real, direct benefit tied to an existing documented bug, not just a
+generic "PWAs should have one" box-tick**: see "Recurring: blank screen /
+zero interactivity on load" above — that bug is triggered by one of the
+~30 synchronous script tags hiccuping on a fresh network fetch. Once
+they're cached from a prior successful load, a flaky connection on a
+later open has far less surface to fail on. This doesn't replace the
+crash reporter/reload-prompt (still the right response to the bug WHEN it
+happens) — it reduces how often the underlying network hiccup gets a
+chance to trigger it in the first place.
+
+**Registered from inside `app.js`'s `init()`, deliberately NOT as its own
+`<script>` tag** (`_registerServiceWorker()`, called as the first line of
+`init()`): the crash reporter's capture-phase listener (`index.html`)
+shows the "VCAS didn't load correctly" reload banner for ANY failed
+`<script>`/`<link>` load, unconditionally — adding a new script tag for
+this would mean a failed *registration* (a pure enhancement miss, not an
+app crash) could false-trigger that banner. Calling it as a plain function
+from inside `init()` keeps registration failures out of that listener's
+reach entirely; `.catch(() => {})` on the registration promise means a
+failure here is silent by design, not surfaced as an error report either
+— there is genuinely nothing actionable a tester could do about it, unlike
+the failures the crash reporter exists to catch. Registered with
+`updateViaCache: "none"` so the browser always fetches `sw.js` itself
+fresh (bypassing any GitHub Pages CDN caching) when checking for updates,
+matching the project's existing "always get the freshest deploy"
+philosophy already established via the no-cache meta tags and build-id
+query strings elsewhere.
+
+**Verified two ways**, since this sandbox's network reachability to
+third-party domains is inconsistent run-to-run (a direct `fetch()` to
+`fonts.googleapis.com` failed outright mid-session — a sandbox limitation
+per "Sandbox environment notes" below, not a bug in the caching logic):
+1. **Real Chromium via Playwright**, browser HTTP cache explicitly
+   disabled via CDP (`Network.setCacheDisabled`) so any cache hit could
+   only be coming from the service worker's own Cache Storage, not the
+   browser's ordinary disk cache masking the result. Confirmed: the very
+   first page load can't be intercepted by a service worker that doesn't
+   exist yet when those requests fire (expected — registration happens
+   near the end of `init()`, after every other script already loaded via
+   plain network); a SECOND real navigation, with the worker now active
+   and having called `clients.claim()`, populates the cache with all ~30
+   local assets plus the navigation document itself; going fully offline
+   after that and reloading still returns a real 200 and reaches
+   `_vcasAppReady` correctly — genuinely served from the service worker,
+   confirmed by the disabled browser cache eliminating the other
+   explanation.
+2. **A Node-level unit pass** against the real `sw.js` source (loaded via
+   `vm.runInContext`, not a retyped copy) with a mocked `caches`/`fetch`,
+   specifically to cover the third-party stale-while-revalidate path this
+   sandbox's own flaky reachability couldn't verify live: cache-first
+   miss-then-hit with no re-fetch on a hit; the same-path eviction on a
+   new `?v=`; network-first serving fresh on success, falling back to a
+   cached copy on failure, and correctly re-throwing when neither network
+   nor cache have anything; and stale-while-revalidate serving the
+   EXISTING cached body instantly on a hit while a background fetch still
+   fires and updates the cache for next time (confirmed by checking a
+   subsequent request got the newer body). All passed against the actual
+   shipped file.

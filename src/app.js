@@ -140,7 +140,25 @@
 
   // ---- Init ----
 
+  // App-shell caching only — VCAS's live GPS/ADS-B function can't work
+  // offline anyway, so this isn't an "offline mode." It buys near-instant
+  // repeat opens and real hardening against the documented "blank screen
+  // on load" bug (see CLAUDE.md and sw.js's own top comment). Deliberately
+  // NOT a <script> tag of its own: a failed script load is what makes the
+  // crash reporter's capture-phase listener show the "didn't load
+  // correctly" reload banner (index.html), and registration failing here
+  // is a pure enhancement miss, not an app crash — calling it as a plain
+  // function from inside init() keeps it out of that listener's reach.
+  function _registerServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .register("sw.js?v=__BUILD_ID__", { updateViaCache: "none" })
+      .catch(() => {});
+  }
+
   function init() {
+    _registerServiceWorker();
+
     AdsbExchangeClient.init(CONFIG);
 
     // Resolve initial theme before map initialization so the first render
