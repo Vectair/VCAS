@@ -65,6 +65,69 @@
       }
     }
 
+    // ---- Visible "reload" prompt — the user-facing half of the same fix ----
+    //
+    // The reporter above only RECORDS a failure; this is what a tester
+    // actually SEES when the documented blank-screen bug hits them, instead
+    // of a dead screen with no explanation. Pure inline styles, no
+    // dependency on VCAS.css classes — that stylesheet could itself be one
+    // of the things that failed to load, and this has to render legibly
+    // either way.
+    var bannerShown = false;
+    function showReloadBanner() {
+      if (bannerShown) return;
+      bannerShown = true;
+
+      var overlay = document.createElement("div");
+      overlay.id = "vcas-crash-banner";
+      overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;" +
+        "align-items:center;justify-content:center;background:rgba(10,14,23,.92);" +
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;" +
+        "padding:24px;box-sizing:border-box;";
+
+      var card = document.createElement("div");
+      card.style.cssText = "background:#1a2128;border:1px solid #3d505c;border-radius:10px;" +
+        "padding:24px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.6);" +
+        "box-sizing:border-box;";
+
+      var title = document.createElement("div");
+      title.textContent = "VCAS didn't load correctly";
+      title.style.cssText = "font-size:17px;font-weight:700;color:#eaeef1;margin-bottom:8px;";
+
+      var body = document.createElement("div");
+      body.textContent = "Something went wrong while starting the app. This is usually fixed by reloading.";
+      body.style.cssText = "font-size:14px;color:#8ba3b1;margin-bottom:18px;line-height:1.4;";
+
+      var reloadBtn = document.createElement("button");
+      reloadBtn.textContent = "Reload";
+      reloadBtn.style.cssText = "width:100%;padding:12px;border:none;border-radius:6px;" +
+        "background:#1191d8;color:#fff;font-size:15px;font-weight:700;cursor:pointer;-webkit-appearance:none;";
+      reloadBtn.onclick = function () { location.reload(); };
+
+      var dismissBtn = document.createElement("button");
+      dismissBtn.textContent = "Dismiss";
+      dismissBtn.style.cssText = "width:100%;padding:10px;margin-top:8px;border:none;" +
+        "background:transparent;color:#56707d;font-size:13px;cursor:pointer;-webkit-appearance:none;";
+      dismissBtn.onclick = function () { overlay.parentNode && overlay.parentNode.removeChild(overlay); };
+
+      card.appendChild(title);
+      card.appendChild(body);
+      card.appendChild(reloadBtn);
+      card.appendChild(dismissBtn);
+      overlay.appendChild(card);
+      (document.body || document.documentElement).appendChild(overlay);
+
+      // Self-heals if the app actually finishes starting shortly after this
+      // fired (an unusually slow but ultimately successful load, say) —
+      // don't leave a false-alarm banner sitting over a working app.
+      var recoveryInterval = setInterval(function () {
+        if (window._vcasAppReady) {
+          clearInterval(recoveryInterval);
+          overlay.parentNode && overlay.parentNode.removeChild(overlay);
+        }
+      }, 500);
+    }
+
     window.addEventListener("error", function (event) {
       var t = event.target;
       if (t && t !== window && t.tagName && (t.tagName === "SCRIPT" || t.tagName === "LINK")) {
@@ -76,6 +139,11 @@
           source: t.src || t.href || "",
           line: 0, col: 0, stack: "",
         });
+        // Only a failed SCRIPT (not a stylesheet) means the app is
+        // actually broken, not just unstyled — that's the specific,
+        // unambiguous signal worth interrupting the tester for immediately
+        // rather than waiting out the watchdog below.
+        if (t.tagName === "SCRIPT") showReloadBanner();
         return;
       }
       report({
@@ -97,6 +165,23 @@
         stack: (reason && reason.stack) ? String(reason.stack) : "",
       });
     });
+
+    // Watchdog — catches whatever the two listeners above miss (a script
+    // that parses and runs but throws somewhere inside app.js's own init(),
+    // for instance, with no failed resource and nothing left uncaught).
+    // window._vcasAppReady is set as literally the last line of init()
+    // (app.js) — if it's still unset this long after the document started
+    // loading, something above prevented the app from ever finishing
+    // startup, whether or not it happened to throw a catchable error.
+    setTimeout(function () {
+      if (window._vcasAppReady) return;
+      report({
+        type: "watchdog-timeout",
+        message: "App did not finish initializing within the watchdog window",
+        source: "", line: 0, col: 0, stack: "",
+      });
+      showReloadBanner();
+    }, 8000);
   })();
   </script>
 

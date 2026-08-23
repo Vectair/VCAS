@@ -84,16 +84,15 @@ Things that are deliberately fine for now (personal use, single user) but
   cause writeup): if any one of `index.html`'s script requests hiccups
   (plausible right after a fresh deploy, while GitHub Pages' CDN is still
   propagating), the whole app silently dies — blank map, every button
-  dead, no error shown to the user, only a reload fixes it. **Half fixed
-  for Beta (2026-08-23):** the crash/error reporter (see "Beta test
-  milestone" below) now catches and records exactly this failure —
-  including the specific script that failed to load, not just the
-  downstream symptom — so it's no longer invisible when it happens to a
-  tester. The USER-FACING half is still open: nothing yet shows a tester
-  "something broke, tap to reload" in the moment — they'd still just see
-  a dead blank screen, only now you'd also have a record of why. Real
-  fix for that half — bundling into fewer requests, or a visible reload
-  prompt — still not built.
+  dead, no error shown to the user, only a reload fixes it. **Fixed for
+  Beta (2026-08-23), both halves:** the crash/error reporter (see "Beta
+  test milestone" below) records exactly this failure, including the
+  specific script that failed to load; the same fix also now shows the
+  tester a visible "VCAS didn't load correctly — Reload" prompt in the
+  moment, instead of leaving them staring at a silently-dead screen with
+  no explanation. The only thing still not done from the original
+  framing here is bundling into fewer requests — not attempted, and
+  probably unnecessary now that both symptom and detection are covered.
 
 ## Beta test milestone (2026-08-23)
 
@@ -109,9 +108,8 @@ deferrable the moment anyone else is using it:
   the personal-use-only justification for burying it in Settings no
   longer holds once someone else is using the app. **Not yet moved** —
   still pending.
-- **Script-load fragility** — see the checklist entry above. The
-  data-collection half is now done (this entry); the visible reload-
-  prompt half is still open.
+- **Script-load fragility** — see the checklist entry above. Both the
+  data-collection and the visible reload-prompt halves are now done.
 
 Everything else on the Pre-V1 checklist (RAW controls redesign, etc.)
 stays correctly deferred — explicitly not a Beta blocker.
@@ -192,6 +190,62 @@ listener and correctly labelled `resource-load-error` with its own URL;
 and — the specific self-trigger risk — pointing the mocked endpoint at a
 hard network failure for two full seconds produced exactly one outbound
 request, never a runaway retry loop.
+
+### Follow-up: visible reload prompt (2026-08-23, same day)
+
+The crash reporter above only RECORDS a failure — a tester staring at a
+dead blank screen still had no idea anything was being captured, or that
+reloading would help. Built the other half the same session: a visible
+"VCAS didn't load correctly — Reload" overlay, shown at the moment the
+app is actually broken rather than left to guesswork.
+
+**Two independent triggers, not one**, since no single signal reliably
+covers every way `init()` (app.js) can fail to finish:
+- **Immediate**, the instant a `<script>` (not `<link>`) fails to load —
+  the same capture-phase listener the reporter already has. Deliberately
+  scoped to scripts only: a failed stylesheet degrades the LOOK of the
+  app (unstyled chrome) but doesn't break its FUNCTION the way a missing
+  script's globals do, so it isn't the same "you need to reload right
+  now" signal and doesn't interrupt the tester for it.
+- **Watchdog fallback**, 8 seconds after page load, checking a new
+  `window._vcasAppReady` flag — set as the LITERAL LAST LINE of `init()`
+  (app.js), specifically so that if anything earlier in that function
+  throws (a missing global used somewhere inside `init()` itself, not
+  just at a bare script's top level — the documented bug's actual
+  mechanism), the flag correctly never gets set even though app.js
+  itself loaded and ran fine up to that point. Covers failures the
+  immediate trigger can't see — nothing 404s, nothing throws
+  uncaught, `init()` just never reaches its own last line. Also reports
+  a `"watchdog-timeout"` entry to the same log so this failure mode is
+  distinguishable from the other three when reviewing it later.
+
+**Pure inline styles, zero dependency on VCAS.css classes** — that
+stylesheet could itself be one of the things that failed to load, and
+this has to render legibly regardless of what else broke. Two buttons:
+**Reload** (`location.reload()`) and a smaller, deliberately
+less-prominent **Dismiss** (removes the overlay, no reload) — a
+courtesy for the rare false-positive rather than trapping the tester
+if it's wrong.
+
+**Self-heals** — after showing (from either trigger), a 500ms poll
+checks `window._vcasAppReady` and auto-removes the overlay the moment
+it becomes true, so an unusually slow-but-ultimately-successful load
+(the watchdog fired a little too eagerly on a bad connection, say)
+doesn't leave a stale false-alarm banner sitting over an app that
+actually came up fine moments later.
+
+Verified with the same Playwright-harness-against-the-real-inline-script
+approach, using `page.clock` to fast-forward the 8s watchdog rather than
+actually waiting real time in every test run: a normal successful init
+(`_vcasAppReady` set immediately) shows no banner even past the watchdog
+window (no false positive); a failing `<script>` shows the banner
+immediately; a failing `<link>` correctly shows no banner; a page that
+never sets `_vcasAppReady` gets both the watchdog's report AND the
+banner at exactly the 8s mark; the self-heal poll correctly removes an
+already-shown banner once `_vcasAppReady` becomes true; Dismiss removes
+the banner without navigating; Reload actually triggers a real page
+navigation. All seven checked against the true DOM/event behavior, not
+assumed from reading the code.
 
 ## Architecture map
 

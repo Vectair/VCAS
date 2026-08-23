@@ -193,6 +193,15 @@
     // panels clear it from the very first frame, not just after the first
     // route/guidance-toggle event recalculates it.
     updateMapViewportPadding();
+
+    // The one reliable "the app actually finished starting" signal — read
+    // by index.html's inline crash reporter's watchdog timer to decide
+    // whether to show a "reload" prompt. Deliberately the LAST line of
+    // init(): if anything above throws (the exact documented "blank
+    // screen" bug — a missing script's global used somewhere in this
+    // function), this line never runs and the watchdog correctly treats
+    // the app as not-ready, even though app.js itself loaded fine.
+    window._vcasAppReady = true;
   }
 
   // ---- Developer tools (VIEW/SPD) — hidden behind DevMode, see _initDevModeUnlock ----
