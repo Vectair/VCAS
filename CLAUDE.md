@@ -41,13 +41,20 @@ navigation/identification pipelines.
 Things that are deliberately fine for now (personal use, single user) but
 **must** be addressed before VCAS goes out to anyone else:
 
-- **adsb.fi attribution needs to be more prominent.** Their usage terms
-  require citing them with a link to their homepage — currently satisfied
-  minimally (Settings > Data & Logging, `index.html`'s `.settings-credit`),
-  which is compliant but easy to miss since it's buried in a settings
-  sub-screen. Explicit instruction from the project owner (2026-08-20):
-  leave it as-is for now, but move it somewhere actually visible in the
-  main UI before release.
+- **adsb.fi attribution needs to be more prominent — DONE (2026-08-23).**
+  Their usage terms require citing them with a link to their homepage.
+  Was satisfied minimally via Settings > Data & Logging
+  (`.settings-credit`), buried in a settings sub-screen — explicitly OK'd
+  as personal-use-only stopgap on 2026-08-20, with the same instruction to
+  move it before release. Moved to a small `#adsb-credit` line in the top
+  bar, stacked directly under the `#adsb-status` pill (`#top-right-
+  controls` — dead CSS from an earlier design iteration, revived rather
+  than writing a fresh wrapper) so it's visible the entire time the app is
+  open, not a one-time mention someone has to go find. The Settings
+  mention was removed rather than duplicated, to avoid two copies of the
+  same credit drifting out of sync. See "Beta test milestone" below for
+  why a splash/launch screen was considered and rejected in favor of this
+  placement.
 
 - **RAW controls (range selector, and mode switching generally) —
   revisit the interaction design.** Project owner (2026-08-21): current
@@ -104,15 +111,40 @@ release — meaning the bar is lower than V1 on polish, but two things
 from the Pre-V1 checklist above are still genuinely blocking rather than
 deferrable the moment anyone else is using it:
 
-- **adsb.fi attribution** — their usage terms require visible credit;
-  the personal-use-only justification for burying it in Settings no
-  longer holds once someone else is using the app. **Not yet moved** —
-  still pending.
+- **adsb.fi attribution** — done, see the Pre-V1 checklist entry above
+  and the follow-up write-up immediately below.
 - **Script-load fragility** — see the checklist entry above. Both the
   data-collection and the visible reload-prompt halves are now done.
 
 Everything else on the Pre-V1 checklist (RAW controls redesign, etc.)
-stays correctly deferred — explicitly not a Beta blocker.
+stays correctly deferred — explicitly not a Beta blocker. Both Beta
+blockers are now resolved.
+
+### Follow-up: adsb.fi attribution placement (2026-08-23)
+
+Direct question before implementing: "how do you think this can be
+achieved? if it's included as part of the launch screen?" — worth
+recording that a launch/splash screen was the project owner's own first
+instinct and was talked out of, not silently overridden, since a future
+session shouldn't reintroduce it as an obviously-better idea nobody
+considered. Reasoning given and agreed: adsb.fi's requirement reads as
+an ONGOING "cite them wherever their data is used" obligation, not a
+one-time acknowledgment — a splash screen shown once at cold start and
+dismissed is arguably LESS durable than even the old buried Settings
+mention, since at least that stayed reachable for the whole session. It
+would also have introduced a UI pattern VCAS has nowhere else — no other
+screen in this app gates the map behind a modal.
+
+Landed on a small `#adsb-credit` line stacked directly under the
+`#adsb-status` pill in the top bar (`index.html`, `src/styles/VCAS.css`)
+— see the Pre-V1 checklist entry above for the implementation detail.
+Chosen specifically because that's the one spot in the chrome already
+semantically about "where this live data is coming from," and it's
+visible for the app's entire open duration, not gated behind a tap or a
+one-time screen. Verified with a real Playwright render at a deliberately
+narrow 360px viewport (worst case for crowding) in both Day and Night —
+no overflow/wrapping, legible in both themes, the "adsb.fi" text a real
+tappable link to their homepage.
 
 A third thing surfaced and fixed the same day, not from the checklist but
 from directly asking "does sharing this with multiple people affect fair

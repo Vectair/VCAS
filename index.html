@@ -318,9 +318,19 @@
             <div id="mode-label">DRIVING VIEW</div>
           </div>
           <div id="top-bar-right">
-            <div id="adsb-status" class="error">
-              <div class="dot"></div>
-              <span class="label">ADS-B</span>
+            <div id="top-right-controls">
+              <div id="adsb-status" class="error">
+                <div class="dot"></div>
+                <span class="label">ADS-B</span>
+              </div>
+              <!-- adsb.fi's usage terms require a link to their homepage
+                   wherever their data is used — moved here from a Settings
+                   sub-screen (2026-08-23) so it's actually visible for the
+                   whole time the app is open, not just a one-time mention
+                   someone has to go looking for. See CLAUDE.md. -->
+              <div id="adsb-credit">
+                Data: <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
+              </div>
             </div>
             <button type="button" id="btn-settings" title="Settings">⚙</button>
           </div>
@@ -416,15 +426,6 @@
             <div class="settings-row">
               <span class="settings-label" id="settings-export-label">No buffered observations</span>
               <button type="button" class="settings-toggle-btn" id="btn-settings-export">Export</button>
-            </div>
-            <!-- adsb.fi's usage terms require attributing them with a link
-                 to their homepage wherever their data is used. Minimal
-                 placement here is a deliberate, explicit call for
-                 personal/single-user use only (2026-08-20) — see CLAUDE.md's
-                 "Pre-V1 release checklist": this MUST move somewhere more
-                 visible in the main UI before VCAS goes out to other users. -->
-            <div class="settings-credit">
-              Aircraft data: <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
             </div>
           </section>
 

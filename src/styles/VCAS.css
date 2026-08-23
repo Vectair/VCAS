@@ -293,7 +293,12 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 
 #btn-settings:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
-/* ---- Top-right controls (ADS-B status + theme picker) ---- */
+/* ---- Top-right controls (ADS-B status + credit) ----
+   Was previously unused CSS with no matching element (a leftover from an
+   earlier design iteration — #theme-picker, styled a few rules down, is
+   the same story and is still unused) — revived 2026-08-23 to stack the
+   ADS-B status pill and its data-source credit vertically, right-aligned,
+   instead of writing a fresh wrapper. */
 #top-right-controls {
   display: flex;
   flex-direction: column;
@@ -329,6 +334,22 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
 #adsb-status.stale  .dot   { background: #ff9800; }
 #adsb-status.error  .dot   { background: #9e9e9e; }
 #adsb-status.active { color: var(--text-primary); }
+
+/* adsb.fi attribution — moved here from a Settings sub-screen (2026-08-23)
+   so it's visible for the whole time the app is open, not a one-time
+   mention someone has to go looking for. Deliberately small/muted rather
+   than styled like a status pill — this is a credit, not a live readout,
+   and shouldn't visually compete with the ADS-B connection status above
+   it for attention. */
+#adsb-credit {
+  font-size: 9px;
+  color: var(--text-muted);
+  padding-right: 8px;
+}
+
+#adsb-credit a {
+  color: var(--text-secondary);
+}
 
 /* ---- Theme picker ---- */
 #theme-picker {
