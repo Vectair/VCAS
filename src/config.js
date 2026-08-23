@@ -116,8 +116,13 @@ const CONFIG = {
   // as a low-effort deterrent against random bots hitting the endpoint
   // blindly, not as actual access control; the endpoint's own server-side
   // logic is what should enforce anything that actually matters.
-  LOG_ENDPOINT: "",
-  LOG_ENDPOINT_KEY: "",
+  // Deployed 2026-08-23: Bluehost-hosted log.php (not committed to this
+  // repo — handed to the project owner directly, same pattern as
+  // ADSB_RELAY_URL above), mirroring each observation into the private
+  // github.com/Vectair/vcas-logs repo too. See CLAUDE.md's "Central
+  // observation log" entry for the full deploy history.
+  LOG_ENDPOINT: "https://vectair.org/vcas-log/log.php",
+  LOG_ENDPOINT_KEY: "k8uBvSSbtZ_5lTB8dAaImH9ozO3wYd5pJpY72tHkr50",
 };
 
 if (typeof module !== "undefined") module.exports = CONFIG;

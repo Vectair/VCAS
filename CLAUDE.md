@@ -220,19 +220,48 @@ History, so it isn't rediscovered the hard way:
   GitHub docs before shipping — not assumed just because they're in the same
   hobbyist ecosystem.
 
-## Central observation log — also PARKED
+## Central observation log — DEPLOYED (2026-08-23)
 
-`src/dev/observationLogger.js` currently falls back to local
-`logServer.py`/localStorage. A central logging design (Bluehost-hosted PHP
-endpoint + private GitHub repo mirroring, so phone/PC/whatever all log to
-the same place) was fully designed and built — deploy files were handed to
-the project owner (`DEPLOY_INSTRUCTIONS.md`, `log.php`, `logs/.htaccess`,
-not committed to this repo) — but parked pending the owner's own setup work:
-creating a private GitHub repo, generating a GitHub PAT, uploading to
-Bluehost via cPanel, and providing the final deployed URL + shared secret
-for `CONFIG.LOG_ENDPOINT`/`LOG_ENDPOINT_KEY`. Don't restart this design from
-scratch if asked to pick it back up — ask whether the owner still has those
-handoff files first.
+`src/dev/observationLogger.js` posts to a real internet endpoint now, so
+phone/PC/whatever all log to the same place automatically instead of each
+device only having its own local `logServer.py`/localStorage fallback
+(still the fallback when `CONFIG.LOG_ENDPOINT` is blank, e.g. local dev).
+
+The design: a Bluehost-hosted PHP endpoint (`log.php`, not committed to
+this repo — handed to the project owner directly, same handoff pattern as
+the ADSB relay) that durably appends every observation to a local
+`logs/observations.jsonl` file on the server, AND best-effort-mirrors each
+one as its own small JSON file into a private GitHub repo
+(`github.com/Vectair/vcas-logs`, `observations/<timestamp>-<random>.json`
+each) so it's readable directly via GitHub tools with no export/upload
+step. The GitHub token lives only in `log.php` server-side, never sent to
+the browser — unlike `LOG_ENDPOINT_KEY` below, which does ship in the
+deployed app's own JS (see its own comment for why that's fine here).
+
+Deploy history, for when this needs touching again: private repo created
+(`Vectair/vcas-logs`) → this session's `add_repo` used to gain read
+access to it → a fine-grained GitHub PAT generated (Contents: Read and
+write, scoped to just that repo, no expiration — a SHORT expiration was
+the default and would have silently broken mirroring once it lapsed,
+caught and corrected during setup) → `log.php` uploaded to
+`public_html/vcas-log/` on Bluehost, `logs/.htaccess` into a `logs/`
+subfolder alongside it (blocks direct web access to the raw
+`.jsonl` file — a real gotcha hit during this deploy: cPanel's own
+upload silently stripped the leading dot, uploading it as a
+non-functional file literally named `htaccess`; caught by checking the
+File Manager listing, not assumed to have worked). Verified live via a
+plain browser GET to the deployed URL returning
+`{"ok":false,"error":"unauthorized"}` — the correct response, confirming
+PHP is executing and the shared-secret check is rejecting an unkeyed
+request rather than erroring or 404ing.
+
+`CONFIG.LOG_ENDPOINT`/`LOG_ENDPOINT_KEY` now point at the real deployed
+URL and shared secret (`src/config.js`) — `observationLogger.js` already
+read both and sent the key as the `X-VCAS-Key` header `log.php` expects,
+so no code changes were needed on the app side, only filling in config.
+If this needs touching again (token rotation, a new endpoint path, etc.)
+the deploy files above are still what to hand back to the project owner —
+don't redesign from scratch.
 
 ## Camera anchor math — read before touching cameraController.js
 
