@@ -286,6 +286,88 @@ the banner without navigating; Reload actually triggers a real page
 navigation. All seven checked against the true DOM/event behavior, not
 assumed from reading the code.
 
+## How VCAS is actually installed on tester devices — via PWABuilder, not plain "Add to Home Screen"
+
+**Not previously written down anywhere, and it should have been** — this
+came up only because a stale-icon report couldn't otherwise be explained.
+VCAS isn't just installed by testers tapping Chrome's "Add to Home
+Screen"; the project owner has been using [PWABuilder](https://pwabuilder.com)
+to generate an actual installable package from the live site
+(`https://vectair.github.io/VCAS/` — confirmed this is the real deployed
+URL, see the incident below), then installing that package.
+
+**This matters because a PWABuilder-generated package behaves completely
+differently from a browser-native "Add to Home Screen" install.** A
+Chrome WebAPK at least periodically re-checks the source site's manifest
+in the background (slowly/inconsistently, but it happens). A
+PWABuilder-generated package is a **permanent, frozen snapshot** of the
+manifest/icons/etc. as they existed at the moment the package was built —
+it has no live connection back to the site at all, and will never
+self-update no matter how long it's installed or how often it's opened.
+**The only way to pick up a manifest/icon/etc. change on a
+PWABuilder-installed copy is to rebuild the package and reinstall it** —
+this is not optional or a "should eventually" the way a WebAPK's slow
+background refresh is.
+
+### Incident: stale placeholder icon on tester's phone (2026-08-23)
+
+Reported directly: "what is the actual app logo and launch screen? right
+now I still have the generic blue diamond" — with screenshots showing a
+plain solid blue diamond as both the launch screen and app-drawer icon,
+on an installed copy of the app. This looked at first like it could be
+either a code bug or a live-server problem; it was neither.
+
+**Root cause, found via git history + the PWABuilder job's own log
+timestamp** (the project owner shared a PWABuilder screenshot showing the
+package build log after being asked to check a diagnostic URL, which
+didn't resolve on the first attempt — see the URL-structure finding
+below for why): the tester's installed package was built
+**2026-08-11T10:09:46Z**. The commit that replaced the placeholder solid
+diamond with the real detailed logo (blue diamond outline forming a "V"
+into a lime-green "VCAS" wordmark, car silhouette, dashed relevance arcs,
+red/amber traffic dots — `041f2ed`, "Update app icons to the new
+TCAS-radar/car logo variant") landed **2026-08-11 20:47:30Z**, the same
+day but roughly 10.5 hours *later*. The installed package is doing
+exactly what a frozen snapshot should do: showing the site exactly as it
+was that morning, before the real logo existed. Confirmed the live site
+itself is NOT still wrong: `041f2ed` is a git ancestor of the current
+deployed HEAD, the icon files are tracked and present, and the branch
+that auto-deploys via `.github/workflows/deploy-pages.yml` (triggers on
+push, no CNAME/custom domain — plain GitHub Pages project-site hosting)
+is fully pushed and in sync — checked via `git merge-base --is-ancestor`
+and `git status`, not fetched directly, since `vectair.github.io` is one
+of this sandbox's blocked egress domains (see "Sandbox environment
+notes" below; confirmed again this session via a 403 from the sandbox's
+own proxy, not from GitHub).
+
+**Also resolved along the way: the correct live URL has a `/VCAS/`
+subpath, not the bare root domain.** An early diagnostic attempt to have
+the project owner check `https://vectair.github.io/assets/icons/icon-512.png`
+directly 404'd. The PWABuilder job log line — "Generating app package for
+https://vectair.github.io/VCAS/" — settled this: VCAS is a GitHub Pages
+*project* site (served under `/<repo-name>/`), not a `<org>.github.io`
+root-repo site (which would serve at the bare domain) — the org here is
+`vectair`/`Vectair`, the repo is `VCAS`, and only a repo literally named
+`vectair.github.io` would get the bare-root behavior. The correct direct
+icon URL is `https://vectair.github.io/VCAS/assets/icons/icon-512.png`.
+
+**Fix**: rebuild the package via PWABuilder pointed at the same URL
+(`https://vectair.github.io/VCAS/`) and reinstall — no code change
+needed, the live site already has the correct icon. Generated a real
+mockup screenshot (Playwright, embedding the actual repo `icon-512.png`/
+`icon-512-maskable.png` files, not a description) showing what the splash
+screen and app-drawer icon should look like once reinstalled, so the
+project owner has something to compare the rebuilt package against.
+
+**Lesson, same category as the native-app-destination and
+50nm-contrail-cap incidents earlier in this file**: the install method
+itself — a fact just as durable as any design decision — went unrecorded
+long enough that a symptom it fully explained looked like a mystery bug
+for a while. If it's worth remembering that a repeated decision was made,
+it's equally worth remembering *how the thing actually gets onto a
+device*, since that's exactly the kind of fact a fresh session has no way
+to reconstruct from the code alone.
+
 ## Architecture map
 
 - `src/app.js` — orchestration/glue: GPS watch, mode state (nav/air,
