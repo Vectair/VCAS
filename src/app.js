@@ -194,6 +194,18 @@
     // route/guidance-toggle event recalculates it.
     updateMapViewportPadding();
 
+    // Dismiss the launch screen now that startup has genuinely finished —
+    // gated on the exact same "actually ready" condition as the line below,
+    // not a fixed timer, so it can't outlast a slow load or vanish before a
+    // fast one is real. If it's already gone (or never existed) this is a
+    // silent no-op.
+    const launchScreen = document.getElementById("launch-screen");
+    if (launchScreen) {
+      launchScreen.style.transition = "opacity 300ms ease-out";
+      launchScreen.style.opacity = "0";
+      setTimeout(() => launchScreen.remove(), 300);
+    }
+
     // The one reliable "the app actually finished starting" signal — read
     // by index.html's inline crash reporter's watchdog timer to decide
     // whether to show a "reload" prompt. Deliberately the LAST line of

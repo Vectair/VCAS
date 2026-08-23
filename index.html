@@ -227,6 +227,31 @@
 </head>
 <body data-theme="night">
 
+  <!-- Launch/splash screen — present in the initial HTML so it's on screen
+       the instant the document parses, before VCAS.css or any of the 25+
+       app scripts have to load (same reasoning as the inline crash reporter
+       in <head>: pure inline styles, nothing external to fail). Removed by
+       app.js's init() the moment window._vcasAppReady is set (see that
+       flag's own comment) — a real "app finished starting" signal, not a
+       fixed timer, so it never lingers on a slow load or vanishes early on
+       a fast one. Deliberately ADDITIVE to, not a replacement for, the
+       top-bar #adsb-credit line (see CLAUDE.md's "How VCAS is actually
+       installed" / adsb.fi attribution history) — that placement stays for
+       the whole session because the citation is an ongoing obligation; this
+       is a one-time hero moment on top of it, not instead of it. -->
+  <div id="launch-screen" style="position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0e17;padding:32px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <img src="assets/icons/icon-512.png?v=__BUILD_ID__" alt="VCAS" style="width:42vw;max-width:220px;min-width:120px;height:auto;" />
+    <div style="margin-top:22px;color:#f0f0f0;font-size:30px;font-weight:700;letter-spacing:4px;">VCAS</div>
+    <div style="margin-top:8px;color:#8ba3b1;font-size:14px;letter-spacing:1.5px;text-transform:uppercase;text-align:center;">Visual Contact Awareness System</div>
+    <div style="position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#56707d;font-size:12px;line-height:1.6;padding:0 24px;box-sizing:border-box;">
+      Proudly powered by
+      <a href="https://adsb.fi" target="_blank" rel="noopener" style="color:#8ba3b1;">adsb.fi</a>,
+      <a href="https://maplibre.org" target="_blank" rel="noopener" style="color:#8ba3b1;">MapLibre</a>
+      and
+      <a href="https://www.maptiler.com" target="_blank" rel="noopener" style="color:#8ba3b1;">MapTiler</a>
+    </div>
+  </div>
+
   <!-- Dev viewport emulator shell — wraps all app content so the frame can
        be constrained to emulated device dimensions.  In Full Browser mode
        the shell is transparent and the frame fills the window normally. -->

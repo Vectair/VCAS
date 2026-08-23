@@ -153,6 +153,82 @@ multiple concurrent testers' polling aggregating past adsb.fi's own 1
 req/s limit. See "ADS-B data source" below, "Follow-up: server-side
 throttling for Beta," for the full fix and verification.
 
+### Follow-up: real launch/splash screen added as a hero placement, ADDITIVE not a replacement (2026-08-23, later the same day)
+
+Direct instruction, once the PWABuilder icon-mismatch incident (see "How
+VCAS is actually installed on tester devices" below) had the project
+owner looking at what the launch screen actually shows: make the logo
+bigger, and add "what VCAS actually stands for" plus credit lines for
+adsb.fi and the other open-source tools the app depends on.
+
+**This is not a reversal of the "talked out of a splash screen" decision
+two entries above — it's the missing other half of it, made explicit
+before implementing rather than assumed.** That earlier decision was
+specifically about whether the adsb.fi *citation* should live on a
+one-time splash INSTEAD OF the top bar, and concluded no, because the
+citation is an ongoing obligation a dismissed-once screen can't satisfy.
+Asked directly this session whether adding a splash now reopens that
+question: confirmed no — the top-bar `#adsb-credit` line stays exactly as
+it is, unchanged, for exactly the reason already on record. The new
+splash content is a one-time *hero* moment layered on top of that ongoing
+mention, not a substitute for it, so both now legitimately exist for
+different reasons rather than one silently overriding the other.
+
+**Implementation** — VCAS previously had no custom splash at all: Android
+auto-generates one from the manifest's icon/name/background_color with no
+control over subtitle or credit text, and iOS has no manifest-driven
+splash mechanism at all (see the still-open, not-yet-built iOS
+`apple-touch-startup-image` gap noted earlier the same investigation
+thread). A real in-page `#launch-screen` overlay (`index.html`) is what
+actually renders the requested content: `icon-512.png` at up to 220px
+(`42vw`, up from whatever small size the OS auto-splash was choosing),
+"VCAS", the tagline "Visual Contact Awareness System" (VCAS's real
+expansion — confirmed directly with the project owner, since nothing in
+the codebase spelled it out anywhere before this), and a bottom credit
+line, "Proudly powered by adsb.fi, MapLibre and MapTiler" — the project
+owner's own exact wording — with each of the three names linking to its
+real homepage.
+
+Present in the raw HTML (not injected by JS) so it's on screen the
+instant the document parses, same reasoning as the inline crash reporter
+a few lines above it in `<head>`: pure inline styles, nothing external to
+fail, nothing to wait on. Dismissed by `app.js`'s `init()` — a short
+opacity fade, then `.remove()` — gated on the exact same
+`window._vcasAppReady` signal the reload-prompt watchdog already reads
+(see the two sections above), not a fixed timer, so it can't outlast a
+slow load or disappear before a fast one is actually real. Deliberately
+placed at `z-index: 2147483000`, one below the crash banner's
+`2147483647` (see above) rather than some unrelated arbitrary value — if
+`init()` never finishes, the "VCAS didn't load correctly" banner still
+needs to render on top of the splash, not be trapped underneath it.
+
+Verified with a real Playwright/Chromium render at both a normal portrait
+phone size (412×915) and the deliberately narrow 360px width this project
+always checks crowding against: no horizontal overflow at either size, the
+credit line's three links all render legibly on one wrapped line width.
+Also verified against the real, unmodified `index.html`/`app.js` (not just
+the extracted markup) via a local static server: on a normal fast load the
+splash is present at `opacity:1` immediately and the SAME dismissal code
+`init()` runs (bit-for-bit copied into a scripted `evaluate()` call) was
+confirmed to fade it to `opacity:0` and remove it once `_vcasAppReady` is
+set; separately, forcing a real script-load failure confirmed the crash
+banner renders on top of a still-present splash rather than the two
+fighting over the same layer, exactly as the z-index ordering intends.
+
+**Known test-harness artifact, not a real bug, worth recording so it
+isn't re-chased later**: artificially slowing the MapLibre CDN/Google
+Fonts requests (via `page.route`) to get a clean "still showing"
+screenshot before dismissal caused the crash reporter's watchdog to fire
+in a couple of early attempts, even at delays well under the real 8s
+window — this reproduced regardless of delay length in a way that pointed
+at the route-delay mechanism itself interacting badly with Chromium's
+script-loading, not at a real problem with the splash or the app. Same
+category of finding as the relay throttle's own PHP-dev-server-worker-pool
+artifact documented under "ADS-B data source" below — switched to a
+standalone harness reproducing the launch-screen markup verbatim instead
+of fighting the real page's load timing, which is also the approach
+already established for the crash-reporter/reload-banner tests just above.
+
 ### Crash/error reporter (2026-08-23)
 
 Built specifically for this milestone: "I would just need a record of
