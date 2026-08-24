@@ -2367,3 +2367,83 @@ per "Sandbox environment notes" below, not a bug in the caching logic):
    fires and updates the cache for next time (confirmed by checking a
    subsequent request got the newer body). All passed against the actual
    shipped file.
+
+## First-launch onboarding screen (2026-08-23)
+
+Direct request: a quick explanation of how to use the app and the
+symbology, shown when the app is first opened after being installed —
+distinct from both the ADS-B credit line (ongoing, every session, top
+bar) and the launch screen above (hero moment, every cold start). This
+is a THIRD thing, shown exactly once ever, per install.
+
+**Trigger and gating**: `app.js`'s `_maybeShowOnboarding()` checks a
+versioned localStorage flag, `vcas-onboarding-seen-v1` — versioned (not
+just a bare boolean) so a future symbology/UI change that genuinely
+warrants re-showing it can bump the key deliberately, without needing a
+real migration. Called right where the launch screen's fade-out already
+starts, not after a separate delay: `#onboarding-screen` sits at a normal
+app z-index (250, same family as `#settings-screen`), far below the
+splash's `2147483000`, so it's already present underneath but visually
+hidden by the splash — it simply becomes visible the instant the splash
+finishes its 300ms fade and removes itself. Two overlays, one clean
+handoff, no timer coordinating them.
+
+**Deliberately built as a normal app overlay, not inline-styled like the
+splash/crash-reporter.** Those two exist specifically to survive VCAS.css
+or app.js failing to load — this one only ever shows from inside a
+successfully-completed `init()`, by which point everything has already
+loaded fine, so there's no reason to duplicate that self-contained
+pattern here. Styled via real `VCAS.css` classes (`#onboarding-screen` /
+`.onboarding-*`) using the same custom-property palette (`--bg-panel`,
+`--accent`, `--btn-shadow`, etc.) as `#settings-screen`, so it reads as
+the same physical app rather than a bolted-on separate design.
+
+**The legend is generated from the app's real code, not hand-copied
+approximations** — a direct instruction was "a quick explanation of...
+the symbology," and the fastest way for that to silently go stale is to
+retype the four tiers' shapes/colours/labels as static markup that then
+drifts from `src/logic/visibility.js`'s actual `CATEGORIES` table the
+next time someone tunes it. Instead, `Visibility` gained a small new
+export, `getCategories()` (a shallow copy of the real table, read-only,
+touching nothing about `estimate()`'s scoring logic), and
+`_renderOnboardingLegend()` (`app.js`) builds each legend row by calling
+the exact same `AircraftSymbol.svg()` function every real indicator/
+marker on screen already uses — same shape paths, same fill-opacity
+steps, same colour values. If the real tier colours or shapes ever
+change, this legend changes with them automatically; it structurally
+cannot drift the way a hand-copied legend would. Plain-language one-line
+descriptions per tier (`ONBOARDING_LEGEND_COPY`, keyed by the same
+`label` string the popup badges already show) are the one piece of
+display-only copy that isn't pulled from existing code — deliberately
+non-technical (no angular-degree thresholds), matching the Beta test
+milestone's own framing that testers are "non-technical friends, not
+developers."
+
+**Content scope, kept deliberately short per "quick explanation"**: the
+three view modes (Hybrid/Raw/Air) in one line each, how to set a
+destination (search or tap-the-map), tap-for-detail on any aircraft, the
+four-tier sightability legend with real icons, and a one-line note on the
+two symbol modifiers (dashed = predicted entry, chevron = overhead) —
+matching `AircraftSymbol.js`'s own documented secondary-modifier scheme
+rather than inventing new wording for it. Deliberately does NOT re-explain
+range rings, the RAW range selector, the Stage 3 aircraft list, or
+relevance filtering — real features, but a first-launch primer covering
+every mechanic in this file would stop being "quick."
+
+**Verified with a real Playwright/Chromium render** against the actual
+`index.html`/`app.js`/`VCAS.css` (not extracted markup, since — unlike
+the splash — this only ever runs after a real successful `init()`, so
+there's no self-containment reason to test it in isolation): a fresh
+context with empty localStorage shows the onboarding screen after
+`_vcasAppReady`, with all 4 legend rows rendering real `<svg>` icons and
+the correct labels; a context pre-seeded with the seen-flag does NOT show
+it on a repeat launch; tapping "Got it — let's go" hides the screen and
+persists the flag; a narrow 360×640 viewport (this project's standing
+worst-case check) shows no horizontal overflow, the footer CTA stays
+fully on-screen, and the body content scrolls independently rather than
+being clipped. Also screenshotted in both Day and Night (Night forced
+manually post-load, since `ThemeManager`'s Auto mode resolves by local
+time-of-day, not `prefers-color-scheme` — confirmed by reading
+`themeManager.js`, not assumed, after an initial screenshot came back
+unexpectedly light and needed explaining) — legible and correctly
+themed in both, reading as the same panel family as Settings.

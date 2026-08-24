@@ -90,6 +90,12 @@
   const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
   let routeMode = "driving";
 
+  // First-launch onboarding — shown once, not on every open like the launch
+  // screen (see index.html's #onboarding-screen). Versioned so a future
+  // symbology/UI change that genuinely warrants re-showing it can bump this
+  // rather than needing a separate migration.
+  const ONBOARDING_SEEN_KEY = "vcas-onboarding-seen-v1";
+
   // Set once the user manually drags/zooms/rotates the map in NAV mode, so the
   // continuous GPS-driven camera stops fighting their pan; cleared by tapping
   // the recenter button (or by any explicit action that already re-centers,
@@ -156,6 +162,59 @@
       .catch(() => {});
   }
 
+  // Plain-language one-liners for the onboarding legend, keyed by the same
+  // `label` string Visibility.getCategories()/popups already use — not a
+  // parallel data source, just display copy layered on top of the real
+  // tier data (angular-size thresholds are deliberately left out here;
+  // "quick explanation" for non-technical testers, not a physics readout).
+  const ONBOARDING_LEGEND_COPY = {
+    "Certainly visible": "Big and close — you shouldn't be able to miss it.",
+    "Likely visible": "Large enough to actually resolve as an aircraft shape.",
+    "Possibly visible": "Worth a look if you're already looking that way.",
+    "Very unlikely/not visible": "Probably too small or far to spot by eye.",
+  };
+
+  function _renderOnboardingLegend() {
+    const container = document.getElementById("onboarding-legend");
+    if (!container) return;
+    // Real icon-drawing code (AircraftSymbol.svg) and the real tier table
+    // (Visibility.getCategories()) — not hand-approximated shapes/colours —
+    // so this can't silently drift from what the app actually renders.
+    container.innerHTML = Visibility.getCategories()
+      .map((cat) => {
+        const icon = AircraftSymbol.svg(cat.shape, cat.color, 22, cat.fillOpacity);
+        const desc = ONBOARDING_LEGEND_COPY[cat.label] || "";
+        return `<div class="onboarding-legend-row">
+          <span class="onboarding-legend-icon">${icon}</span>
+          <div>
+            <div class="onboarding-legend-label">${cat.label}</div>
+            <div class="onboarding-legend-desc">${desc}</div>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  // Shown once per install (ONBOARDING_SEEN_KEY), not on every open like the
+  // launch screen. Called right after the launch screen starts its fade —
+  // #onboarding-screen sits at a normal app z-index (250), far below the
+  // splash's 2147483000, so it's already present but hidden underneath and
+  // simply becomes visible the moment the splash finishes fading out and
+  // removes itself — no separate delay/timer needed to sequence the two.
+  function _maybeShowOnboarding() {
+    if (localStorage.getItem(ONBOARDING_SEEN_KEY)) return;
+    _renderOnboardingLegend();
+    document.getElementById("onboarding-screen")?.classList.remove("hidden");
+  }
+
+  function _initOnboarding() {
+    document.getElementById("btn-onboarding-dismiss")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+      document.getElementById("onboarding-screen")?.classList.add("hidden");
+    });
+  }
+
   function init() {
     _registerServiceWorker();
 
@@ -186,6 +245,7 @@
     EosMap.onUserInteraction(onUserPannedMap);
     _initSettingsScreen();
     _initDevModeUnlock();
+    _initOnboarding();
 
     const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
     if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
@@ -223,6 +283,11 @@
       launchScreen.style.opacity = "0";
       setTimeout(() => launchScreen.remove(), 300);
     }
+
+    // First-launch onboarding, if not seen before — see _maybeShowOnboarding's
+    // own comment for why no extra delay is needed to sequence it after the
+    // launch screen above.
+    _maybeShowOnboarding();
 
     // The one reliable "the app actually finished starting" signal — read
     // by index.html's inline crash reporter's watchdog timer to decide

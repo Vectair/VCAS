@@ -309,7 +309,16 @@ const Visibility = (() => {
     };
   }
 
-  return { estimate };
+  /**
+   * Read-only access to the 4 sightability tiers, for display purposes
+   * (the onboarding legend) rather than scoring — a shallow copy per call
+   * so a caller can't mutate the real CATEGORIES table.
+   */
+  function getCategories() {
+    return CATEGORIES.map((c) => ({ ...c }));
+  }
+
+  return { estimate, getCategories };
 })();
 
 if (typeof module !== "undefined") module.exports = Visibility;

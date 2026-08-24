@@ -1954,3 +1954,151 @@ body[data-nav-state="turn_approach"] { }
   color: #fff;
   box-shadow: var(--btn-shadow-active);
 }
+
+/* ---- First-launch onboarding (index.html #onboarding-screen) ----
+   Shown once, not on every open — see app.js's ONBOARDING_SEEN_KEY gate.
+   Styled as a normal app overlay (same family as #settings-screen) rather
+   than the splash's pure-inline styles, since this only ever shows AFTER
+   a successful init(), when VCAS.css is already known-good. */
+
+#onboarding-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 23, .72);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+#onboarding-screen.hidden { display: none; }
+
+#onboarding-panel {
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+#onboarding-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px 20px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.onboarding-section {
+  margin-bottom: 22px;
+}
+
+.onboarding-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.onboarding-section p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.onboarding-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.onboarding-tag {
+  flex-shrink: 0;
+  min-width: 58px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+#onboarding-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.onboarding-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.onboarding-legend-icon {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-legend-icon svg { display: block; filter: drop-shadow(0 0 2px rgba(0,0,0,.5)); }
+
+.onboarding-legend-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.onboarding-legend-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.onboarding-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+#onboarding-footer {
+  flex-shrink: 0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.onboarding-cta {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+.onboarding-cta:active { box-shadow: var(--btn-shadow-active); }

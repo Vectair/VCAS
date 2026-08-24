@@ -456,6 +456,68 @@
         </div>
       </div>
 
+      <!-- First-launch onboarding — shown once (localStorage-gated, see
+           app.js's ONBOARDING_SEEN_KEY), not on every open like the launch
+           screen. Only ever shown after a successful init() (see
+           _maybeShowOnboarding(), called right where the launch screen is
+           dismissed), so it's fine for this to depend on VCAS.css/app.js
+           the way the crash reporter/splash deliberately don't — by the
+           time it's needed, everything has already loaded successfully. -->
+      <div id="onboarding-screen" class="hidden">
+        <div id="onboarding-panel">
+          <div id="onboarding-body">
+
+            <section class="onboarding-section">
+              <h3>Welcome to VCAS</h3>
+              <p>VCAS shows you nearby aircraft while you drive, plotted by
+              bearing and distance so you know where to actually look — plus
+              turn-by-turn navigation to get you somewhere. Two things, one
+              screen.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>Three views</h3>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">HYBRID</span>
+                <span>Road map with traffic overlaid. Your default view.</span>
+              </div>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">RAW</span>
+                <span>A TCAS/ND-style instrument display — no map, just the traffic picture.</span>
+              </div>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">AIR</span>
+                <span>Top-down airspace view, every tracked aircraft, unfiltered.</span>
+              </div>
+              <p>Tap any aircraft icon or indicator for its callsign, type, altitude and more.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>Getting somewhere</h3>
+              <p>Tap 📍 to search a destination by name, or tap the map
+              directly — VCAS routes you there and keeps tracking traffic the
+              whole way.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>What the symbols mean</h3>
+              <p>Shape and colour show how easy an aircraft should actually
+              be to spot with your own eyes right now — not how close it is
+              on the map.</p>
+              <div id="onboarding-legend"></div>
+              <p class="onboarding-note">A <strong>dashed</strong> outline
+              means an aircraft is about to enter view. An upward
+              <strong>chevron</strong> means it's almost directly overhead —
+              look up.</p>
+            </section>
+
+          </div>
+          <div id="onboarding-footer">
+            <button type="button" id="btn-onboarding-dismiss" class="onboarding-cta">Got it — let's go</button>
+          </div>
+        </div>
+      </div>
+
     </div><!-- #viewport-dev-frame -->
   </div><!-- #viewport-dev-shell -->
 

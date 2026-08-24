@@ -79,6 +79,19 @@ For a home-screen shortcut:
 
 ---
 
+## First-Launch Onboarding
+
+The very first time VCAS is opened after install, a one-time overlay
+(`index.html` `#onboarding-screen`, shown/dismissed by `app.js`) walks
+through the three views, how to search/set a destination, and the
+sightability symbol legend below — using the app's own real icon-drawing
+code (`AircraftSymbol.svg`) and tier data (`Visibility.getCategories()`)
+so the legend can never drift from what's actually rendered on screen.
+Gated on a versioned localStorage flag (`vcas-onboarding-seen-v1`), so it
+shows once per install, not on every open.
+
+---
+
 ## App Modes
 
 | Mode | Button | Description |
