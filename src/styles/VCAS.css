@@ -1698,6 +1698,18 @@ body[data-nav-state="turn_approach"] { }
   color: #a0b4ff;
 }
 
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (2026-08-24, distraction/safety) —
+   dimmed and inert rather than hidden, so it reads as "temporarily
+   unavailable" and reappears usable the moment you stop, not as broken. */
+#lp-toggle.lp-toggle-disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+#lp-toggle.lp-toggle-disabled:hover {
+  background: rgba(18, 18, 36, 0.90);
+  color: #7b8cde;
+}
+
 #lp-menu {
   position: fixed;
   /* Below the real top bar, wherever its actual height ends up (guidance

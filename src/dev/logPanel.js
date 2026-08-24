@@ -20,9 +20,33 @@ const LogPanel = (() => {
   let _menuOpen    = false;
   let _tracked     = [];   // last Indicators.buildAll() result
   let _userState   = null; // last userState passed to update()
+  let _speedMph    = 0;    // last known effective speed — see setSpeedMph()
 
   function init() {
     _buildPanel();
+  }
+
+  /**
+   * Gates whether the LOG button is interactive at all (2026-08-24, direct
+   * instruction — a distraction/safety measure: logging an observation
+   * means reading a list and tapping a specific outcome button, real
+   * screen attention this app shouldn't invite while actually driving).
+   * Reuses CONFIG.GPS_HEADING_MIN_SPEED_MPH (5) rather than a second,
+   * separately-tuned threshold — same "stationary or walking" cutoff this
+   * app already uses elsewhere, not a new number to keep in sync.
+   * Called from app.js's applySpeedOverrideIfActive() on every GPS/speed
+   * update, real or dev-simulated.
+   */
+  function setSpeedMph(mph) {
+    _speedMph = mph;
+    const toggle = document.getElementById("lp-toggle");
+    const interactive = _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    if (toggle) toggle.classList.toggle("lp-toggle-disabled", !interactive);
+    // Force-closes an already-open panel the moment speed crosses the
+    // threshold, rather than leaving it open until the user manually taps
+    // it shut — that manual close is exactly the distracting interaction
+    // this exists to prevent, so it can't be the only way out once moving.
+    if (!interactive && _menuOpen) _close();
   }
 
   function _buildPanel() {
@@ -38,6 +62,7 @@ const LogPanel = (() => {
     toggle.textContent = "LOG";
     toggle.addEventListener("click", e => {
       e.stopPropagation();
+      if (_speedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // see setSpeedMph()
       _menuOpen ? _close() : _open();
     });
 
@@ -139,5 +164,5 @@ const LogPanel = (() => {
     if (_menuOpen) _render(); // refresh fallback-count badge if it just changed
   }
 
-  return { init, update, isOpen };
+  return { init, update, isOpen, setSpeedMph };
 })();

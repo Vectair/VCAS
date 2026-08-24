@@ -778,6 +778,12 @@
     if (SpeedSimPanel.isActive()) {
       userSpeedMph = SpeedSimPanel.getSpeedMph();
     }
+    // Gates whether the LOG panel is interactive right now (2026-08-24,
+    // direct instruction — a distraction/safety measure) — called from
+    // here rather than each individual call site, so both the real GPS
+    // path (onGpsSuccess) and the dev speed override (onSpeedSimChanged)
+    // stay in sync with a single line, not two that could drift.
+    LogPanel.setSpeedMph(userSpeedMph);
   }
 
   function onSpeedSimChanged() {

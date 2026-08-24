@@ -289,8 +289,15 @@ const UI = (() => {
       // list rows now, not duplicated on the icon too.
       const altitudeLabel = ind.aircraft.altitudeFt != null ? `${Math.round(ind.aircraft.altitudeFt).toLocaleString()}ft` : "";
 
+      // shapeSvg wrapped in its own .indicator-icon element (2026-08-24)
+      // so declutterRenderedIndicators() can obstacle-check the icon and
+      // the arrow separately — a label is allowed to sit against its own
+      // icon (the "attached tag" look), but not against its own arrow,
+      // which carries its own real glanceable information (direction of
+      // travel) that a label covering it would defeat. See that function's
+      // own comment for the full reasoning.
       const innerHtml = `
-        <div class="indicator-shape">${arrowSvg}${shapeSvg}</div>
+        <div class="indicator-shape">${arrowSvg}<div class="indicator-icon">${shapeSvg}</div></div>
         <div class="indicator-label" style="border-color:${_borderColor(ind.vis)}">
           ${type ? `<div class="actype">${type}</div>` : ""}
           ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
@@ -500,29 +507,40 @@ const UI = (() => {
     if (els.length === 0) return;
 
     // Fixed obstacles that never move, gathered ONCE up front — every
-    // icon+arrow bundle (.indicator-shape's own rect already encloses its
-    // direction-arrow child even though the arrow visually extends past
-    // the shape's own box, since getBoundingClientRect() accounts for
-    // overflowing absolutely-positioned descendants) and every suppressed
-    // range-selector edge dot, across the WHOLE layer.
-    // Each obstacle keeps the hex of the aircraft it belongs to (undefined
-    // for suppressed dots, which carry their own hex too via data-hex) so
-    // an aircraft's OWN icon can be excluded from ITS OWN obstacle check
-    // below — a label is SUPPOSED to sit close against its own icon
-    // (that's the whole "attached tag" look), only a DIFFERENT aircraft's
-    // icon/arrow is a real collision. Missing this the first time round
-    // made even a single isolated aircraft with nothing else on screen
-    // register a false self-overlap and escalate straight to a leader
-    // line — caught by testing an isolated-aircraft case specifically,
-    // not just crowded ones.
+    // icon, every direction arrow, and every suppressed range-selector edge
+    // dot, across the WHOLE layer.
+    //
+    // Icon and arrow are tracked as TWO SEPARATE obstacles per aircraft
+    // (2026-08-24), not one combined .indicator-shape rect — only the icon
+    // carries `ownIconExemption: true`, letting an aircraft's OWN label
+    // check skip its OWN icon (a label is SUPPOSED to sit close against its
+    // own icon, the whole "attached tag" look) while still treating its OWN
+    // arrow as a real obstacle. A real device screenshot showed labels
+    // sitting on top of their own aircraft's direction arrow — the arrow
+    // carries its own glanceable information (which way it's heading) that
+    // a label covering it would defeat, so exempting it the same way the
+    // icon is exempted was wrong. Every OTHER aircraft's icon and arrow are
+    // real obstacles for a label either way, exempt or not.
+    //
+    // Missing the icon exemption entirely, the first time this obstacle set
+    // was built, made even a single isolated aircraft with nothing else on
+    // screen register a false self-overlap and escalate straight to a
+    // leader line — caught by testing an isolated-aircraft case
+    // specifically, not just crowded ones; still guarded against here.
     const fixedObstacles = [];
     els.forEach(el => {
       const hex = el.dataset.hex;
-      const shape = el.querySelector(".indicator-shape");
-      fixedObstacles.push({ hex, rect: _inflateRect(shape.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+      const icon = el.querySelector(".indicator-icon");
+      if (icon) {
+        fixedObstacles.push({ hex, ownIconExemption: true, rect: _inflateRect(icon.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+      }
+      const arrow = el.querySelector(".direction-arrow");
+      if (arrow) {
+        fixedObstacles.push({ hex, ownIconExemption: false, rect: _inflateRect(arrow.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+      }
     });
     container.querySelectorAll(".suppressed-dot").forEach(el => {
-      fixedObstacles.push({ hex: el.dataset.hex, rect: _inflateRect(el.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
+      fixedObstacles.push({ hex: el.dataset.hex, ownIconExemption: false, rect: _inflateRect(el.getBoundingClientRect(), _LABEL_OBSTACLE_PADDING_PX) });
     });
 
     const items = els.map(el => {
@@ -550,8 +568,11 @@ const UI = (() => {
     const placedLabelRects = [];
 
     items.forEach(item => {
+      // Exclude only THIS aircraft's own icon (ownIconExemption) — its own
+      // arrow, and everything belonging to every other aircraft, stay in
+      // the obstacle set. See fixedObstacles' own comment above.
       const obstacles = fixedObstacles
-        .filter(o => o.hex !== item.hex)
+        .filter(o => !(o.hex === item.hex && o.ownIconExemption))
         .map(o => o.rect)
         .concat(placedLabelRects);
 

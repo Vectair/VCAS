@@ -2752,3 +2752,89 @@ child of `#top-bar-right`, and the onboarding legend/copy reflects the
 new order and mentions range-cycling. Also screenshotted with the LOG
 menu open and closed to confirm no visual collision with the aircraft
 list panel below it.
+
+## Labels obscuring their own direction arrow (2026-08-24)
+
+Reported directly from a real device screenshot, same day as the LOG
+overlap report above: several aircraft labels visibly covered part of
+their own direction-of-travel arrow — a real, previously-undetected gap
+in the label decluttering system documented at length earlier in this
+file. Distinct from every earlier decluttering bug (icon+arrow moving
+together, labels covering OTHER aircraft's icons, an isolated aircraft
+falsely registering self-overlap) — this one is specifically about an
+aircraft's own arrow.
+
+**Root cause, found by re-reading `declutterRenderedIndicators()`'s own
+obstacle-gathering code**: it treated `.indicator-shape` — the icon AND
+its direction arrow together — as ONE combined obstacle, entirely exempt
+from an aircraft's own label check ("a label is SUPPOSED to sit close
+against its own icon," per that function's own long-standing comment).
+That exemption is correct for the icon — the "attached tag" look
+genuinely wants the label right next to it — but was never actually
+correct for the arrow, which carries its own real glanceable information
+(which way that aircraft is heading) that a label sitting on top of it
+straightforwardly defeats. The exemption was just never split from the
+icon's own exemption, since the original decluttering work only ever
+tested against OTHER aircraft's icons/arrows and other labels, not this
+specific "own arrow" case.
+
+**Fix**: `renderIndicators()` (`ui.js`) now wraps the icon SVG in its own
+`.indicator-icon` element, separate from the sibling `.direction-arrow`
+it was already rendered alongside inside `.indicator-shape`.
+`declutterRenderedIndicators()`'s obstacle set now tracks icon and arrow
+as two independent obstacles per aircraft, and only the icon carries the
+self-exemption (`ownIconExemption: true`) — the arrow is a real obstacle
+for every label's placement check, including that same aircraft's own.
+Every other aircraft's icon and arrow remain full obstacles either way,
+exempt or not, unchanged from before.
+
+Verified with a real Playwright/Chromium harness (this project's
+established convention for this exact class of bug) driving the actual
+`ui.js`/`aircraftSymbol.js` against stubbed `ThemeManager`/`ColorblindMode`/
+`NavDisplayStyle`: a single isolated aircraft with its track pointing
+its arrow directly into the label's own default position (the literal
+reported scenario) now shows zero overlap between the label and its own
+arrow, where the same setup reproduced the bug before the fix; a dense
+5-aircraft cluster with varied tracks (modelled on the real screenshot's
+layout) was exhaustively checked pairwise — every label against every
+arrow (own and others'), every label against every other aircraft's
+icon, and every label against every other label — zero violations found.
+Icons stayed exactly at their true plotted points throughout, confirming
+the fix only changed the obstacle SET, not the icon-never-moves guarantee
+every earlier decluttering fix in this file already established.
+
+## LOG button gated to stationary/walking speed (2026-08-24)
+
+Direct instruction, same session as the overlap fix above: the LOG
+button should only be interactive at or below `CONFIG.
+GPS_HEADING_MIN_SPEED_MPH` (5mph) — a distraction/safety measure, since
+logging an observation means reading a list and tapping a specific
+outcome button, real sustained screen attention this app shouldn't
+invite while actually driving. Reuses that existing config constant
+rather than a second, separately-tuned threshold — same "stationary or
+walking" cutoff this app already applies elsewhere (GPS heading
+trust/compass listener), not a new number to keep in sync with it by
+hand.
+
+`LogPanel.setSpeedMph()` (new) is called from `app.js`'s
+`applySpeedOverrideIfActive()` — the one place both the real GPS path
+(`onGpsSuccess`) and the dev speed override (`onSpeedSimChanged`, SPD
+panel) already converge on a final effective `userSpeedMph`, so both
+stay in sync from a single call site rather than two that could drift.
+Above the threshold, the toggle gets a dimmed, `cursor:not-allowed`
+`.lp-toggle-disabled` state (reads as "temporarily unavailable," not
+broken or gone) and its click handler no-ops; **at or below** the
+threshold it's fully interactive again, immediately. If the panel is
+already open when speed crosses the threshold, it force-closes rather
+than waiting for a manual close — that manual tap is exactly the
+distracting interaction this exists to prevent, so it can't be the only
+way out once moving.
+
+Verified with a real Playwright harness driving the actual `logPanel.js`
+against real `config.js`: stationary (0mph) is interactive and a click
+opens the menu; moving (30mph) is visually disabled AND force-closes an
+already-open menu; a click while disabled does not reopen it; exactly at
+the 5mph threshold is still interactive (`<=`, not `<`); just above it
+(5.1mph) is disabled; slowing back down to 0mph restores full
+interactivity immediately. All eight checks passed against the real,
+shipped logic.
