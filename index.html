@@ -189,7 +189,14 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#0a0e17" />
+  <!-- Kept in sync BY HAND with VCAS.css's --bg-dark (Night, #12181c) and
+       manifest.json's background_color/theme_color — three places that
+       can't read a CSS custom property (a meta tag, a static manifest, and
+       this file's own pre-CSS-load launch screen below) and drifted apart
+       from the real 2026-08-22 cockpit-rebrand palette until the
+       2026-08-24 "double load screen / background inconsistency" fix
+       caught it — see CLAUDE.md. -->
+  <meta name="theme-color" content="#12181c" />
   <!-- GitHub Pages doesn't let us set real Cache-Control headers, and this
        top-level document has no ?v=__BUILD_ID__ of its own (it can't cache-
        bust itself) — these are the best-effort browser-side equivalent, so
@@ -238,8 +245,20 @@
        top-bar #adsb-credit line (see CLAUDE.md's "How VCAS is actually
        installed" / adsb.fi attribution history) — that placement stays for
        the whole session because the citation is an ongoing obligation; this
-       is a one-time hero moment on top of it, not instead of it. -->
-  <div id="launch-screen" style="position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0e17;padding:32px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+       is a one-time hero moment on top of it, not instead of it.
+
+       Background is #12181c — VCAS.css's real --bg-dark (Night), same
+       value as manifest.json's background_color (2026-08-24 fix). Android's
+       own OS-generated auto-splash (icon-only, rendered from that same
+       manifest background_color before this HTML even parses) hands off to
+       THIS overlay a moment later; matching the two exactly means that
+       handoff is a same-colour continuation — no colour flash — even
+       though the icon itself still visibly grows/repositions and the
+       tagline+credit fade in, which is the OS auto-splash's own doing, not
+       something this app's code can suppress (it has no subtitle/credit
+       capability of its own — see CLAUDE.md's "How VCAS is actually
+       installed" section). -->
+  <div id="launch-screen" style="position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#12181c;padding:32px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
     <img src="assets/icons/icon-512.png?v=__BUILD_ID__" alt="VCAS" style="width:92vw;max-width:480px;min-width:220px;height:auto;" />
     <div style="margin-top:22px;color:#8ba3b1;font-size:clamp(10px,3.2vw,14px);letter-spacing:1.5px;text-transform:uppercase;text-align:center;white-space:nowrap;">Visual Contact Awareness System</div>
     <div style="position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#56707d;font-size:clamp(9px,2.9vw,12px);line-height:1.6;white-space:nowrap;">

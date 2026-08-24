@@ -2946,3 +2946,93 @@ on-click, deselect-on-outside-tap, interactive-while-stationary,
 disabled-while-moving-30mph, click-no-ops-while-disabled, still-
 interactive-exactly-at-the-5mph-threshold, and interactivity restored
 after slowing back down.
+
+## "Double load screen" + background colour inconsistency — stale pre-rebrand hex values (2026-08-24)
+
+Reported directly: "I'm now getting a strange double load screen. the
+first one is just the VCAS logo which then disappears and it's replaced
+by the acronym definition and the hero line. these should all be in the
+same 1 screen. I also think there's some background colour inconsistency
+where parts are black and parts are dark blue."
+
+**Two screens is real, and only partly fixable from this codebase.** The
+"logo only" screen is Android's own OS-generated auto-splash — rendered
+from `manifest.json`'s icon + `background_color`, entirely before
+`index.html` even starts parsing, with no subtitle/credit capability of
+its own (already documented under "Follow-up: real launch/splash screen
+added as a hero placement" above). The "acronym + hero line" screen is
+VCAS's OWN in-page `#launch-screen` overlay, which only exists once the
+HTML document itself parses — a few hundred ms to a couple of seconds
+later depending on load speed. These are always going to be two
+sequential screens; nothing in this repo can suppress or skip the OS
+splash, and PWABuilder-generated packages have no source in this repo to
+add subtitle text to it even if the timing could be collapsed.
+
+**What WAS a real, fixable bug: the two screens' background colours never
+matched, and neither matched the app's own real chrome colour.** Grepped
+every hardcoded dark-splash-adjacent hex in the repo and found three
+different values, none of them the actual current app colour:
+- `manifest.json`'s `background_color`/`theme_color` — `#0a0e17`
+- `index.html`'s `<meta name="theme-color">` and `#launch-screen`'s own
+  inline `background` — both `#0a0e17`
+- `app.js`'s `_applyThemeToDom()`, which live-updates that SAME meta tag
+  on every theme change (not just at splash) — `#0a0e17` (night) /
+  `#f5f3ee` (day)
+- The ACTUAL app chrome background, `VCAS.css`'s `--bg-dark` custom
+  property (the 2026-08-22 cockpit-rebrand palette — see "Cockpit-panel
+  chrome rebrand" above) — `#12181c` (night) / `#d4dde2` (day)
+
+All four splash/meta-tag values were still the PRE-rebrand navy-blue
+(`#0a0e17`)/off-white (`#f5f3ee`) colours from before that rebrand ever
+happened, never updated when `--bg-dark` was repalletted to the real
+pixel-sampled cockpit-panel colour. This is exactly the "two
+independently-set values silently drift apart" bug class this file
+already warns about repeatedly (the rings-vs-dots mismatch, the
+LOG-vs-aircraft-list overlap, several others above) — just with plain
+hex literals instead of computed layout, and going unnoticed for two
+days because a colour drift is far less obviously "broken" than a
+misaligned button. **This is also what the "parts black, parts dark
+blue" report was describing directly, at every point in the session, not
+just at launch** — `_applyThemeToDom()` updates the OS status-bar tint
+live on every theme resolution, so the mismatch between that tint
+(navy `#0a0e17`) and the actual chrome around it (`#12181c`, closer to
+neutral dark grey) was visible for the whole time Night/Auto was active,
+not only during the splash sequence.
+
+**Fix**: all five hardcoded locations now use the real, current
+`--bg-dark` values — `#12181c` (night) everywhere a single fixed dark
+value is needed (`manifest.json`, `index.html`'s static meta tag and
+`#launch-screen` background — RAW/the splash have always used a single
+fixed dark look regardless of Day/Night by design, so night's value is
+the correct universal pick here, not a Day/Night split), and `app.js`'s
+live `_applyThemeToDom()` now uses the real per-theme pair
+(`#12181c`/`#d4dde2`) instead of the stale `#0a0e17`/`#f5f3ee`. Since a
+manifest field, a meta tag, and an inline pre-CSS-load `<style>` can't
+read a CSS custom property, this duplication is unavoidable, not an
+oversight this time — but each site now carries an explicit comment
+naming `--bg-dark` as the value to keep it in sync with by hand, the
+same guard-rail pattern this file already uses for the crash reporter's
+duplicated `LOG_ENDPOINT`/`LOG_ENDPOINT_KEY` — so the next repalette
+doesn't drift silently for two days again before anyone notices.
+
+**Net effect**: Android's OS-generated auto-splash (built from
+`manifest.json`'s `background_color`) now renders on the EXACT same
+colour as VCAS's own in-page `#launch-screen` takes over with — the
+handoff between the two screens is now a same-colour continuation, not a
+colour flash, even though the icon itself still visibly grows into place
+and the tagline/credit still fade in a beat later (the OS splash's own
+behaviour, not something this app's code drives). The persistent
+"parts black, parts dark blue" chrome inconsistency during ordinary use
+is fully fixed, not just narrowed to the splash moment.
+
+Verified via a real Playwright/Chromium render (412×915, this project's
+usual worst-case check size): `getComputedStyle` on `#launch-screen`,
+`document.body`, the `theme-color` meta tag, and a live `fetch()` of
+`manifest.json` all resolved to the identical `rgb(18,24,28)`/`#12181c`
+— confirmed bit-for-bit equal, not just "look the same." Could not verify
+the OS-level auto-splash itself the same way — that's rendered by the
+Android/PWABuilder shell entirely outside this HTML document, with no
+DOM this sandbox (or any web-only tooling) can inspect — so the "no
+colour flash at handoff" claim rests on the now-matching manifest value
+feeding it, confirmed correct, rather than a direct screenshot of the
+OS splash itself.

@@ -621,8 +621,15 @@
   function _applyThemeToDom(theme) {
     document.body.dataset.theme = theme;
 
+    // Kept in sync BY HAND with VCAS.css's --bg-dark for each theme
+    // (Night #12181c / Day #d4dde2) — the OS status-bar tint has no way to
+    // read a CSS custom property, so this duplication is unavoidable, not
+    // an oversight. These values drifted from the real cockpit-rebrand
+    // palette for a while (were #0a0e17/#f5f3ee, the pre-2026-08-22
+    // pre-rebrand colours) until the 2026-08-24 "double load screen /
+    // background inconsistency" fix caught it — see CLAUDE.md.
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = theme === "day" ? "#f5f3ee" : "#0a0e17";
+    if (meta) meta.content = theme === "day" ? "#d4dde2" : "#12181c";
 
     ["day", "auto", "night"].forEach(t => {
       const btn = document.getElementById(`btn-theme-${t}`);
