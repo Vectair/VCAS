@@ -1668,28 +1668,22 @@ body[data-nav-state="turn_approach"] { }
   border-color: #505aaa;
 }
 
-/* ---- LOG button + ground-truth panel (mirrors VIEW, opposite corner) ---- */
-
-#log-panel {
-  position: fixed;
-  bottom: calc(14px + var(--bottom-toast-offset, 0px));
-  left: 14px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-  pointer-events: all;
-  transition: bottom .3s;
-}
+/* ---- LOG button + ground-truth panel ----
+   The toggle lives inline in #top-bar-right now (2026-08-24, see
+   logPanel.js), not its own floating bottom-left button — that used to sit
+   exactly where the RAW aircraft-list panel's own rows can appear in
+   portrait (Geo.computeSquarePlotLayout's `rows` region reaches the
+   bottom-left there), obscuring them. Only the expanded menu is still a
+   fixed-position overlay, since it's too big to live inline in the bar. */
 
 #lp-toggle {
+  flex-shrink: 0;
   background: rgba(18, 18, 36, 0.90);
   color: #7b8cde;
   border: 1px solid #3a3a5e;
   border-radius: 6px;
   padding: 5px 10px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .12em;
@@ -1705,6 +1699,15 @@ body[data-nav-state="turn_approach"] { }
 }
 
 #lp-menu {
+  position: fixed;
+  /* Below the real top bar, wherever its actual height ends up (guidance
+     card, etc.) — a generous fixed clearance rather than syncing to
+     _rawChromeInsets() like the RAW-only elements do, since this dev tool
+     doesn't need pixel-exact alignment the way the always-visible traffic
+     plot does. */
+  top: 60px;
+  right: 14px;
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1714,9 +1717,11 @@ body[data-nav-state="turn_approach"] { }
   border: 1px solid #3a3a5e;
   border-radius: 8px;
   padding: 8px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 32px rgba(0,0,0,.7);
   overflow: hidden;
+  pointer-events: all;
 }
 
 #lp-menu.hidden { display: none; }

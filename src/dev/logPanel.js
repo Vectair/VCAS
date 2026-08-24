@@ -26,9 +26,13 @@ const LogPanel = (() => {
   }
 
   function _buildPanel() {
-    const panel = document.createElement("div");
-    panel.id = "log-panel";
-
+    // Toggle lives in the persistent top bar now (2026-08-24), not its own
+    // floating bottom-left button — that used to sit exactly where the RAW
+    // aircraft-list panel's own rows can appear (Geo.computeSquarePlotLayout's
+    // `rows` region reaches the bottom-left in portrait), obscuring them.
+    // Living in #top-bar-right means it's always correctly positioned
+    // relative to the real top bar in every mode, with no fixed-position
+    // math of its own to keep in sync.
     const toggle = document.createElement("button");
     toggle.id = "lp-toggle";
     toggle.textContent = "LOG";
@@ -37,13 +41,24 @@ const LogPanel = (() => {
       _menuOpen ? _close() : _open();
     });
 
+    // Inserted as its own item in the top-bar-right ROW (sibling of the
+    // ADS-B status/credit column and the settings gear), not stacked inside
+    // that column itself — reads as [ADS-B pill+credit] [LOG] [gear]
+    // left-to-right, rather than an odd fourth row on top of the pill.
+    const topBarRight = document.getElementById("top-bar-right");
+    const settingsBtn = document.getElementById("btn-settings");
+    if (topBarRight) {
+      topBarRight.insertBefore(toggle, settingsBtn || null);
+    } else {
+      document.body.appendChild(toggle); // shouldn't happen — defensive fallback
+    }
+
+    // The expanded menu is still a floating overlay (too big to live inline
+    // in the top bar) — fixed-position, anchored below it.
     const menu = document.createElement("div");
     menu.id = "lp-menu";
     menu.className = "hidden";
-
-    panel.appendChild(toggle);
-    panel.appendChild(menu);
-    document.body.appendChild(panel);
+    document.body.appendChild(menu);
 
     document.addEventListener("click", () => { if (_menuOpen) _close(); });
   }

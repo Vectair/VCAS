@@ -1,13 +1,13 @@
 /**
  * NavDisplayStyle — which camera/basemap presentation NAV mode uses:
  *
- *   - "Hybrid" (default): the original tilted 3rd-person follow camera,
- *     with the polar-plotted TCAS-style traffic overlay combined on top of
- *     the normal themed road map — a hybrid of the two.
- *   - "Raw": a selectable top-down, heading-up plan-position display
- *     stripped down to look as close as practical to a real TCAS/ND
- *     instrument screen — flat camera, no road map underneath at all, just
- *     the raw traffic picture.
+ *   - "Raw" (default, 2026-08-24): a selectable top-down, heading-up
+ *     plan-position display stripped down to look as close as practical to
+ *     a real TCAS/ND instrument screen — flat camera, no road map
+ *     underneath at all, just the raw traffic picture.
+ *   - "Hybrid": the original tilted 3rd-person follow camera, with the
+ *     polar-plotted TCAS-style traffic overlay combined on top of the
+ *     normal themed road map — a hybrid of the two.
  *
  * A simple persisted preference, read by CameraController/app.js when
  * evaluating the camera and basemap each frame — it doesn't change what's
@@ -19,7 +19,7 @@ const NavDisplayStyle = (() => {
   const HYBRID = "hybrid";
   const RAW = "raw";
 
-  let _style = HYBRID;
+  let _style = RAW;
   let _onChange = null;
 
   function init({ onChange } = {}) {

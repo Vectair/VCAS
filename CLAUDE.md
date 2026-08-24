@@ -2671,3 +2671,84 @@ time-of-day, not `prefers-color-scheme` — confirmed by reading
 `themeManager.js`, not assumed, after an initial screenshot came back
 unexpectedly light and needed explaining) — legible and correctly
 themed in both, reading as the same panel family as Settings.
+
+## LOG button overlap + top-of-screen consolidation, RAW as default (2026-08-24)
+
+Reported directly, from a real device screenshot: the LOG button
+(`src/dev/logPanel.js`) sat fixed at bottom-left and obscured the RAW
+aircraft-list panel's own rows when they appeared. Root cause: LOG's
+fixed `bottom:14px; left:14px` position was never coordinated with
+`Geo.computeSquarePlotLayout()`'s `rows` region, which in portrait fills
+the space below the square and — being genuinely "whatever's left,"
+not a fixed height — can reach down far enough to land right where LOG
+was floating. Same category of bug as the rings-vs-dots coordinate-system
+mismatch earlier in this file: two independently-positioned things that
+happened to share screen real estate with nothing keeping them apart.
+
+**Fix, not a patch on the old position — moved LOG's toggle into the
+real, persistent top bar** (`#top-bar-right`, between the ADS-B status
+column and the settings gear) instead of giving it a new fixed-position
+formula of its own to keep in sync. This is a structural fix, not a
+coordinate tweak: `#log-panel`'s old wrapper div is gone entirely, and
+`#lp-toggle` is now a normal flex child of `#top-bar-right`, so its
+position is correct by construction in every mode, with nothing to drift.
+Only the expanded `#lp-menu` (too big to live inline in the bar) is still
+`position:fixed`, anchored below the top bar. **Confirmed via Playwright
+that this actually fixes the overlap**, not just moved it somewhere that
+looked plausible: the `#raw-aircraft-list` panel now renders with nothing
+else drawn over its top-left corner, at the exact device size (412×915)
+the original report came from.
+
+**LOG's own explicit context, worth restating since it's easy to assume
+otherwise**: `LogPanel.init()` runs unconditionally in `init()`, NOT
+gated behind `DevMode.isEnabled()` the way VIEW/SPD are — it's the
+spottability-logging tool every tester uses (see "Central observation
+log" above), not a hidden developer-only panel. This bug was affecting
+every tester's actual screen, not just the project owner's dev-mode
+device.
+
+**The RAW range-selector button also moved**, same session, per direct
+request to consolidate LOG, the range button, and the SPD readout nearer
+the top rather than scattered across the screen: `UI.renderRangeSelector`'s
+Y coordinate changed from `square.squareTop + 8` (the square plot's own
+top-right corner, well down the screen) to `insets.chromeTopInset + 48` —
+the same row `ui.js`'s own `stripY` formula already places the compass
+tape's SPD text on. X is unchanged (still anchored to the square's own
+right edge, which is already correct in both portrait and landscape).
+**Not pixel-identical to LOG's new top-bar position** — LOG sits in the
+literal top bar row, range/speed sit just below it, still RAW's own
+chrome — but Playwright confirmed both are now genuinely consolidated
+near the top with clear visual grouping, not the top bar and a stray
+button 500px further down the screen.
+
+**Default RAW range is now 10nm**, not the widest (50nm) — direct
+instruction. `app.js`'s `selectedRangeIndex` now computed via
+`Indicators.RING_BANDS_NM.indexOf(10)` rather than a hardcoded index, so
+it can't silently point at the wrong band if `RING_BANDS_NM`'s own values
+ever change.
+
+**RAW is now the default NAV display style, not Hybrid** — direct
+instruction, `navDisplayStyle.js`'s `_style` default flipped from
+`HYBRID` to `RAW` (only affects a fresh install with no stored
+preference; anyone who's already touched the toggle keeps their own
+choice, same as any other localStorage-backed preference in this app).
+**The three main-screen buttons were also reordered** (`index.html`) from
+HYBRID/RAW/AIR to **RAW/AIR/HYBRID**, matching the new default — the
+`active-mode` class moved to the RAW button in the static HTML too, so
+there's no flash of the wrong button highlighted before JS corrects it
+on load. The onboarding screen's own "Three views" section (added
+2026-08-23) was updated to match both the new order and the "Your
+default view" callout, which had been sitting on HYBRID's row — and
+gained a line mentioning the range-readout tap-to-cycle interaction,
+which the onboarding content never covered before.
+
+Verified with a real Playwright/Chromium render (mocked GPS fix so RAW's
+full render path actually runs, not just a cold load): confirms
+`document.body.dataset.navStyle === "raw"` on a fresh session, the mode
+button DOM order is `[btn-raw, btn-air, btn-hybrid]` with `active-mode`
+on `btn-raw`, the range button reads "10NM" on first render, the old
+`#log-panel` wrapper element no longer exists, `#lp-toggle` is a real
+child of `#top-bar-right`, and the onboarding legend/copy reflects the
+new order and mentions range-cycling. Also screenshotted with the LOG
+menu open and closed to confirm no visual collision with the aircraft
+list panel below it.

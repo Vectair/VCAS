@@ -377,9 +377,9 @@
           <!-- Mode row -->
           <div id="mode-row">
             <div class="mode-toggle">
-              <button class="mode-btn active-mode" id="btn-hybrid">HYBRID</button>
-              <button class="mode-btn" id="btn-raw">RAW</button>
+              <button class="mode-btn active-mode" id="btn-raw">RAW</button>
               <button class="mode-btn" id="btn-air">AIR</button>
+              <button class="mode-btn" id="btn-hybrid">HYBRID</button>
             </div>
             <div id="aircraft-count">No aircraft in range</div>
             <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
@@ -478,18 +478,20 @@
             <section class="onboarding-section">
               <h3>Three views</h3>
               <div class="onboarding-row">
-                <span class="onboarding-tag">HYBRID</span>
-                <span>Road map with traffic overlaid. Your default view.</span>
-              </div>
-              <div class="onboarding-row">
                 <span class="onboarding-tag">RAW</span>
-                <span>A TCAS/ND-style instrument display — no map, just the traffic picture.</span>
+                <span>A TCAS/ND-style instrument display — no map, just the traffic picture. Your default view.</span>
               </div>
               <div class="onboarding-row">
                 <span class="onboarding-tag">AIR</span>
                 <span>Top-down airspace view, every tracked aircraft, unfiltered.</span>
               </div>
-              <p>Tap any aircraft icon or indicator for its callsign, type, altitude and more.</p>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">HYBRID</span>
+                <span>Road map with traffic overlaid.</span>
+              </div>
+              <p>Tap any aircraft icon or indicator for its callsign, type, altitude and more.
+              In RAW, tap the range readout (top right of the display) to cycle
+              through how far out it shows.</p>
             </section>
 
             <section class="onboarding-section">

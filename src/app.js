@@ -68,10 +68,10 @@
 
   // ND-style range selector (RAW only) — index into Indicators.RING_BANDS_NM,
   // matching a real EFIS control panel's physical range knob. Defaults to
-  // the LAST index (the full 2/5/10/15/50nm scale) so a fresh session's
-  // behaviour is identical to before this existed — dialling it down is an
-  // explicit user action, not a new default anyone has to opt out of.
-  let selectedRangeIndex = Indicators.RING_BANDS_NM.length - 1;
+  // 10nm (2026-08-24, direct instruction) — computed via indexOf rather than
+  // a hardcoded index so this can't silently point at the wrong band if
+  // RING_BANDS_NM's own values ever change.
+  let selectedRangeIndex = Indicators.RING_BANDS_NM.indexOf(10);
 
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
@@ -1282,9 +1282,15 @@
       // boundaries anyway; this just stops short at whichever one the user
       // picked, same "zoom" effect the plot's own rescale gets from it).
       UI.renderRangeRingsOverlay(square.squareLeft, square.squareTop, square.squareSize, userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
-      // ND-style range selector — sits in the square's own top-right
-      // corner, matching where a real ND prints its current range.
-      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, square.squareTop + 8, selectedRangeNm, onRawRangeCycleClick);
+      // ND-style range selector — X stays at the square's own right edge
+      // (still correct in both portrait and landscape, where the square's
+      // own position already differs), but Y moved up (2026-08-24) to the
+      // same row as the compass tape's SPD readout instead of the square's
+      // own top-right corner further down — consolidates it near the top
+      // alongside the SPD readout and the LOG button (now in the top bar)
+      // instead of scattered across the screen. 48 matches ui.js's own
+      // stripY = tickTopY + 14 + 14 + 20 formula for that readout's row.
+      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, insets.chromeTopInset + 48, selectedRangeNm, onRawRangeCycleClick);
     } else {
       UI.clearRangeRingsOverlay();
       UI.clearRangeSelector();
