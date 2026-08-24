@@ -1227,6 +1227,20 @@ body[data-theme="day"] .air-label-box {
 #popup .pop-log-btn:active { background: var(--btn-hover); }
 #popup .pop-log-btn-done   { background: rgba(76, 175, 80, .5); }
 
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (2026-08-24) — same distraction/
+   safety gate and same dimmed-not-hidden treatment as #lp-toggle's own
+   .lp-toggle-disabled. The popup itself and its read-only info stay fully
+   visible; only these action buttons (record/suppress something) disable. */
+#popup .pop-log-btn.pop-action-disabled,
+#popup .pop-suppress-btn.pop-action-disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+#popup .pop-log-btn.pop-action-disabled:active,
+#popup .pop-suppress-btn.pop-action-disabled:active {
+  background: var(--btn-bg);
+}
+
 /* ---- Loading spinner ---- */
 #loading {
   position: fixed;
@@ -1669,14 +1683,24 @@ body[data-nav-state="turn_approach"] { }
 }
 
 /* ---- LOG button + ground-truth panel ----
-   The toggle lives inline in #top-bar-right now (2026-08-24, see
-   logPanel.js), not its own floating bottom-left button — that used to sit
-   exactly where the RAW aircraft-list panel's own rows can appear in
-   portrait (Geo.computeSquarePlotLayout's `rows` region reaches the
-   bottom-left there), obscuring them. Only the expanded menu is still a
-   fixed-position overlay, since it's too big to live inline in the bar. */
+   2026-08-24 follow-up: the toggle first moved into #top-bar-right (fixing
+   a real overlap with the RAW aircraft-list panel's own rows, which can
+   reach the bottom-left in portrait) but landed on its own row, separate
+   from the RAW range/SPD readouts. Direct follow-up request put it back on
+   fixed positioning, left/top now set by logPanel.js's setPosition() (app.js
+   calls it right where it positions the range selector) so it stays on the
+   SAME row as SPD/range rather than a second, disconnected fixed-position
+   formula that could drift from theirs. */
 
 #lp-toggle {
+  position: fixed;
+  /* Default before the first real setPosition() call lands (first GPS fix
+     or dev speed change) — a reasonable approximation of the SPD/range
+     row's own typical position, not a flash at the fixed-element default
+     of the viewport's top-left corner. */
+  left: 14px;
+  top: 100px;
+  z-index: 11;
   flex-shrink: 0;
   background: rgba(18, 18, 36, 0.90);
   color: #7b8cde;
@@ -1712,13 +1736,8 @@ body[data-nav-state="turn_approach"] { }
 
 #lp-menu {
   position: fixed;
-  /* Below the real top bar, wherever its actual height ends up (guidance
-     card, etc.) — a generous fixed clearance rather than syncing to
-     _rawChromeInsets() like the RAW-only elements do, since this dev tool
-     doesn't need pixel-exact alignment the way the always-visible traffic
-     plot does. */
-  top: 60px;
-  right: 14px;
+  /* left/top set by logPanel.js's setPosition() — just below the toggle's
+     own current position, wherever that ends up. */
   z-index: 9999;
   display: flex;
   flex-direction: column;

@@ -778,12 +778,15 @@
     if (SpeedSimPanel.isActive()) {
       userSpeedMph = SpeedSimPanel.getSpeedMph();
     }
-    // Gates whether the LOG panel is interactive right now (2026-08-24,
-    // direct instruction — a distraction/safety measure) — called from
-    // here rather than each individual call site, so both the real GPS
-    // path (onGpsSuccess) and the dev speed override (onSpeedSimChanged)
-    // stay in sync with a single line, not two that could drift.
+    // Gates whether the LOG panel — and, same rationale, the detail
+    // popup's own log-outcome/Suppress buttons (2026-08-24 follow-up,
+    // ui.js's setSpeedMph) — are interactive right now (distraction/safety
+    // measure). Called from here rather than each individual call site, so
+    // both the real GPS path (onGpsSuccess) and the dev speed override
+    // (onSpeedSimChanged) stay in sync with a single line, not two that
+    // could drift.
     LogPanel.setSpeedMph(userSpeedMph);
+    UI.setSpeedMph(userSpeedMph);
   }
 
   function onSpeedSimChanged() {
@@ -1292,11 +1295,15 @@
       // (still correct in both portrait and landscape, where the square's
       // own position already differs), but Y moved up (2026-08-24) to the
       // same row as the compass tape's SPD readout instead of the square's
-      // own top-right corner further down — consolidates it near the top
-      // alongside the SPD readout and the LOG button (now in the top bar)
-      // instead of scattered across the screen. 48 matches ui.js's own
+      // own top-right corner further down. 48 matches ui.js's own
       // stripY = tickTopY + 14 + 14 + 20 formula for that readout's row.
-      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, insets.chromeTopInset + 48, selectedRangeNm, onRawRangeCycleClick);
+      const rawRowY = insets.chromeTopInset + 48;
+      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, rawRowY, selectedRangeNm, onRawRangeCycleClick);
+      // LOG button on the SAME row (2026-08-24 follow-up, direct request) —
+      // left-aligned, mirroring the range button's right alignment, so the
+      // row reads [LOG] ... SPD ... [range] rather than LOG sitting on its
+      // own separate row above/below this one.
+      LogPanel.setPosition(square.squareLeft + 8, rawRowY);
     } else {
       UI.clearRangeRingsOverlay();
       UI.clearRangeSelector();

@@ -2838,3 +2838,111 @@ the 5mph threshold is still interactive (`<=`, not `<`); just above it
 (5.1mph) is disabled; slowing back down to 0mph restores full
 interactivity immediately. All eight checks passed against the real,
 shipped logic.
+
+## LOG button row-alignment follow-up, tap-to-deselect, popup action gating (2026-08-24, later the same day)
+
+Direct follow-up, from a real device screenshot hand-annotated with a
+yellow circle around the SPD/range row and a red arrow at LOG's
+top-bar position: "the log button is in the wrong spot. it should be on
+the same row as speed and range (yellow circle area) / also can you
+have it so that once a label is highlighted (like in the picture) of
+you then tap on an empty area of the screen it removes the highlight. /
+as a side note has the rule of logging vs 5mph been applied to the
+options of the label is selected?" Three separate, concrete asks in one
+message.
+
+**1. LOG moved onto the literal SPD/range row, not just "near the
+top."** The earlier same-day fix (see "LOG button overlap + top-of-
+screen consolidation" above) moved LOG into `#top-bar-right` — this
+correctly fixed the original overlap with the RAW aircraft-list panel,
+but put LOG on ITS OWN row, separate from the RAW-only SPD/range
+readouts one row below the bar. The screenshot showed exactly this: LOG
+sitting in the persistent top bar while the user wanted it on the same
+row as the circled SPD/range content. Reverted `#lp-toggle` back to
+`position:fixed` (`VCAS.css`) and gave `LogPanel` a new
+`setPosition(x, y)` export (`logPanel.js`) — `app.js`'s
+`refreshIndicators()` now calls it in the exact same spot it already
+positions the range selector (`insets.chromeTopInset + 48`, the same Y
+`ui.js`'s own compass-tape SPD readout uses), left-aligned
+(`square.squareLeft + 8`) to mirror the range button's own right
+alignment — `[LOG] … SPD … [range]`, genuinely one row, not two
+independently-computed positions that happen to look close. This
+directly follows this file's own repeated lesson about two
+independently-positioned things silently drifting apart (the rings-vs-
+dots mismatch, the LOG-vs-aircraft-list overlap itself) — a single
+shared Y value read by both call sites structurally prevents it here
+rather than relying on two constants staying in sync by convention. The
+expanded `#lp-menu` still opens just below the toggle's current
+position (`setPosition`'s own `y + 36`), so it's unaffected by exactly
+where on screen the row ends up.
+
+**2. Tap-on-empty-area now clears the aircraft cross-highlight.**
+`UI.selectAircraft(hex)` (see "Stage 3: sortable aircraft-list panel"
+above) already applies/removes a `.selected` class bidirectionally
+between an aircraft's plot icon and its list row, but had no path back
+to "nothing selected" short of tapping a *different* aircraft — exactly
+what the screenshot showed (a label still highlighted with nothing else
+tapped). Fixed with a single module-level `document` click listener in
+`ui.js`, registered once at load (selection state is itself module-level,
+not per-render): any click NOT landing on `.indicator`, `.suppressed-
+dot`, `.raw-list-row`, or `#popup` calls `selectAircraft(null)`.
+`selectAircraft` already handled a `null` hex correctly (clears
+`.selected` everywhere, since no real element's `dataset.hex` equals
+`null`) — no changes needed there. Deliberately implemented via
+`e.target.closest(...)` rather than adding `e.stopPropagation()` to the
+three existing element click handlers (none of which call it today) —
+touches one new listener instead of three existing ones, and avoids the
+same tap that just SET a selection immediately undoing it via bubbling.
+The popup is explicitly exempted too, so tapping its own buttons
+doesn't clear the highlight underneath it mid-interaction.
+
+**3. Popup log/suppress buttons were NOT covered by the 5mph gate —
+now they are.** Direct question, answered by reading the code rather
+than assuming: `showPopup()`/`_logButtonsHtml()`/`_wireLogButtons()`
+and the Suppress button's own handler had no speed check at all — a
+completely separate, previously-ungated interaction path from the main
+LOG panel toggle, reachable by tapping any aircraft indicator instead
+of the LOG button. Extended the same rationale (real screen attention
+this app shouldn't invite while driving, "read a list and tap a
+specific outcome button") to these buttons specifically, via a new
+`UI.setSpeedMph(mph)` (mirroring `LogPanel.setSpeedMph`, deliberately
+NOT sharing state with it — the two modules stay decoupled rather than
+one importing the other, matching how the rest of the app is
+structured) and a new `_actionsInteractive()` helper gating both the
+initial render (`pop-action-disabled` class added conditionally in
+`_logButtonsHtml()`/the Suppress button markup) and each button's click
+handler (a no-op if now above the threshold, in case the popup was
+opened while stationary and the vehicle started moving before a button
+was tapped). **Deliberately does NOT gate the popup's existence or its
+read-only info** (distance/altitude/bearing/vis badge) — glancing at
+that is core identification functionality this app is FOR, not the
+distraction risk being mitigated; only the buttons that record/suppress
+something disable. `app.js`'s `applySpeedOverrideIfActive()` — the
+single convergence point for both the real GPS path and the dev SPD
+override, already feeding `LogPanel.setSpeedMph()` — now also calls
+`UI.setSpeedMph()` alongside it, so an already-open popup's buttons
+live-update the moment effective speed crosses the threshold, not just
+on the next tap.
+
+**Verification, and a real sandbox limitation worth recording honestly
+rather than glossing over:** a full real-app Playwright run (mocked
+geolocation + a mocked ADS-B relay response) confirmed fix #1 directly
+— LOG and the range button both resolved to the same computed row
+(`{"logTop":103,"rangeTop":103,"logLeft":8}`) — but could NOT exercise
+fixes #2/#3 the same way: MapLibre's CDN script failed to load in that
+run (`ERR_TUNNEL_CONNECTION_FAILED` against jsdelivr, confirmed via a
+`pageerror` listener reporting `maplibregl is not defined`), so
+`EosMap.init()` never completed and no aircraft indicator ever
+rendered to click on — a sandbox connectivity issue, not a code
+regression (reproduced identically on a retry). Per this project's own
+established convention for exactly this situation (see "Testing
+convention for MapLibre-related changes" above), pivoted to a
+standalone harness loading the real `ui.js`/`aircraftSymbol.js`/
+`config.js`/`observationLogger.js` against stubbed `ThemeManager`/
+`ColorblindMode`/`NavDisplayStyle` (no MapLibre dependency at all) with
+synthetic `.indicator`/`.raw-list-row` elements. All 8 scripted checks
+passed against the real, shipped `ui.js`: click-to-select, popup-opens-
+on-click, deselect-on-outside-tap, interactive-while-stationary,
+disabled-while-moving-30mph, click-no-ops-while-disabled, still-
+interactive-exactly-at-the-5mph-threshold, and interactivity restored
+after slowing back down.

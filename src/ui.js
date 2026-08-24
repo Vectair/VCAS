@@ -13,6 +13,12 @@ const UI = (() => {
   // this on every call, rather than the highlight vanishing after one frame.
   let _selectedHex = null;
 
+  // Popup log/suppress action gating (2026-08-24) — see setSpeedMph()'s own
+  // comment below. Separate from logPanel.js's own identical-in-spirit
+  // _speedMph — the two modules stay decoupled rather than one importing
+  // the other, matching how the rest of this app's modules are structured.
+  let _speedMph = 0;
+
   // Diffed-by-hex element caches for the NAV/RAW indicators layer (full
   // icons and suppressed range-selector edge dots) — see renderIndicators()
   // and renderSuppressedDots() below for why: this layer used to be torn
@@ -436,6 +442,21 @@ const UI = (() => {
       if (row.dataset.hex === hex) { row.scrollIntoView({ block: "nearest" }); break; }
     }
   }
+
+  // Tap-to-deselect (2026-08-24, direct request): tapping anywhere that
+  // isn't a selectable element itself, or the detail popup a selection
+  // opens (so using the popup's own buttons doesn't clear the highlight
+  // underneath it), clears the cross-highlight. Registered once at module
+  // load — selection state (_selectedHex) is itself module-level, not tied
+  // to any particular render, so this doesn't need re-registering per
+  // render either. Runs after the indicator/row/dot's own click handler
+  // (none of them stop propagation), so a click that just SET a selection
+  // isn't immediately undone by this same listener on the same tap.
+  document.addEventListener("click", (e) => {
+    if (!_selectedHex) return;
+    if (e.target.closest(".indicator, .suppressed-dot, .raw-list-row, #popup")) return;
+    selectAircraft(null);
+  });
 
   // 8-point candidate label placement (2026-08-21) — replaces a pure
   // continuous angle-nudge. Modelled on the standard cartographic
@@ -986,12 +1007,28 @@ const UI = (() => {
 
   // ---- Popup ----
 
+  /**
+   * Same distraction/safety gate as logPanel.js's own LOG button
+   * (2026-08-24) — extended here since the popup's log-outcome and Suppress
+   * buttons are the SAME kind of "read a list, tap a specific action"
+   * interaction the LOG panel gate exists to prevent, just reached via
+   * tapping an aircraft instead of the LOG toggle. Deliberately does NOT
+   * gate the popup's existence or its read-only info (distance/altitude/
+   * bearing/vis badge) — glancing at that is core identification
+   * functionality, not the distraction risk being mitigated; only the
+   * action buttons that record/suppress something are disabled.
+   */
+  function _actionsInteractive() {
+    return _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+  }
+
   /** Shared row of ground-truth log buttons, embedded in both popups below. */
   function _logButtonsHtml() {
+    const disabled = _actionsInteractive() ? "" : " pop-action-disabled";
     return `
       <div class="pop-log-actions">
         ${ObservationLogger.OUTCOMES.map(o =>
-          `<button type="button" class="pop-log-btn" data-outcome="${o.code}" title="${o.title}">${o.label}</button>`
+          `<button type="button" class="pop-log-btn${disabled}" data-outcome="${o.code}" title="${o.title}">${o.label}</button>`
         ).join("")}
       </div>`;
   }
@@ -1001,10 +1038,26 @@ const UI = (() => {
     el.querySelectorAll(".pop-log-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
+        if (!_actionsInteractive()) return; // see _actionsInteractive()
         onLogOutcome(btn.dataset.outcome);
         btn.classList.add("pop-log-btn-done");
         setTimeout(() => btn.classList.remove("pop-log-btn-done"), 600);
       });
+    });
+  }
+
+  /**
+   * Called from app.js's applySpeedOverrideIfActive(), alongside
+   * LogPanel.setSpeedMph() — updates any ALREADY-OPEN popup's action
+   * buttons live (without a full re-render) so a popup opened while
+   * stationary correctly disables its own buttons the moment you start
+   * moving, not just on the next tap.
+   */
+  function setSpeedMph(mph) {
+    _speedMph = mph;
+    const interactive = _actionsInteractive();
+    document.querySelectorAll(".pop-log-btn, .pop-suppress-btn").forEach(btn => {
+      btn.classList.toggle("pop-action-disabled", !interactive);
     });
   }
 
@@ -1041,7 +1094,7 @@ const UI = (() => {
       ${onLogOutcome ? _logButtonsHtml() : ""}
       ${onSuppressClick ? `
       <div class="pop-actions">
-        <button type="button" class="pop-suppress-btn">Suppress</button>
+        <button type="button" class="pop-suppress-btn${_actionsInteractive() ? "" : " pop-action-disabled"}">Suppress</button>
       </div>` : ""}`;
 
     _wireLogButtons(el, onLogOutcome);
@@ -1049,6 +1102,7 @@ const UI = (() => {
     if (onSuppressClick) {
       el.querySelector(".pop-suppress-btn").addEventListener("click", (e) => {
         e.stopPropagation();
+        if (!_actionsInteractive()) return; // see _actionsInteractive()
         onSuppressClick();
       });
     }
@@ -1143,6 +1197,7 @@ const UI = (() => {
     renderIndicators,
     renderSuppressedDots,
     declutterRenderedIndicators,
+    setSpeedMph,
     clearIndicators,
     selectAircraft,
     renderCompassRing,

@@ -50,13 +50,16 @@ const LogPanel = (() => {
   }
 
   function _buildPanel() {
-    // Toggle lives in the persistent top bar now (2026-08-24), not its own
-    // floating bottom-left button — that used to sit exactly where the RAW
-    // aircraft-list panel's own rows can appear (Geo.computeSquarePlotLayout's
-    // `rows` region reaches the bottom-left in portrait), obscuring them.
-    // Living in #top-bar-right means it's always correctly positioned
-    // relative to the real top bar in every mode, with no fixed-position
-    // math of its own to keep in sync.
+    // Fixed-position, not a top-bar flex child (2026-08-24 follow-up) — the
+    // first attempt put it in #top-bar-right, which fixed the original
+    // overlap-with-the-aircraft-list bug but landed LOG on its own row,
+    // separate from the RAW range/SPD readouts. Direct follow-up request:
+    // put it on the SAME row as those. app.js's setPosition() call (in
+    // refreshIndicators(), right where it positions the range selector)
+    // keeps it left-aligned on that exact row, mirroring the range button's
+    // right alignment — [LOG] ... SPD ... [range]. Default left/top below
+    // are just a reasonable placeholder for the moment before the first
+    // real position update lands (first GPS fix / dev speed change).
     const toggle = document.createElement("button");
     toggle.id = "lp-toggle";
     toggle.textContent = "LOG";
@@ -65,27 +68,29 @@ const LogPanel = (() => {
       if (_speedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // see setSpeedMph()
       _menuOpen ? _close() : _open();
     });
+    document.body.appendChild(toggle);
 
-    // Inserted as its own item in the top-bar-right ROW (sibling of the
-    // ADS-B status/credit column and the settings gear), not stacked inside
-    // that column itself — reads as [ADS-B pill+credit] [LOG] [gear]
-    // left-to-right, rather than an odd fourth row on top of the pill.
-    const topBarRight = document.getElementById("top-bar-right");
-    const settingsBtn = document.getElementById("btn-settings");
-    if (topBarRight) {
-      topBarRight.insertBefore(toggle, settingsBtn || null);
-    } else {
-      document.body.appendChild(toggle); // shouldn't happen — defensive fallback
-    }
-
-    // The expanded menu is still a floating overlay (too big to live inline
-    // in the top bar) — fixed-position, anchored below it.
     const menu = document.createElement("div");
     menu.id = "lp-menu";
     menu.className = "hidden";
     document.body.appendChild(menu);
 
     document.addEventListener("click", () => { if (_menuOpen) _close(); });
+  }
+
+  /**
+   * Called from app.js's refreshIndicators(), alongside the range selector
+   * and compass tape — keeps LOG genuinely on the same row as both rather
+   * than a fixed CSS offset that could drift from their own dynamically-
+   * computed position (e.g. when the guidance card changes the real top-bar
+   * height). menuTop keeps the expanded menu opening just below the button
+   * at its current position, not a stale fixed offset from an old spot.
+   */
+  function setPosition(x, y) {
+    const toggle = document.getElementById("lp-toggle");
+    if (toggle) { toggle.style.left = x + "px"; toggle.style.top = y + "px"; }
+    const menu = document.getElementById("lp-menu");
+    if (menu) { menu.style.left = x + "px"; menu.style.top = (y + 36) + "px"; }
   }
 
   function _open()  { _menuOpen = true;  document.getElementById("lp-menu").classList.remove("hidden"); _render(); }
@@ -164,5 +169,5 @@ const LogPanel = (() => {
     if (_menuOpen) _render(); // refresh fallback-count badge if it just changed
   }
 
-  return { init, update, isOpen, setSpeedMph };
+  return { init, update, isOpen, setSpeedMph, setPosition };
 })();
