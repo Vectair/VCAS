@@ -23,6 +23,121 @@ because a repeated, explicit decision wasn't written down anywhere durable
 until 2026-08-20. If in doubt about whether now is the right moment for a
 concrete step toward native, ask; don't assume the PWA form is the ceiling.
 
+### The native app's actual destination is Android Auto, specifically (2026-08-24)
+
+Not just "a native app" in the abstract — asked directly, the project
+owner's end goal is VCAS displaying on a car's infotainment screen via
+**Android Auto** (phone projects into the car's own factory screen), not
+Android Automotive OS (a full Android build running natively on the
+car's own hardware, a different and separately-variable-by-manufacturer
+thing) and not an aftermarket Android head unit. This matters because
+the three have very different sideloading stories, and it's worth
+staying anchored to the one actually being targeted rather than treating
+"native Android app" as if any of the three trivially imply the others.
+
+**Sideloading is solved and low-risk, not the blocker.** Android Auto has
+a real, officially-documented **Developer Mode** toggle (unlocked in the
+Android Auto app on the phone, repeated-tap style, same spirit as
+Android's own general developer options) that enables installing an
+unpublished/unreviewed car app directly — no Google Play listing, no
+Google review process required. Once a properly-built car app is
+sideloaded with Developer Mode on, it shows up and launches in Android
+Auto like any other car app the moment the phone connects to a
+compatible head unit. Given VCAS's actual scale (project owner + a
+handful of testers), this isn't just a testing stepping-stone toward
+"real" Play Store distribution later — it can be the permanent
+distribution mechanism, the same role PWABuilder plays for the phone app
+today.
+
+**The actual prerequisite, and the real work, is that VCAS isn't
+eligible for Android Auto at all in its current form** — not because of
+anything wrong with it, but because Android Auto only accepts apps built
+against Google's **Android for Cars App Library** (`androidx.car.app`), a
+native Kotlin/Java API with its own restricted template system
+(`CarAppService`/`Session`/`Screen`/`NavigationTemplate`). Critically, a
+PWABuilder-generated package — a WebView wrapper, which is what the
+current phone-side native-track plan implicitly assumes — is **not**
+eligible for this either. Getting onto Android Auto specifically means a
+real rewrite of the UI/interaction layer against that library, not just
+"package the existing web app differently a second time."
+
+**Scoped breakdown, so this doesn't need re-deriving from scratch next
+time it comes up:**
+
+*Cleanly portable — pure logic, no DOM dependency, translates to Kotlin
+close to line-for-line:*
+- `geo.js` (bearing/distance/polar-projection math)
+- `visibility.js` (the 4-tier sightability scoring)
+- `relevance.js` (the teardrop relevance filter)
+- `aircraftExtrapolation.js` (dead-reckoning between ADS-B polls)
+- `indicators.js` (the build/sort/cap orchestration — verified intact
+  2026-08-24, see the label-suppression investigation earlier this file)
+- Every tuned constant (`CONFIG.*`, `RING_BANDS_NM`, the visibility
+  angular-size thresholds, etc.)
+- `navigationCameraEvaluator.js` — already a pure state machine with no
+  MapLibre-JS-specific calls in it, despite living in the "navigation"
+  folder alongside genuinely web-specific code
+
+*Needs a genuine rebuild, not a port:*
+- The entire UI layer — `ui.js`/`index.html`/`VCAS.css` are all
+  DOM/CSS/SVG with no native equivalent. The traffic-plot rendering
+  (icons, labels, decluttering) becomes Canvas drawing on Android's own
+  2D APIs instead of positioned `<div>`s.
+- The map — MapLibre GL JS → **MapLibre Native Android SDK** (a real,
+  actively maintained equivalent; the style/tile concepts carry over
+  conceptually since MapLibre's style spec is shared across platforms,
+  but `map.js`/`cameraController.js`'s actual API calls are JS-specific
+  and need re-implementing against the native SDK's own camera API).
+- The car-app shell itself (`CarAppService`/`Session`/`Screen`, wiring a
+  `NavigationTemplate` with a custom `Surface` for the map+traffic
+  overlay) — zero web equivalent, this is the genuinely new part of the
+  project, not a translation of anything that exists today.
+- Background execution — a browser tab uses a Wake Lock; Android
+  requires a proper foreground `Service` (persistent notification) to
+  keep GPS/ADS-B polling alive independent of whether the car screen is
+  currently showing VCAS.
+- Settings — Android Auto's `Screen` stack is intentionally shallow and
+  restricted; the natural pattern is a companion phone-side settings
+  Activity that writes preferences the car-app-service just reads, not a
+  settings flow inside the car display itself.
+
+*Deleted, not ported — a genuine simplification, not just dead weight:*
+`compassHeading.js` and its entire DeviceOrientation-API-fragmentation
+fight (see "Compass 'won't settle / settles wrong'" below) is a
+web-platform-only problem. Native Android reads the compass/orientation
+sensor directly — none of that file's cross-browser workaround logic has
+any native equivalent to port, it just stops being needed.
+
+**The real open question is fit, not effort.** Google's Android Auto
+templates are built around "one destination, turn-by-turn, minimal
+glances" — VCAS's core identification concept (dozens of tappable
+traffic icons, detail popups) doesn't map onto that cleanly. The
+map/traffic overlay CAN live on the custom `Surface` a `NavigationTemplate`
+allows, but how much interactive tap-to-inspect behaviour is reasonable
+there, distraction-wise, is a genuinely open design question — Developer
+Mode sideloading bypasses Google's formal review requirement, not the
+underlying safety question of whether a dense tap-heavy traffic display
+is appropriate on a car screen at all. Worth treating as a real design
+constraint from the start, not something to discover after the rewrite
+is mostly done.
+
+**Reasonable phase order, if/when this is picked up:**
+1. Bare-bones `CarAppService` + a static `NavigationTemplate` — confirm
+   Developer Mode sideloading actually shows up and launches on a real
+   head unit before investing further; validate the mechanism itself
+   first.
+2. MapLibre Native + port the geo/visibility/relevance/indicators logic;
+   get the traffic plot drawing on the `Surface`.
+3. Routing + `NavigationTemplate`'s own turn-by-turn step display.
+4. Foreground service + Android's background-location permission flow
+   (a separate "Allow all the time" grant, Android 10+).
+5. Settings companion screen, feature-parity pass — RAW's dense
+   instrument-style look specifically may need real redesign to fit
+   template constraints, not just a straight port.
+
+Not started — this is a scoping note for when the project owner decides
+to pick it up, not a plan currently in motion.
+
 ## What VCAS is, and isn't
 
 VCAS is a mobile-first navigation app with an aircraft-identification overlay.
