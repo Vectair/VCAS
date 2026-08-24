@@ -39,6 +39,22 @@
  * re-derived against the DeviceOrientation spec's coordinate frame and
  * confirmed correct — only the screen-rotation correction two lines below
  * remains genuinely unverified against real hardware.
+ *
+ * 2026-08-24 follow-up: the (1) fix above turned out to be over-strict.
+ * Reported symptom — heading "settling on an approximate northerly
+ * heading even when facing east/west" — is what EVERY reading being
+ * rejected looks like (frozen near userHeading's 0° default), not a
+ * biased-but-responsive compass. _extractHeadingDeg() now also trusts the
+ * event TYPE itself (deviceorientationabsolute, which per spec always
+ * carries absolute:true "by construction") as sufficient evidence,
+ * instead of requiring the `absolute` property to independently confirm
+ * it — real-world Android implementations have been inconsistent about
+ * actually setting that property even on this event. Same category of
+ * platform-fragmentation gotcha the rest of this module already works
+ * around, not a new kind of bug. Still needs real-device field
+ * confirmation — see the module's own reasoning inline for why this is
+ * the leading fit for the exact symptom reported, not a guess made from
+ * nothing.
  */
 const CompassHeading = (() => {
   // Lower than a first instinct might pick (was 0.25) — deliberately, since
@@ -85,22 +101,28 @@ const CompassHeading = (() => {
     if (typeof event.webkitCompassHeading === "number" && !isNaN(event.webkitCompassHeading)) {
       return event.webkitCompassHeading; // inherently earth-referenced (magnetic north) on iOS — no absolute check needed
     }
-    // event.absolute === true is required before trusting alpha as a
-    // compass heading at all — per spec, a NON-absolute deviceorientation
-    // event's alpha can be relative to an arbitrary reference (e.g.
-    // wherever the device happened to be pointing when listening started),
-    // with no fixed relationship to true/magnetic north whatsoever. The
-    // dedicated "deviceorientationabsolute" event (start()'s preferred
-    // event name below) always fires with absolute:true by construction,
-    // so this only ever actually filters anything out on the fallback
-    // path (plain "deviceorientation", used when the browser doesn't
-    // support the dedicated absolute event at all) — exactly the case
-    // where silently trusting a non-earth-referenced alpha as if it were
-    // a real compass heading would produce a heading that's consistently,
-    // but essentially arbitrarily, wrong. A real, documented gotcha with
-    // this API, and the leading suspect for a reported "settles in the
-    // wrong direction" symptom on a device that falls back to this path.
-    if (event.absolute === true && typeof event.alpha === "number" && !isNaN(event.alpha)) {
+    // Trust alpha as earth-referenced when EITHER the event itself says so
+    // (event.absolute === true) OR we're listening via the dedicated
+    // "deviceorientationabsolute" event — which per spec always carries
+    // absolute:true "by construction", so the event TYPE is itself a valid,
+    // independent signal, not just a fallback check on the property.
+    //
+    // 2026-08-24 follow-up: requiring the PROPERTY specifically (not just
+    // the event type) turned out to be over-strict in exactly the way
+    // flagged as the leading suspect when this was first fixed — a report
+    // of the heading "settling on an approximate northerly heading even
+    // when facing east/west" (i.e. frozen near userHeading's initial 0°
+    // default, not swinging-but-biased the way a declination or
+    // screen-rotation error would look) is the specific symptom of EVERY
+    // reading being silently rejected, not just some. Real-world Android
+    // implementations have been inconsistent about actually setting
+    // `absolute` even on the dedicated deviceorientationabsolute event — a
+    // documented category of platform drift this module already works
+    // around elsewhere (see the module's own top comment) — so a device
+    // that fires that event but leaves the property false/undefined was
+    // being starved of every single reading under the old, stricter check.
+    const isAbsoluteEvent = event.absolute === true || _eventName === "deviceorientationabsolute";
+    if (isAbsoluteEvent && typeof event.alpha === "number" && !isNaN(event.alpha)) {
       // Verified against the DeviceOrientation spec's own coordinate frame
       // definition, not just carried over from a prior version unchecked:
       // alpha is a rotation of the device frame around Z (right-hand rule,

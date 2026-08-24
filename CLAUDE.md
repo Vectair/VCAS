@@ -2029,6 +2029,78 @@ magnetic declination (a few to +15-20° regional offset from true north,
 never corrected anywhere in this codebase) if the error is a small,
 consistent rotation rather than a wild one.
 
+### Follow-up: it was (a) — the `event.absolute` guard itself (2026-08-24)
+
+Reported back: "it feels like it keeps settling on an approximate
+northerly heading even when I'm facing east/west." This is a
+distinguishable symptom from the original report, and it's exactly what
+hypothesis (a) above predicted — `userHeading` (`app.js`) initialises to
+`0` (north) and only ever changes inside `onCompassHeading()`, which only
+ever fires from `CompassHeading`'s own internal callback. If
+`_extractHeadingDeg()` is rejecting every single reading, the displayed
+heading never moves from that `0°` default at all, REGARDLESS of which
+way the phone is actually facing — not a compass that's biased-but-
+responsive (which is what declination or a screen-rotation sign error
+would look like: still swinging as you turn, just consistently offset),
+but one that's frozen. That distinction is what pointed at (a) rather
+than (b) or (c).
+
+**Root cause**: the 2026-08-22 fix's own `event.absolute === true` check
+was correct per spec but too strict against real-world implementations.
+The W3C spec says the dedicated `deviceorientationabsolute` event always
+carries `absolute:true` "by construction" — but real Android browser
+implementations have been inconsistent about actually setting that
+property even on that specific event, a documented category of API
+fragmentation this module already works around elsewhere (iOS's
+non-standard `webkitCompassHeading`, the fallback event name itself).
+Requiring the PROPERTY as well as the event TYPE meant a device that
+fires `deviceorientationabsolute` but leaves `absolute` `false`/`undefined`
+was silently starved of every reading — exactly reproducing "stuck near
+the 0° default."
+
+**Fix**: `_extractHeadingDeg()` now trusts alpha as earth-referenced when
+EITHER `event.absolute === true` OR the module is listening via the
+dedicated `deviceorientationabsolute` event name (`_eventName`, already
+tracked internally) — the event type itself is treated as sufficient,
+independent evidence, per what the spec actually guarantees about that
+event. The plain `"deviceorientation"` fallback path (the one place the
+original 2026-08-22 fix was correctly guarding against a real, documented
+gotcha — a non-absolute event's alpha having no fixed relationship to
+north at all) still requires `event.absolute === true` explicitly, since
+the event type alone proves nothing there. Not a reversal of the earlier
+fix, a narrowing of it to where the risk it was guarding against actually
+exists.
+
+Verified with a real Chromium/Playwright harness dispatching synthetic
+events at the actual `compassHeading.js` (not a retyped copy), covering
+exactly the regression risk on both sides:
+- `deviceorientationabsolute` event with `absolute:false` → now accepted
+  (previously silently dropped) — the specific real-world quirk this fix
+  targets.
+- Same event type with `absolute` genuinely `undefined` (not just
+  `false`) → also accepted, since some implementations may omit the
+  property entirely rather than set it false.
+- A well-formed absolute reading (`alpha:90, absolute:true`) still
+  produces the mathematically correct heading (270°, matching the
+  already-verified `360-alpha` conversion) — the fix didn't touch the
+  math, only the gate.
+- The plain `"deviceorientation"` fallback path, forced by deleting the
+  `ondeviceorientationabsolute` feature-detection property before
+  `start()` runs (matching real iOS Safari, which has no
+  `deviceorientationabsolute` support at all): `absolute:false` is still
+  correctly REJECTED (zero regressions on the original 2026-08-22 fix's
+  own guarantee) and `absolute:true` is still correctly accepted.
+- iOS's `webkitCompassHeading` branch unaffected either way.
+
+**Still status: needs real-device field re-test**, same honest caveat as
+before — this sandbox has no way to produce a real magnetometer reading,
+so this confirms the CODE now does what it's supposed to given the
+inputs a real buggy device is suspected to send, not that it's confirmed
+fixed on the project owner's actual phone. If it's STILL wrong after
+this, (b) the screen-rotation correction and (c) magnetic declination
+remain the next things to check, in that order, per the original
+follow-up list above — now with (a) addressed rather than still open.
+
 ## Navigation-side status check (2026-08-22)
 
 Direct question: "where are we with the navigation side of things?" —
