@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "template" declares this as a Car App Library / templated app, as
+     opposed to the older, now-superseded "media"/"navigation" (lowercase,
+     legacy Automotive) app types some very old sample code still shows.
+     See android/README.md's caveat — double-check this tag's exact
+     contents against current Google docs, this project's own knowledge of
+     this specific file wasn't independently re-verified. -->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>

@@ -138,6 +138,43 @@ is mostly done.
 Not started — this is a scoping note for when the project owner decides
 to pick it up, not a plan currently in motion.
 
+### Phase 1 started (2026-08-24)
+
+Project owner said to go ahead. `android/` (repo root, sibling to the PWA,
+entirely separate build) now has a real Gradle/Kotlin project skeleton —
+`CarAppService`/`Session`/`Screen`, the manifest's car-app `<meta-data>`/
+`<service>` declarations, `automotive_app_desc.xml`, and a `MessageTemplate`
+screen (deliberately not `NavigationTemplate` yet — isolates "does the app
+launch at all" from "is my NavigationTemplate built correctly," a
+materially more involved template; swapping to it is the next small step
+once this is confirmed working, not a separate phase).
+
+**Honest status, not glossed over**: this has never been compiled. This
+sandbox has no Android SDK, and — confirmed by directly testing it, not
+assumed — `dl.google.com` (Google's Maven repo, where the Android Gradle
+Plugin and the Car App Library itself are hosted) isn't reachable from it
+either, only `repo1.maven.org` and `services.gradle.org` are. So unlike
+literally everything else built this session, none of this could be
+verified against a real compiler, let alone a real device. The
+`CarAppService`/`Session`/`Screen` architecture and the manifest shape are
+long-stable, well-established parts of the library and are on solid
+ground; the exact `MessageTemplate` builder calls are this project's
+best-confidence reconstruction from documented usage, flagged inline in
+`MainScreen.kt` and `android/README.md` as the most likely spot needing a
+small correction once actually opened in Android Studio — that first real
+build, with real code completion and real compiler errors, is the actual
+check, not anything done here. Also unverified for the same reason: exact
+current version numbers for AGP/Kotlin/`androidx.car.app`/`compileSdk`
+(a reasonable-as-of-writing baseline was used, not checked live).
+
+**Still needs, from the project owner**: opening `android/` in Android
+Studio to actually build it, and — the real phase-1 goal — sideloading it
+via Android Auto's Developer Mode to confirm it shows up and launches on
+a real head unit at all. See `android/README.md` for the full
+build/sideload/troubleshooting steps. Phase 2 (MapLibre Native + porting
+the geo/visibility/relevance/indicators logic) is next, once this is
+confirmed working — see the phase list above.
+
 ## What VCAS is, and isn't
 
 VCAS is a mobile-first navigation app with an aircraft-identification overlay.

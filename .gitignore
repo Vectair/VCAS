@@ -9,3 +9,14 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+
+# android/ — native Car App Library project (see android/README.md).
+# Standard Gradle/Android Studio build output and local machine config,
+# never source, never portable between machines.
+android/.gradle/
+android/.idea/
+android/local.properties
+android/**/build/
+android/**/.cxx/
+android/*.iml
+android/**/*.iml
