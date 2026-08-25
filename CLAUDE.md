@@ -3351,3 +3351,86 @@ logic files (`visibility.js`, `relevance.js`, `aircraftExtrapolation.js`,
 `geo.js` was agreed as the first case specifically to prove the
 translate-and-verify approach works at all, not as the start of an
 uninterrupted porting sprint through the rest of the list.
+
+### `visibility.js` → `Visibility.kt`, second logic port (2026-08-25, same day)
+
+Direct instruction to continue: "Port visibility.js next." A structural
+port of `src/logic/visibility.js`'s sightability estimator — the
+wingspan/category size tables, the 4-tier TCAS-symbology `CATEGORIES`
+table (colours/shapes/scores/minAngle thresholds preserved byte-for-byte,
+including the RAW-display pixel-sampled `colorRaw` values and the
+Okabe-Ito colourblind-safe palette), `estimate()`'s full branch order
+(very-close override → contrail floor → plain 40nm cap → angular-size
+lookup → staleness degrade → METAR adjustment), and `getCategories()`.
+As `object Visibility` in `android/app/src/main/java/org/vectair/vcas/
+car/logic/Visibility.kt`, depending on `Geo.calculateDistanceNm` from the
+first port the same way the JS original depends on `geo.js`.
+
+**Two deliberately-preserved quirks, called out explicitly in the file's
+own doc comment so a future reader doesn't "fix" them into a mismatch
+with the JS source**: `_sizeForType` never actually returns a falsy
+value, so the JS original's `||`-chained fallback to
+`_categoryFallbackFromLabel(category)` is dead code in practice — ported
+as literally-present-but-unreachable code, not simplified away. And the
+plain 40nm cap and the 50nm contrail cap are two intentionally different
+numbers (see "Contrail visibility" above), not a mismatch to reconcile.
+
+**Verified the same way as the `Geo.kt` port — real `kotlinc`+JUnit4
+execution, not a read-through** — `VisibilityTest.kt` (new, `android/
+app/src/test/java/org/vectair/vcas/car/logic/`), 32 `@Test` methods,
+using the same standalone Maven-Central-jar toolchain the `Geo.kt` port
+already established. Two styles, matching `GeoTest.kt`'s own split:
+
+- **Exact-boundary tests** for the three `minAngle` tier cutoffs
+  (0.5°/0.167°/0.05°): each aircraft is placed via `Geo.destinationPoint`
+  at the precise geodesic distance the tier threshold implies (solved
+  from the same `57.3 * sizem / slantM` formula `estimate()` itself
+  uses), then nudged ±0.01nm — comfortably clear of the ~1.3e-6nm
+  floating-point/Earth-radius noise between `Geo.kt`'s `R_NM` constant
+  and `R_M`-derived nautical miles (checked, not assumed) — to land
+  cleanly on either side of the `>=` cutoff and confirm the tier flips
+  exactly where it should, not off-by-one.
+- **Scenario tests**, each checked against the true branch logic (worked
+  through by hand for every scenario, not just plausibility-checked)
+  rather than an assumed label: the contrail floor rescuing a small
+  aircraft to "Possibly visible" without ever downgrading a large one
+  already scoring better within the same window; the contrail branch
+  correctly NOT firing beyond 50nm or below 26,000ft (in both cases
+  falling through to whichever branch — the plain 40nm cap or plain
+  angular-size lookup — actually governs at that input, not a guessed
+  label); the very-close override requiring BOTH its conditions
+  (proximity alone, or altitude alone, isn't enough); staleness
+  degrading exactly one tier and never past the worst one, and the
+  `>20` (not `>=20`) boundary; every METAR path (OVC/VV full block, BKN
+  partial cap, a cloud layer above the aircraft's own altitude having no
+  effect, only the LOWEST of several qualifying layers governing,
+  reduced reported visibility capping only when slant range actually
+  exceeds it, and the `<10SM` — not `<=10SM` — boundary); and
+  `getCategories()` returning all 4 tiers in order as a fresh, distinct
+  copy each call.
+
+**Two scenario tests' first-draft expected values were themselves wrong,
+caught only by actually working through the real branch arithmetic
+before finalizing them, not by running the suite and hoping** — worth
+recording since it's a real instance of this project's own repeated
+"verify against real execution, don't assume" lesson applying to the
+verification code itself, not just the ported logic: an initial "40nm
+cap, large aircraft not capped" scenario picked a distance/altitude/size
+combination whose angular size alone landed exactly on the 33-score
+"Possibly visible" tier already — making the intended ">33" assertion
+false by construction, not a bug in `Visibility.kt`. Recomputed with a
+closer range so the angular-size branch clearly clears the next tier up
+before asserting against it. Similarly, a "contrail floor doesn't apply
+below the altitude threshold" scenario picked a distance beyond the
+*plain* 40nm cap too, so that cap — not the intended absence of the
+contrail floor — was what actually produced the expected label,
+testing the wrong thing despite superficially passing; moved inside 40nm
+so only the contrail-threshold behaviour is actually exercised. **Result
+after both corrections: all 32 tests pass against the real, shipped
+`Visibility.kt`, alongside the pre-existing 34 `Geo.kt` tests (66 total,
+zero failures).**
+
+Not yet done: `relevance.js`, `aircraftExtrapolation.js`, `indicators.js`,
+and `navigationCameraEvaluator.js` remain unported — same standing note
+as the `geo.js` entry above, each addressed only on further explicit
+instruction, not assumed as an implied next step from this one.
