@@ -3580,3 +3580,97 @@ branchy this file is, the emphasis differs from the previous three ports:
 Not yet done: `indicators.js` and `navigationCameraEvaluator.js` remain
 unported — same standing note as the entries above, each addressed only
 on further explicit instruction.
+
+### `indicators.js` → `Indicators.kt`, fifth logic port (2026-08-25, same day)
+
+Direct instruction to continue: "Port indicators.js next." A structural
+port of `src/logic/indicators.js` — the orchestration layer over all four
+prior ports at once (`Geo`, `Visibility`, `Relevance`,
+`AircraftExtrapolation`), not a new independent algorithm: the
+viewport-tiered NAV display cap, the `POLAR_MAX_RANGE_NM`/`RING_BANDS_NM`/
+`FOV_HALF_ANGLE_DEG` constants (byte-for-byte, `POLAR_MAX_RANGE_NM` still
+derived from `Relevance.DEFAULTS.rangeExtensionCapNm` rather than a
+second hardcoded 50), the shared per-aircraft `computeAll()` pass
+(bearing/distance/visibility/relevance/polar position/direction-of-
+travel), and the two public entry points (`build()` — relevance-filtered,
+suppression-filtered, sorted by score-then-distance; `buildAll()` —
+unfiltered, distance-only, for the ground-truth log panel). As `object
+Indicators` in `android/app/src/main/java/org/vectair/vcas/car/logic/
+Indicators.kt`.
+
+**Reused `AircraftExtrapolation.Aircraft` as the aircraft type here**,
+rather than inventing a sixth per-file subset type — this is the first
+port whose job is genuinely "read almost every field off the real
+aircraft object at once" (hex for suppression, lat/lon/altitudeFt/type/
+category/lastSeenSeconds for `Visibility`, lat/lon/altitudeFt/trackDeg/
+groundSpeedKt for `Relevance`), matching why that type was built
+full-fidelity in the first place (see the `aircraftExtrapolation.js`
+entry above). `computeAll()` adapts it into each dependency's own
+narrower input type at the call site — the same thing the JS original
+does implicitly by handing the same duck-typed object to both `Visibility.
+estimate()` and `Relevance.evaluate()` without either module needing to
+know about the other's exact field list.
+
+**The one real design decision this port needed: how to represent
+`userState`'s many optional/fallback-chained fields (`anchorY`,
+`safeInset`/`plotSafeInset`, `plotWidth`/`plotHeight`/`plotOffsetX`/
+`plotOffsetY`, `plotBandsNm`).** JS relies on `undefined` silently
+falling through to a callee's own default parameter (e.g.
+`projectToPolarPosition`'s own `anchorY = 0.8`) — Kotlin has no
+equivalent implicit passthrough, so each of these is a nullable field on
+`Indicators.UserState`, resolved explicitly inside `computeAll()` with a
+comment naming which `Geo.kt` default it must stay in sync with (`0.8`
+for anchorY, `60.0` for safeInset) — preserving the exact same effective
+fallback behaviour as the JS original's implicit-undefined chain, just
+made explicit rather than implicit.
+
+**Verified the same way as the four prior ports — real `kotlinc`+JUnit4
+execution** — `IndicatorsTest.kt` (new, `android/app/src/test/java/org/
+vectair/vcas/car/logic/`), 18 `@Test` methods, same standalone
+Maven-Central-jar toolchain. Since `Indicators.kt` is purely an
+orchestration layer over four already-independently-verified modules
+(`GeoTest` 34/34, `VisibilityTest` 32/32, `RelevanceTest` 17/17,
+`AircraftExtrapolationTest` 11/11, all still passing), the tests split
+differently from the prior four ports:
+- **Pure filtering/sorting checks** needing no cross-verification at all,
+  since they're plain boolean/comparator logic: `build()`'s relevance
+  filter excluding an aircraft dead behind the user with no convergence
+  data; `build()`'s suppression filter excluding a hex regardless of
+  relevance; `build()`'s sort (visibility score descending, then distance
+  ascending on ties, verified with three real distinct-score aircraft and
+  a tied-score pair); `buildAll()` including an irrelevant aircraft and
+  sorting purely by distance; the hard staleness cutoff (`< threshold*3`)
+  excluding an aircraft entirely at the exact boundary; the `isStale` flag's
+  own separate `> threshold` boundary; and `relativeTrackDeg` being present/
+  null depending on whether the aircraft transmits a track.
+- **Position cross-checks against an independent direct call to
+  `Geo.projectToPolarPosition`** using the same already-verified
+  primitives, for the plumbing that can't be checked by boolean logic
+  alone: a plain dead-ahead case (which, using `userState()`'s default
+  null `anchorY`/`safeInset`, simultaneously proves the 0.8/60.0 fallback
+  resolution works); a full RAW-style case with every plot-region override
+  set to values deliberately different from the plain viewport (`plotWidth`/
+  `plotHeight`/`plotOffsetX`/`plotOffsetY`/`plotSafeInset`/`plotBandsNm`
+  all at once), confirmed to differ from what the plain-viewport values
+  would have produced (proving the override path is genuinely used, not
+  coincidentally matching); and `plotSafeInset=null` correctly falling
+  back to `safeInset` rather than jumping straight to Geo's own default.
+- **A decoupling check**: an aircraft nearly overhead (steep elevation)
+  at a relative bearing well outside a 75° FOV half-angle is confirmed
+  `relevant=true, reason="overhead"` (Relevance's overhead rule doesn't
+  care about the FOV at all) while `x`/`y` are both null (Geo's FOV
+  restriction is a separate, purely geometric concern) — proving the two
+  mechanisms are correctly independent, matching how indicators.js's own
+  comments describe them as unrelated by design.
+
+**Result: all 18 new tests pass against the real, shipped
+`Indicators.kt`, alongside the pre-existing 94 `Geo.kt`/`Visibility.kt`/
+`Relevance.kt`/`AircraftExtrapolation.kt` tests (112 total, zero
+failures).**
+
+Not yet done: `navigationCameraEvaluator.js` remains unported — same
+standing note as the entries above, addressed only on further explicit
+instruction. With this port, every pure-logic file the top-of-file
+"Long-term destination" scoping note called "cleanly portable" except
+`navigationCameraEvaluator.js` itself has now actually been ported and
+verified.
