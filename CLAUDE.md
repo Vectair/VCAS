@@ -3513,3 +3513,70 @@ Not yet done: `aircraftExtrapolation.js`, `indicators.js`, and
 `navigationCameraEvaluator.js` remain unported — same standing note as
 the `geo.js`/`visibility.js` entries above, each addressed only on
 further explicit instruction.
+
+### `aircraftExtrapolation.js` → `AircraftExtrapolation.kt`, fourth logic port (2026-08-25, same day)
+
+Direct instruction to continue: "Port aircraftExtrapolation.js next." A
+structural port of `src/logic/aircraftExtrapolation.js`'s dead-reckoning
+logic — the two early-return guards (missing track/speed data, on-ground
+traffic held at its last fix rather than projected across taxiway turns),
+the `elapsedSeconds` clamp to `maxElapsedSeconds`, and the
+`Geo.destinationPoint`-based projection itself. As `object
+AircraftExtrapolation` in `android/app/src/main/java/org/vectair/vcas/
+car/logic/AircraftExtrapolation.kt`, depending only on `Geo`.
+
+**The one real design decision this port needed that the first three
+didn't: what `Aircraft` actually is.** Unlike `Visibility.kt`'s
+`AircraftInput` or `Relevance.kt`'s `AircraftState` — each a narrow
+per-function subset of fields, matching how those JS files only ever
+read a few fields off a duck-typed object — this file's whole job is to
+hand back a copy of the WHOLE aircraft with only lat/lon changed (JS:
+`{ ...aircraft, lat, lon }`). A narrow subset type would silently drop
+every other field on that spread, so `Aircraft` here is instead a
+full-fidelity data class mirroring `src/data/normaliseAircraft.js`'s
+real output shape (hex, callsign, type, lat, lon, altitudeFt, onGround,
+trackDeg, groundSpeedKt, verticalRateFpm, lastSeenSeconds, category,
+registration, isGroundVehicleOrObstacle) — read directly from that file
+rather than guessed, since it's the actual normalizer every aircraft
+object in the app flows through. `.copy(lat = dest.lat, lon = dest.lon)`
+is then a genuinely faithful equivalent of the JS spread, not an
+approximation.
+
+**Verified the same way as the three prior ports — real
+`kotlinc`+JUnit4 execution** — `AircraftExtrapolationTest.kt` (new,
+`android/app/src/test/java/org/vectair/vcas/car/logic/`), 11 `@Test`
+methods, same standalone Maven-Central-jar toolchain. Given how small and
+branchy this file is, the emphasis differs from the previous three ports:
+- **Reference-identity checks** (`assertSame`, not `assertEquals`) for
+  every early-return guard — missing `groundSpeedKt`, missing
+  `trackDeg`, `onGround == true`, `elapsedSeconds == 0`, and a negative
+  `elapsedSeconds` clamping to 0 — confirming Kotlin's `return aircraft`
+  hands back the exact same instance the JS original's bare
+  `return aircraft;` does, not a reconstructed copy that merely looks
+  equal.
+- **Exact numeric cross-checks** against `Geo.destinationPoint` directly
+  (not a relational/margin style) for normal extrapolation, since the
+  real formula is a thin wrapper around it with identical double
+  arithmetic in the same order — an exact match is the correct
+  expectation here, not a looser one. Covers un-clamped extrapolation, a
+  case far beyond `maxElapsedSeconds` (confirmed to use the CAPPED
+  distance, and confirmed to genuinely differ from what the uncapped
+  distance would have produced — proves real clamping, not a
+  coincidental match), and the exact-at-the-cap boundary.
+- **Field-preservation test** confirming every other field (hex,
+  callsign, type, altitudeFt, category, registration, etc.) survives
+  extrapolation completely untouched, only lat/lon actually changing —
+  the direct check that the full-fidelity `Aircraft` type decision above
+  actually holds in practice, not just in principle.
+- **`extrapolateAll`** tested for correct per-element independent
+  handling and order preservation across a mixed list (no-track,
+  on-ground, and normally-flying aircraft together), plus the trivial
+  empty-list case.
+
+**Result: all 11 new tests pass against the real, shipped
+`AircraftExtrapolation.kt`, alongside the pre-existing 83 `Geo.kt`/
+`Visibility.kt`/`Relevance.kt` tests (94 total, zero failures).**
+
+Not yet done: `indicators.js` and `navigationCameraEvaluator.js` remain
+unported — same standing note as the entries above, each addressed only
+on further explicit instruction.
