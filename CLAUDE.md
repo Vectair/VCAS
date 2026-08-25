@@ -3168,6 +3168,79 @@ will recur if this ever needs setting up again on a different machine:
   Added the missing `minCarApiLevel` meta-data to `AndroidManifest.xml`;
   updated `automotive_app_desc.xml`'s own comment from "unverified" to
   confirmed-correct now that it's been diffed byte-for-byte against the
-  real sample. **Still not re-verified against the real head unit** — the
-  project owner needs to rebuild/reinstall/reconnect once more; update
-  this entry with the outcome once confirmed either way.
+  real sample.
+
+  **Follow-up, same day: a full systematic diff, not another guess.**
+  Direct pushback from the project owner after two rounds of single-lead
+  guesses: "I feel like we are flailing about at the wrong end of the
+  problem... can you do a thorough comparison of what the build is vs
+  what android auto needs... is anything else missing?" Right call — did
+  a real file-by-file diff of every file in `android/` against Google's
+  actual official sample (`android/car-samples`, cloned locally, both the
+  `navigation/mobile` app module AND `navigation/common` library module
+  it depends on, since the sample splits across two modules where VCAS is
+  one flat module) rather than continuing to chase one lead at a time.
+
+  **One more real, confirmed gap found this pass: VCAS had ZERO icon
+  resources anywhere in the project, and the manifest declared no
+  `android:icon` at all.** Every real sample app declares
+  `android:icon="@drawable/ic_launcher"` pointing at a real drawable.
+  Android Auto's own app-grid UI has to render an icon per listed app;
+  a car-app candidate with literally no icon resource to draw is a
+  plausible mechanism for silently never being listed, consistent with
+  the "zero interaction, not a rejection" signature every log capture
+  has shown. Fixed by adding `android:icon="@drawable/ic_launcher"` to
+  the manifest and copying VCAS's own real `assets/icons/icon-192.png`
+  (already exactly the standard xxxhdpi launcher-icon size, 192px) into
+  `android/app/src/main/res/drawable/ic_launcher.png` — reusing the
+  actual brand icon rather than inventing a placeholder, consistent with
+  how it's used everywhere else in this project.
+
+  **Full comparison results, for the record — not silently dropping the
+  things that turned out fine or don't apply yet:**
+  - `automotive_app_desc.xml` — byte-identical to the real sample.
+    Confirmed correct, not the issue.
+  - `compileSdk`/`minSdk`/`targetSdk` (34/23/34) — exact match against
+    the real sample's `build.gradle`. Not the issue.
+  - `CarAppService`/`Session`/`Screen` shape, the `HostValidator`
+    (`ALLOW_ALL_HOSTS_VALIDATOR`, correct for dev sideloading), the
+    `CarAppService` intent-filter's action + `NAVIGATION` category — all
+    match the expected/real API shape. Not the issue.
+  - **No launcher `<activity>` (MAIN/LAUNCHER intent-filter)** — every
+    real sample has one (the phone-tap-icon entry point, typically a
+    setup/info screen). VCAS has none, which is also the direct cause of
+    the earlier, already-known-harmless "Default Activity not found"
+    Android Studio warning. Best understanding: this is NOT required for
+    Android Auto's own discovery of the `CarAppService` (that's driven by
+    the service's own intent-filter, independent of any phone-side
+    launcher activity) — flagging it honestly as a real difference from
+    every working reference sample, not dismissing it, but not chasing it
+    as a phase-1 blocker either. Worth adding for polish once the app is
+    confirmed showing up, not before.
+  - `androidx.car.app.ACCESS_SURFACE` permission + `FEATURE_CLUSTER`
+    category — present in the real sample, genuinely needed for apps
+    that render to a custom `Surface` (real map/traffic overlay) or
+    support instrument-cluster displays. Correctly NOT needed for
+    phase 1's plain `MessageTemplate`, which uses neither. Deferred to
+    phase 2, not a current gap.
+  - `androidx.car.app` library version — VCAS pins the real, published
+    Maven Central stable release `1.4.0`; the sample's version catalog
+    pins `1.9.0-alpha01`, which appears to be AndroidX's own internal
+    monorepo build rather than a publicly published release most external
+    developers would consume — not a fair like-for-like comparison, and
+    VCAS's own build already compiles clean against the public release
+    (confirmed by the earlier `BUILD SUCCESSFUL` in Android Studio), so
+    this was not flagged as a likely cause.
+  - `common` module's own manifest (`POST_NOTIFICATIONS`, `RECORD_AUDIO`)
+    — permissions for real notification/voice features VCAS doesn't have
+    yet. Not applicable to phase 1.
+
+  Both the icon fix and the earlier `minCarApiLevel` fix are now pushed
+  together. **Still not yet re-verified against the real head unit** —
+  update this entry with the outcome once confirmed either way, and if
+  it's STILL not showing up after this, the next real diagnostic step
+  (rather than a fourth guess) should be pulling the actual APK's merged
+  manifest via `aapt2 dump badging` or Android Studio's own "Merged
+  Manifest" view, to rule out anything the Gradle manifest merger itself
+  might be silently dropping or altering — a class of failure this
+  file-by-file source comparison can't see.
