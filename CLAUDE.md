@@ -3434,3 +3434,82 @@ Not yet done: `relevance.js`, `aircraftExtrapolation.js`, `indicators.js`,
 and `navigationCameraEvaluator.js` remain unported — same standing note
 as the `geo.js` entry above, each addressed only on further explicit
 instruction, not assumed as an implied next step from this one.
+
+### `relevance.js` → `Relevance.kt`, third logic port (2026-08-25, same day)
+
+Direct instruction to continue: "Port relevance.js next." A structural
+port of `src/logic/relevance.js`'s teardrop relevance filter — the
+`DEFAULTS` tuned constants (rMaxNm/rMinNm/pinchExponent/
+overheadElevationDeg/lookaheadSeconds/lookaheadSamples/
+stationarySpeedMph/contrailMinAltitudeFt/rangeExtensionCapNm, all
+preserved byte-for-byte), `_effectiveRMaxNm`'s high-altitude range
+extension (mirroring Visibility's own contrail floor exactly, same
+threshold/cap), the teardrop shape formula (`_teardropRangeNm`'s
+pinch-exponent cosine falloff), and `_predictedEntrySeconds`'s
+forward-lookahead sampling loop. As `object Relevance` in `android/app/
+src/main/java/org/vectair/vcas/car/logic/Relevance.kt`, depending only
+on `Geo` (for bearing/distance/position-projection), matching how
+relevance.js has no dependency on visibility.js at all — the `vis`
+parameter's `slantRangeNm`/`elevationDeg` are precomputed and passed in
+by the caller, so `Relevance.kt` defines its own small `VisInput` type
+rather than importing `Visibility.EstimateResult`.
+
+**Kept the same public-surface discipline `Visibility.kt` already
+established**: only `evaluate()` and `DEFAULTS` are public, mirroring
+relevance.js's own `{ evaluate, DEFAULTS }` export — every internal
+helper (`effectiveRMaxNm`/`teardropRangeNm`/`inTeardrop`/
+`predictedEntrySeconds`) stays private, tested indirectly through
+`evaluate()` only.
+
+**Verified the same way as the two prior ports — real `kotlinc`+JUnit4
+execution** — `RelevanceTest.kt` (new, `android/app/src/test/java/org/
+vectair/vcas/car/logic/`), 17 `@Test` methods, using the same standalone
+Maven-Central-jar toolchain. Three verification styles:
+
+- **Exact-boundary tests** for the teardrop shape at 0°/180°/60°, solved
+  analytically from the same closed-form formula (`teardropRangeNm(0) ==
+  rMaxNm == 15.0`, `teardropRangeNm(180) == rMinNm == 3.0`,
+  `teardropRangeNm(60) == 9.75` exactly) — since `evaluate()` accepts
+  `relativeBearing`/`vis.slantRangeNm` directly as plain numbers, these
+  need no real coordinates at all, unlike the geodesic-distance-based
+  boundary tests the two earlier ports needed.
+- **Scenario tests** worked through by hand against the real branch
+  order: the overhead override's strict `>` (not `>=`) boundary at
+  70°; the contrail range extension letting a 40nm dead-ahead aircraft
+  at 30,000ft register as in-view (base rMaxNm alone would exclude it);
+  the same case NOT extending below the altitude threshold or with a
+  null altitude; and a custom `rMaxNm` (60) larger than the default
+  `rangeExtensionCapNm` (50) confirmed to survive the extension logic
+  unshrunk (`max(rMaxNm, cap)`, not a blind clamp to the cap).
+- **Predicted-entry tests**, which do need real coordinates since
+  `predictedEntrySeconds()` calls `Geo` internally: rather than trusting
+  hand-picked timing margins (a first-draft attempt at hand-deriving
+  which of the 3 lookahead samples should trigger convergence turned out
+  fragile — small arithmetic slips in a multi-step manual projection are
+  easy to make and hard to catch by eye), a small helper
+  (`independentEntrySeconds`) *independently* replicates the same
+  per-sample projection using `Geo`'s own already-verified primitives
+  (`GeoTest.kt`, 34/34 passing) — freshly written from the documented
+  algorithm, not copied from `Relevance.kt` — to determine which sample
+  should trigger, then checks `Relevance.evaluate()`'s actual
+  `enterInSeconds` against it. This isn't circular (it doesn't re-test
+  `Geo`, and it doesn't blindly trust `Relevance.kt`'s own loop) — it's
+  checking `predictedEntrySeconds()`'s specific sampling behaviour
+  (step size, sample count, early-return-on-first-match) against an
+  independently-derived ground truth, the same principle as using
+  `Geo.destinationPoint` to build exact-input aircraft positions in the
+  `Visibility.kt` port's own boundary tests. Covers: an aircraft
+  converging on a stationary user (exercises the `userIsMoving=false`
+  branch), a user moving toward a stationary aircraft (exercises
+  `userIsMoving=true`, not covered by the first case), a diverging
+  aircraft that must never trigger, and both `trackDeg`/`groundSpeedKt`
+  null-data early-return paths.
+
+**Result: all 17 new tests pass against the real, shipped `Relevance.kt`,
+alongside the pre-existing 66 `Geo.kt`/`Visibility.kt` tests (83 total,
+zero failures).**
+
+Not yet done: `aircraftExtrapolation.js`, `indicators.js`, and
+`navigationCameraEvaluator.js` remain unported — same standing note as
+the `geo.js`/`visibility.js` entries above, each addressed only on
+further explicit instruction.
