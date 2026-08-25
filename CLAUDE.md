@@ -3115,6 +3115,59 @@ will recur if this ever needs setting up again on a different machine:
   meta-data — none of those alone are sufficient for the `NAVIGATION`
   category specifically; other categories (POI, IoT, etc.) don't carry
   this same extra requirement. Added the missing `<uses-permission>` line
-  to `AndroidManifest.xml`. **Not yet re-verified against a real head
-  unit** — the project owner still needs to rebuild/reinstall and check
-  the Kia's launcher again; update this entry once confirmed either way.
+  to `AndroidManifest.xml`.
+
+  **Follow-up, same day: that permission fix alone didn't do it either.**
+  Rebuilt, reinstalled, confirmed via `adb shell dumpsys package` that
+  `NAVIGATION_TEMPLATES` really was `granted=true` on the installed APK —
+  and VCAS still never appeared, in either list. Two more real-device
+  `adb logcat` captures (one immediately after, one after a full phone
+  reboot to rule out Android Auto's own app-registry cache or OnePlus's
+  aggressive `OsenseKillAction` background-process killer) both came back
+  the same way: **zero lines anywhere referencing `androidx.car.app`,
+  `CarAppService`, or VCAS's package from Gearhead's (Android Auto's real
+  process name) own side** — every mention of `org.vectair.vcas.car` in
+  both captures was Android Studio's own install/debug routine, not
+  Android Auto querying it. That ruled out both a validation rejection
+  and a stale-cache/battery-killer theory — the real signature was "never
+  even considered a candidate," not "considered and rejected."
+
+  Root cause, found by cloning Google's actual official sample repo
+  (`github.com/android/car-samples`, not just reading docs pages —
+  `dl.google.com` is blocked from this sandbox but plain `git clone`
+  over HTTPS isn't) and diffing VCAS's manifest against
+  `car_app_library/navigation/mobile/src/main/AndroidManifest.xml`
+  directly: VCAS was missing the
+  **`androidx.car.app.minCarApiLevel`** meta-data tag entirely —
+  ```xml
+  <meta-data android:name="androidx.car.app.minCarApiLevel" android:value="1" />
+  ```
+  declared right alongside the existing `com.google.android.gms.car.
+  application` meta-data in every real sample manifest checked. Without a
+  declared minimum Car API level, Android Auto apparently has no basis to
+  even attempt negotiating a session — consistent with the "zero
+  interaction at all" signature both real-device log captures showed,
+  unlike a rejected/invalid app which would at least show up in a binding
+  attempt or a validation-failure log line.
+
+  **A related dead-end worth recording so it isn't re-chased**: partway
+  through this a `WebFetch` summary of the Car App Library's
+  navigation-category doc page reported that `com.google.android.gms.car.
+  application`/`automotive_app_desc.xml` looked like a "legacy,
+  superseded" requirement, since that particular page didn't mention it.
+  That was wrong — re-checked directly against the real official sample's
+  actual `AndroidManifest.xml` and `automotive_app_desc.xml` (both files,
+  full contents, not a docs summary): both are alive, current, and
+  byte-for-byte identical to what VCAS already had. **Lesson: a `WebFetch`
+  summary reporting something doesn't appear on ONE doc page is not
+  equivalent to confirming it's obsolete** — Google's docs are split
+  across many pages that each assume context from others; the actual
+  official sample source is the authoritative check when something this
+  consequential is on the line, not one page's summary.
+
+  Added the missing `minCarApiLevel` meta-data to `AndroidManifest.xml`;
+  updated `automotive_app_desc.xml`'s own comment from "unverified" to
+  confirmed-correct now that it's been diffed byte-for-byte against the
+  real sample. **Still not re-verified against the real head unit** — the
+  project owner needs to rebuild/reinstall/reconnect once more; update
+  this entry with the outcome once confirmed either way.

@@ -2,9 +2,12 @@
 <!-- "template" declares this as a Car App Library / templated app, as
      opposed to the older, now-superseded "media"/"navigation" (lowercase,
      legacy Automotive) app types some very old sample code still shows.
-     See android/README.md's caveat — double-check this tag's exact
-     contents against current Google docs, this project's own knowledge of
-     this specific file wasn't independently re-verified. -->
+     Confirmed correct (2026-08-25) — byte-for-byte identical to Google's
+     own current official sample (android/car-samples, car_app_library/
+     navigation/common/src/main/res/xml/automotive_app_desc.xml). This
+     file was never the problem; the actual missing piece was the
+     androidx.car.app.minCarApiLevel meta-data in AndroidManifest.xml —
+     see that file's own comment. -->
 <automotiveApp>
     <uses name="template" />
 </automotiveApp>

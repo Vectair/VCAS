@@ -27,10 +27,31 @@
 
         <!-- Declares this app as a car app, and its category — "navigation"
              is what VCAS actually is (turn-by-turn + a live traffic
-             overlay), not "poi"/"parking"/"charging". -->
+             overlay), not "poi"/"parking"/"charging". Confirmed current and
+             required (2026-08-25) by checking the real, current official
+             sample manifest (android/car-samples, car_app_library/
+             navigation/mobile/src/main/AndroidManifest.xml) directly — an
+             earlier doubt about this being legacy, based on a docs-page
+             summary that simply didn't repeat it, was wrong. -->
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
+
+        <!-- The actual missing piece (2026-08-25) — found by diffing
+             against the same official sample manifest above after VCAS was
+             confirmed completely invisible to Android Auto's own app scan
+             on a real Kia head unit (zero binding attempts, zero log
+             activity referencing VCAS's package from Gearhead at all,
+             across multiple real-device capture sessions — not merely
+             hidden or rejected). Every real sample declares this alongside
+             the meta-data above; without it, Android Auto has no minimum
+             Car API level to negotiate a session against and apparently
+             never even considers the app a candidate. Not yet re-verified
+             against the real head unit — update this comment once
+             confirmed either way. -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
 
         <service
             android:name=".VcasCarAppService"
