@@ -1,13 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Phase 1 has no real functionality yet — no location, no network,
-         no ADS-B. This manifest exists purely to prove the app registers
-         as a car app and launches at all (see CLAUDE.md's "Android Auto —
-         native rewrite scoping" note, step 1). ACCESS_FINE_LOCATION /
-         ACCESS_BACKGROUND_LOCATION / INTERNET get added in later phases as
-         GPS and ADS-B polling actually come online, not before they're
-         needed. -->
+    <!-- Phase 1 had no real functionality — no location, no network, no
+         ADS-B — and existed purely to prove the app registers as a car app
+         and launches at all (see CLAUDE.md's "Android Auto — native
+         rewrite scoping" note, step 1). Phase 2 (2026-08-25) adds the
+         first real content, MapLibre Native rendered onto the car's own
+         Surface — INTERNET is now genuinely needed for map tile loading,
+         not added preemptively. ACCESS_FINE_LOCATION /
+         ACCESS_BACKGROUND_LOCATION still wait for GPS wiring, a later
+         step. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- REQUIRED to render onto a custom Surface at all (2026-08-25,
+         phase 2) — without this, AppManager.setSurfaceCallback() has
+         nothing to hand a Surface to. Confirmed against BOTH the real
+         official Car App Library navigation sample (android/car-samples)
+         AND MapLibre's own official Android Auto sample
+         (maplibre/MapLibre-Android-Auto-Sample) — both declare exactly
+         this permission for exactly this purpose, nothing more (the
+         community sample additionally declares
+         androidx.car.app.MAP_TEMPLATES, which Google's own official
+         sample does NOT need for the same setMapActionStrip()/Action.PAN
+         functionality — followed the official sample's leaner manifest
+         over the community one where they disagreed). -->
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE"/>
 
     <!-- REQUIRED for the NAVIGATION category specifically (2026-08-25,
          found the hard way — see CLAUDE.md's phase-1 real-device debug

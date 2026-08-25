@@ -3805,3 +3805,176 @@ Native map integration, the `CarAppService`/`Session`/`Screen` shell
 itself, background execution, settings) — each still a separate,
 substantially larger body of work, addressed only on further explicit
 instruction.
+
+## Android Auto phase 2: a real MapLibre map on the car's Surface (2026-08-25)
+
+Asked directly whether to port the camera evaluator's UI wiring next or
+start the MapLibre integration — since camera wiring has nothing to
+target without a map surface to control first, recommended MapLibre
+integration as the real next step and the project owner confirmed. Still
+unverified on a real head unit from the earlier phase-1 debugging session
+(the owner said they couldn't vehicle-test right now, back when the
+logic-porting work began) — proceeding anyway on buildable-but-
+unverified code was already the established pattern for the six logic
+ports, and applies the same way here.
+
+**The core open technical question, stated honestly rather than assumed
+away going in**: MapLibre's `MapView` is a normal Android `View` —
+Android Auto's `Screen`/template system doesn't allow arbitrary Views at
+all, only a raw `Surface` handed to the app via `AppManager.
+setSurfaceCallback()`. Whether/how a real `MapView` could be gotten onto
+that `Surface` at all was a genuine unknown, not something to improvise
+without checking — MapLibre itself has zero built-in Android Auto
+integration anywhere in its own source tree (checked directly, cloned
+`maplibre/maplibre-native` and grepped for `CarAppService`/
+`NavigationTemplate`/`SurfaceCallback`: zero hits).
+
+**Found real, official prior art before writing a line of integration
+code — MapLibre publishes `maplibre/MapLibre-Android-Auto-Sample`
+specifically for this exact problem.** Cloned and read directly (not
+summarized from search results or the sample's own README, which turned
+out to itself be stale — see below). The actual, current, working
+mechanism it uses: a real Android framework API most developers reach
+for a completely different reason (a second physical display, e.g.
+Chromecast), `DisplayManager.createVirtualDisplay()` backed directly by
+the car's own `Surface`, showing a plain `Presentation` whose content
+view is an ordinary, unmodified `MapView`. Android's own compositor does
+the actual work of getting that View hierarchy onto the target Surface —
+nothing MapLibre-specific, no manual bitmap-blitting, no reaching into
+MapLibre's internal texture/renderer classes at all. This is
+dramatically simpler and more robust than the alternative this session
+initially expected to need (MapLibre exposes low-level `MapRenderer`
+hooks — `onSurfaceCreated(Surface)` etc. — that a determined caller
+could technically drive manually; the VirtualDisplay/Presentation
+approach sidesteps needing any of that entirely).
+
+**A real, confirmed instance of "the README doesn't match the actual
+code," same lesson this project has hit before (the `automotive_app_desc.
+xml` doubt from phase 1) — worth remembering, not just re-noting.** The
+sample's own `README.md` describes an OLDER approach: render the MapView
+offscreen in texture mode, extract a `Bitmap` from its `TextureView`,
+draw it onto the Surface via a `Canvas`, 30 times a second. The ACTUAL
+current source (`CarMapContainer.kt`/`CarMapRenderer.kt`, read directly)
+does no such thing — it uses the VirtualDisplay/Presentation approach
+described above, with no bitmap-blitting code anywhere. The repo clearly
+evolved to a better approach after the README was last updated. Built
+VCAS's own integration from the real current source, not the README's
+prose description of an approach the code no longer uses.
+
+**`VcasMapContainer.kt`/`VcasMapRenderer.kt`** (new,
+`android/app/src/main/java/org/vectair/vcas/car/`) — a close adaptation
+of the reference's `CarMapContainer.kt`/`CarMapRenderer.kt`, including
+its pan/zoom gesture handling (`onScale`/`onScroll`, the double-tap-to-
+zoom convenience) since that's genuine, cheap-to-include interactivity
+from the same verified source, not custom-written. Two deliberate,
+individually-documented deviations from a pure line-for-line port, both
+flagged inline in the code rather than silently diverging:
+- `cleanUpMap()` does NOT port the reference's own
+  `carContext.windowManager.removeView(this)` call — the reference's
+  `setupMap()` never adds the MapView via `WindowManager` at all (it
+  becomes a `Presentation`'s content view instead), so that call looks
+  like a real leftover from the same older approach the stale README
+  describes, not something that would actually work if ported (calling
+  `removeView()` on a View never added via that `WindowManager` would be
+  expected to throw).
+- `onDestroy()` explicitly dismisses the `Presentation` and releases the
+  `VirtualDisplay` — the reference doesn't, a real if minor resource-
+  cleanup gap in a demo app that doesn't need to care about app-exit
+  leaks the way VCAS's own codebase should.
+
+**`MapScreen.kt`** (new, replaces phase 1's `MainScreen.kt`/
+`MessageTemplate` entirely — deleted rather than left as unused dead
+code) — a real `NavigationTemplate` with `Action.PAN` in its map action
+strip (confirmed, independently, against BOTH the MapLibre reference AND
+Google's own official navigation sample, that this alone is what enables
+interactive pan/zoom gestures on the Surface — no other wiring needed).
+Deliberately minimal beyond that, matching the reference sample's own
+scope: no zoom in/out buttons (no icon drawables exist for them yet), no
+routing/travel-estimate info (no real route exists yet — that needs
+`RouteGeometry.kt`/`NavigationCameraEvaluator.kt`, already ported, wired
+to real GPS, a later step). `setMapActionStrip()` is gated behind
+`carContext.carAppApiLevel >= 2`, matching how both real references gate
+the same call rather than assuming every host supports it.
+`VcasSession.kt` now constructs `VcasMapRenderer(carContext, lifecycle)`
+— the renderer needs the *Session's* own lifecycle (its `onCreate`/
+`onDestroy` is what registers/unregisters the `SurfaceCallback`), not
+any one `Screen` that might later be pushed on top of it. Not stored as
+a field or handed to `MapScreen` — nothing reads it back yet, since
+`MapScreen` has no zoom buttons to wire it to and gesture handling
+already flows straight from the host to the renderer's own
+`SurfaceCallback` methods independent of any `Screen`. A later step that
+genuinely needs to reach it (camera re-centering once GPS is wired up,
+say) is a real, expected reason to start retaining it then — not a gap
+being left now.
+
+**Cross-validated every non-trivial Car App Library call against TWO
+independent real sources, not just the MapLibre sample alone** — since
+the MapLibre sample is a third-party community project (Flitsmeister, not
+Google), each API call it relies on was separately checked against
+Google's own official navigation sample (`android/car-samples`, already
+cloned from phase 1's systematic-diff work) before trusting it:
+- `carContext.getCarService(AppManager::class.java).setSurfaceCallback(...)`
+  — the exact same `getCarService(Class)` pattern, found independently in
+  Google's own `SurfaceRenderer.java`.
+- `SurfaceCallback`'s actual required method set — grepped Google's own
+  `SurfaceRenderer.java`'s anonymous implementation: exactly the same six
+  methods this port implements (`onSurfaceAvailable`/
+  `onVisibleAreaChanged`/`onStableAreaChanged`/`onSurfaceDestroyed`/
+  `onScroll`/`onScale`), with `onClick`/`onFling` NOT overridden there
+  either — confirming these two are genuinely optional/default-
+  implemented in the real interface, not an omission.
+- `androidx.car.app.ACCESS_SURFACE` — required by both samples'
+  manifests for exactly this purpose.
+- `androidx.car.app.MAP_TEMPLATES` — declared by the MapLibre sample's
+  manifest but NOT by Google's own official sample, which achieves the
+  identical `setMapActionStrip()`/`Action.PAN` functionality without it.
+  Followed the official sample's leaner manifest where the two disagreed
+  rather than including a permission that isn't demonstrably needed.
+
+**Manifest/build changes**: `AndroidManifest.xml` gained
+`android.permission.INTERNET` (genuinely needed now for map tile
+loading — phase 1's manifest comment explaining why it was absent was
+updated, not left stale) and `androidx.car.app.ACCESS_SURFACE`.
+`build.gradle.kts` gained `org.maplibre.gl:android-sdk:11.7.0` — this
+dependency IS `mavenCentral()`-hosted (unlike `androidx.car.app`), so
+this exact version was verified reachable by actually downloading its
+`.aar` from `repo1.maven.org`, not merely assumed. **11.7.0 specifically,
+not the newer 13.5.1 latest as of writing** — deliberately matching the
+version the real, working reference sample itself pins, on the reasoning
+that "confirmed compatible with this exact VirtualDisplay/Presentation
+approach in a real project" beats "latest," which nothing here could
+verify is still compatible. Also checked directly (downloaded and
+inspected the AAR's own embedded manifest, not assumed): MapLibre's SDK
+itself declares `minSdkVersion 21`, well under VCAS's existing `minSdk
+23` — no minSdk bump was needed for this dependency, despite the
+reference sample itself using `minSdk 29` (that appears to be the
+sample author's own baseline choice, not a MapLibre requirement).
+
+**The map style is MapLibre's own public demo tiles**
+(`https://demotiles.maplibre.org/style.json`), the same placeholder the
+reference sample itself ships with — deliberately not VCAS's real
+MapTiler style (`src/config.js`'s `MAPTILER_KEY`) yet. That key is
+scoped to the PWA's own web usage (likely referrer/domain-restricted,
+metered against the web app's own traffic) and reusing it for a native
+app without checking is a real product decision, not something to just
+wire in silently — flagged as a `TODO` in `VcasMapContainer.kt` rather
+than decided unilaterally here.
+
+**Honest status, same caveat as phase 1, for the same reason**: this has
+never been compiled. This sandbox still has no Android SDK and still
+can't reach `dl.google.com` (where the Car App Library's own AAR is
+hosted, so its exact `getCarService`/`SurfaceCallback`/`NavigationTemplate`
+signatures couldn't be checked against a live artifact — only
+cross-referenced against two independent real *source* samples, which is
+corroboration, not compilation). Opening this in Android Studio for a
+real build — and, once that succeeds, sideloading it via Android Auto's
+Developer Mode the same way phase 1 was — is still the actual check, not
+anything done here.
+
+Not yet done, and not implied by this milestone: wiring any of the
+already-ported-and-verified logic (`Geo`/`Visibility`/`Relevance`/
+`AircraftExtrapolation`/`Indicators`/`NavigationCameraEvaluator`) to this
+real map — real GPS, real ADS-B polling, drawing traffic indicators on
+the map surface, driving the camera via `NavigationCameraEvaluator`'s
+own output. Each is a separate, substantially larger step, addressed
+only on further explicit instruction.

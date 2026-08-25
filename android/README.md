@@ -1,4 +1,4 @@
-# VCAS for Android Auto — Phase 1
+# VCAS for Android Auto
 
 Native Android project, entirely separate from the PWA in the repo root.
 See `CLAUDE.md`'s **"Android Auto — native rewrite scoping"** section for
@@ -82,10 +82,48 @@ a sign the whole approach is wrong. Worth checking in order:
    Library — these two files are the most likely to have drifted from
    whatever the current exact required syntax is.
 
+## Phase 2: a real MapLibre map (2026-08-25)
+
+Added before phase 1 was ever confirmed working on a real head unit —
+the project owner explicitly chose to keep pushing forward on
+buildable-but-unverified code rather than wait (see CLAUDE.md's phase-2
+milestone entry for the full reasoning). `MainScreen`/`MessageTemplate`
+is gone; `MapScreen` now builds a real `NavigationTemplate` showing a
+live MapLibre map (`VcasMapContainer`/`VcasMapRenderer`), pan/zoom-
+interactive via `Action.PAN`.
+
+This wasn't invented from scratch — it's adapted directly from MapLibre's
+own official reference sample for exactly this problem,
+`maplibre/MapLibre-Android-Auto-Sample` (cloned and read, not guessed),
+cross-checked line-by-line against the same official Google Car App
+Library sample phase 1's own manifest fixes came from. See CLAUDE.md's
+phase-2 entry for the full mechanism (a real Android `VirtualDisplay`/
+`Presentation`, not anything MapLibre-specific) and the two places this
+port deliberately deviated from the reference, with reasons.
+
+**Still unverified against a live build or device** — same honest caveat
+as phase 1, for the same reason (no Android SDK, no way to reach
+`dl.google.com` for the Car App Library's own AAR from this sandbox).
+Every non-trivial API call used here (`getCarService(Class)`,
+`SurfaceCallback`'s actual required method set, `Action.PAN`) was
+additionally cross-checked against Google's own official navigation
+sample's real source, not just the community MapLibre sample alone — but
+that's corroboration, not compilation. Opening this in Android Studio for
+a real build is still the actual check.
+
+The map style is MapLibre's own public demo tiles
+(`https://demotiles.maplibre.org/style.json`), same placeholder the
+reference sample itself uses — not VCAS's real MapTiler style yet. See
+`VcasMapContainer.kt`'s own `TODO` for why that wasn't wired in directly.
+
 ## What's next (not started)
 
-Once this phase is confirmed working on a real head unit: swap
-`MessageTemplate` for a minimal `NavigationTemplate` (still no real
-content, just confirming that template renders too), then move on to
-phase 2 — MapLibre Native + porting the geo/visibility/relevance/
-indicators logic. See CLAUDE.md for the full phase list.
+Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
+navigationCameraEvaluator logic to Kotlin is DONE (see CLAUDE.md — all
+six files plus the discovered `routeGeometry.js` dependency, each with
+its own real `kotlinc`+JUnit4-verified test suite). Not yet done: wiring
+any of that ported logic to this phase-2 map (real GPS, real ADS-B
+polling, drawing traffic indicators on the map surface), swapping the
+demo style for VCAS's real one, and the foreground-service/background-
+execution work. See CLAUDE.md for the full phase list and current
+status.

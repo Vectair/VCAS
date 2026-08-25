@@ -42,6 +42,23 @@ dependencies {
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.core:core-ktx:1.13.1")
 
+    // MapLibre Native Android SDK (2026-08-25, phase 2). Unlike
+    // androidx.car.app above, this IS mavenCentral()-hosted (confirmed by
+    // actually downloading this exact version's .aar from
+    // repo1.maven.org, not assumed) — so this version pin is genuinely
+    // verified reachable, even though nothing that USES it could be
+    // compiled here. 11.7.0 specifically (not the newer 13.5.1 latest at
+    // time of writing) to match the real, working reference this phase's
+    // Surface-rendering approach was adapted from
+    // (maplibre/MapLibre-Android-Auto-Sample) — matching a version a real
+    // sample is confirmed to build against beats guessing "latest" is
+    // still compatible with the VirtualDisplay/Presentation approach.
+    // The SDK's own embedded manifest declares minSdkVersion 21 (checked
+    // directly against the downloaded .aar) — well under this project's
+    // existing minSdk 23, so no bump was needed for this dependency
+    // alone.
+    implementation("org.maplibre.gl:android-sdk:11.7.0")
+
     // JUnit 4 for pure-JVM unit tests (src/test/java — no device/emulator
     // needed, runs via Gradle's `test` task or Android Studio's own test
     // runner). Added 2026-08-25 for the geo.js -> Geo.kt port's own test
