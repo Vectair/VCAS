@@ -3674,3 +3674,134 @@ instruction. With this port, every pure-logic file the top-of-file
 "Long-term destination" scoping note called "cleanly portable" except
 `navigationCameraEvaluator.js` itself has now actually been ported and
 verified.
+
+### `navigationCameraEvaluator.js` → `NavigationCameraEvaluator.kt`, sixth and final scoped logic port (2026-08-25, same day)
+
+Direct instruction to continue: "Port navigationCameraEvaluator.js
+next." The last file on the original "cleanly portable" list at the top
+of this document. Two things made this port meaningfully different from
+the five before it, both handled deliberately rather than glossed over:
+
+**1. A genuinely new dependency was discovered mid-port: `RouteGeometry.
+kt`.** `navigationCameraEvaluator.js` calls `RouteGeometry.nearestOnLine()`
+directly — `src/routing/routeGeometry.js` was never on the original
+scoping list (only geo/visibility/relevance/aircraftExtrapolation/
+indicators/navigationCameraEvaluator were named), but it's equally pure
+logic with zero DOM dependency, so it got ported the same way, as a
+necessary prerequisite rather than a scope creep nobody asked for. All
+three of its functions (`nearestOnLine`, `projectAlong`,
+`distanceToIndex`) were ported, not just the one this file actually
+calls — a small, cohesive module, and CLAUDE.md already documents the
+other two as used elsewhere (off-route detection, maneuver tracking)
+that may get ported later. Route coordinates use the same `[lon, lat]`
+`DoubleArray` convention `Geo.kt`'s own `circleCoordinates`/
+`arcCoordinates` already established, matching how real route geometry
+(OpenRouteService responses) actually arrives as arrays of `[lon, lat]`
+pairs.
+
+**2. `NavigationCameraEvaluator.kt` is a `class`, not an `object` — the
+first structural departure from every prior port.** Geo/Visibility/
+Relevance/AircraftExtrapolation/Indicators are all genuinely stateless
+pure functions, ported as Kotlin `object`s mirroring their JS IIFE-module
+pattern. This file is different in the JS original too: real persistent
+state lives in its own module-level closure (`lastEvaluatedState`,
+`stateDwellTimestamp`, `smoothedSpeedMph` — the hysteresis/dwell-lock/
+speed-smoothing memory that makes the camera state machine work frame to
+frame). A Kotlin `object` singleton would still technically work for one
+real car-app session (same lifetime as the JS module persisting for a
+page load) — but a `class` is more faithful to what the state actually
+IS (per-session camera memory), and critically, it's what let each JUnit
+test start from a genuinely clean `NavigationCameraEvaluator()` instance
+instead of fighting cross-test state leakage through a shared singleton.
+A second, smaller adaptation for the same reason: `evaluate()` takes an
+explicit `currentTimeMs: Long` parameter (defaulting to
+`System.currentTimeMillis()`, behaviourally identical to the JS
+original's internal `Date.now()` for any real caller) rather than
+reading wall-clock time unconditionally — the seam that makes
+`MIN_STATE_DWELL_MS` hysteresis actually testable with deterministic
+synthetic timestamps instead of real `Thread.sleep()` calls.
+
+**A real, verifiable discrepancy between the JS source's own comment and
+its actual code, found while writing the tests — not assumed away, and
+preserved faithfully rather than "fixed."** The dwell-lock block's
+comment claims NAV_RAW bypasses the hysteresis timer "(like AIR)" — but
+the literal code condition is
+`targetState === "NAV_RAW" || lastEvaluatedState === "NAV_RAW" || ...`,
+which never mentions AIR at all. This means switching into/out of AIR
+mode is, in the actual shipped JS behaviour, subject to the exact same
+3500ms dwell lock as any automatic urban/highway/turn transition —
+contradicting what the comment claims. This port is faithful to the
+real code (already ported that way correctly, verified against it) — the
+same "verify against real execution, not what a comment says" discipline
+this project has hit before (the compass `event.absolute` finding, the
+RAW-glyphs finding), just this time surfacing a comment/code mismatch
+rather than a comment/behavior one. Not treated as a bug to fix here —
+flagged in the test suite's own doc comment so it isn't mistaken for a
+transcription error if it's ever revisited.
+
+`_dist`/`_segBearing` are deliberately duplicated inside
+`NavigationCameraEvaluator.kt` rather than reused from `Geo.kt`/
+`RouteGeometry.kt`, mirroring the JS original's own local duplication of
+mathematically-identical haversine-distance/true-bearing formulas — same
+"translate the structure that's actually there, don't DRY it up"
+discipline `Visibility.kt`'s deliberately-preserved dead code already
+established.
+
+**Verified the same way as every prior port — real `kotlinc`+JUnit4
+execution**, using the same standalone Maven-Central-jar toolchain.
+Two new test files:
+
+- `RouteGeometryTest.kt` (18 `@Test` methods) — `nearestOnLine()`'s
+  empty/null/single-point/degenerate-zero-length-segment edge cases,
+  correct perpendicular snapping and segment/`t` identification,
+  clamping before the route start and beyond its end; `projectAlong()`'s
+  null/too-short-coords guard, zero/negative-meters early return,
+  within-segment interpolation (cross-checked against
+  `distanceToIndex()`'s own output for the full segment length),
+  crossing into the next segment, and clamping at the route's final
+  vertex; `distanceToIndex()`'s target-at-or-before-segIdx zero case,
+  and its result matching the sum of `Geo.calculateDistanceMeters()`
+  over the same segments (an independent cross-check, not a re-test of
+  its own formula).
+- `NavigationCameraEvaluatorTest.kt` (13 `@Test` methods) — the AIR/
+  dwell-lock discrepancy above (blocked within the window, succeeds once
+  elapsed); NAV_RAW bypassing the lock in both directions; single-call
+  speed-smoothing and the URBAN/HIGHWAY zoom-delta formula (exact EMA
+  arithmetic, not approximated); a constructed sharp-turn route
+  (east-then-north) correctly triggering `TURN_APPROACH` with the right
+  signed bearing delta (left turn = negative) and distance (cross-checked
+  against `Geo.calculateDistanceMeters()`); the HIGHWAY ENTER/EXIT dual-
+  boundary hysteresis — entering above 53mph, STAYING in HIGHWAY_GUIDANCE
+  while the smoothed speed drifts down through the 46-53 band (proving
+  the lower EXIT gate, not the upper ENTER gate, governs once already in
+  that state), then genuinely reverting once it drops below 46; the
+  `"auto"` viewport bias's `anchorXOverride`/`anchorYOverride` winning
+  over the preset's own values and its `maxPitch` clamp; the `"phone-l"`
+  bias's plain pitch/anchorY additive bias; the pitch clamp's lower bound
+  (AIR's pitch-0 preset pushed negative by `phone-l`'s bias, clamped back
+  to 0); NAV_RAW's 9b square-anchor branch cross-checked exactly against
+  a direct `Geo.computeSquarePlotLayout()` call, its fallback to the flat
+  preset when viewport dimensions aren't yet available, and — a real
+  asymmetry preserved from the JS source and deliberately tested, not
+  just implemented — the branch still firing when `squareContentHeight`
+  is exactly `0.0` (an explicit `!= null` check, unlike `viewportWidth`/
+  `viewportHeight`'s truthy checks which DO exclude 0) rather than
+  silently falling back to the flat preset the way a naive read might
+  expect.
+
+**Result: all 31 new tests (18 + 13) pass against the real, shipped
+`RouteGeometry.kt`/`NavigationCameraEvaluator.kt`, alongside the
+pre-existing 112 tests from the five prior ports (143 total, zero
+failures).**
+
+Every pure-logic file the top-of-file "Long-term destination" scoping
+note called "cleanly portable" is now ported and verified: `geo.js`,
+`visibility.js`, `relevance.js`, `aircraftExtrapolation.js`,
+`indicators.js`, `navigationCameraEvaluator.js` — plus the one genuinely
+necessary dependency discovered along the way, `routeGeometry.js`. Not
+yet started, and not implied by this milestone: the "needs a genuine
+rebuild" half of that same scoping note (the UI layer, the MapLibre
+Native map integration, the `CarAppService`/`Session`/`Screen` shell
+itself, background execution, settings) — each still a separate,
+substantially larger body of work, addressed only on further explicit
+instruction.
