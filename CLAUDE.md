@@ -4112,3 +4112,125 @@ device-compass fallback for stationary heading, and routing (needed
 before `TURN_APPROACH`/`DECOUPLED_MANEUVER` can ever be exercised) — each
 a separate, substantially larger step, addressed only on further explicit
 instruction.
+
+## Android Auto phase 2 follow-up: real ADS-B polling (2026-08-25, same day)
+
+Direct instruction to continue: "Wire up ADS-B polling next" — the next
+item off the "not yet done" list the GPS-wiring entry just above this one
+left behind. Real HTTP polling against adsb.fi now runs on a timer,
+producing a live, normalised aircraft list — deliberately scoped to just
+polling + parsing, not rendering (see "Deliberately scoped" below).
+
+**Calls adsb.fi directly — no CORS relay involved, and none needed.**
+CLAUDE.md's own "ADS-B data source" section already establishes exactly
+why: the relay exists because a *browser's* `fetch()` can't read adsb.fi's
+response (no CORS header) and because *many concurrent PWA testers*
+funneled through one shared relay could exceed adsb.fi's 1req/s limit in
+aggregate — and separately notes "a real native app's HTTP requests
+aren't subject to browser CORS restrictions at all, so this whole relay
+becomes unnecessary at that point." This is that point: `AdsbFiClient.kt`
+uses plain `HttpURLConnection` (no CORS concept exists for it at all) and
+polls at the same 3s interval the PWA itself uses
+(`CONFIG.REFRESH_INTERVAL_SECONDS`) as a single client, nowhere near the
+aggregate-load scenario the relay's throttle was built for.
+
+**`normaliseAircraft.js` → `NormaliseAircraft.kt`, a second discovered
+dependency (after `routeGeometry.js`).** Not on the original "cleanly
+portable" scoping list, but pure logic all the same — the actual field-
+name/parsing knowledge that turns a raw ADS-B JSON record into VCAS's
+internal aircraft shape. Takes a real `org.json.JSONObject`: Android's
+own SDK bundles that class at runtime (so the shipped app needs no extra
+dependency for it), and — usefully — the standalone `org.json:json`
+Maven Central artifact implements the identical public API, which is
+what makes this file's own test suite genuinely runnable in this
+sandbox (no Android SDK here either), the same trick that already made
+every other logic port possible.
+
+**The one subtlety worth real care in this port: JS's `??` vs `||`, used
+deliberately differently per field in the source, and easy to blur
+together if translated carelessly.** The numeric-ish fields (`alt_baro`,
+`seen_pos`, `track`, `gs`, etc.) chain with `??` (nullish coalescing) —
+falls through ONLY on null/undefined, so a real `0` (an aircraft at 0ft
+barometric altitude, or seen 0 seconds ago) must survive intact. The
+string fields (`hex`, `flight`, `category`, etc.) chain with `||` — falls
+through on an empty string too, not just absence. `NormaliseAircraft.kt`
+gives these two chains separate helpers (`firstPresent` for `??`,
+`firstNonBlank` for `||`) rather than one generic "first non-null" helper
+that would have silently collapsed the distinction. `NormaliseAircraftTest.kt`
+(30 `@Test` methods) specifically exercises the boundary case each
+distinction exists for — `altBaroRealZero_isNotTreatedAsGround_and
+SurvivesTheNullishChain`, `seenPosRealZero_survives_notTreatedAsAbsent`,
+`blankCallsign_isTreatedAsAbsent_null` — plus JS `parseFloat`'s own
+lenient-leading-numeric-token behaviour (`"250kt"` parses as `250`, not
+NaN), replicated faithfully via a small regex rather than
+`String.toDoubleOrNull()` (which would reject the whole string outright).
+**All 30 pass against the real, shipped `NormaliseAircraft.kt`, alongside
+the pre-existing 152 tests (182 total, zero failures)** — same standalone
+`kotlinc`+JUnit4 toolchain used throughout this project's Android work,
+now additionally using a real downloaded `org.json:json` jar rather than
+just `kotlin-stdlib`.
+
+**`AdsbFiClient.kt`** (new) — the actual Android-specific polling class:
+a self-rescheduling `Handler.postDelayed` timer (matching
+`VcasMapRenderer`'s own Handler-based patterns already established),
+each tick reading the *current* GPS fix via a `locationProvider` lambda
+(not a position captured once at construction — matches the PWA's own
+`fetchNearby(lat, lon, ...)` always being called with the user's live
+position) and dispatching the actual network call onto a background
+single-thread executor (`HttpURLConnection` on the main thread throws
+`NetworkOnMainThreadException`), delivering results back via the main
+`Handler`. Mirrors `adsbExchangeClient.js`'s `adsb_fi` provider's own
+constants — `dist` capped at 250nm (adsb.fi's documented max), an 8s
+timeout (matching the PWA's `AbortSignal.timeout(8000)`), a 3s poll
+interval, 50nm default range (matching `CONFIG.DEFAULT_RANGE_NM`). A
+failed poll (network error, non-200 status, malformed JSON) degrades to
+"no update this tick" via a logged warning, never a crash — the next
+scheduled tick simply tries again, matching the PWA's own generic
+error-handling philosophy in `_fetchFromProvider()`.
+
+**Deliberately NOT ported in this pass: the PWA's multi-provider round-
+robin/fallback machinery.** `adsbExchangeClient.js` round-robins across
+`CONFIG.DATA_PROVIDERS` with same-tick fallback to the next provider on
+error — but VCAS's actual current config is `DATA_PROVIDERS: ["adsb_fi"]`,
+a single provider, and CLAUDE.md's own "ADS-B data source" section is
+explicit that this is "the deliberate current choice, not an oversight."
+Porting a round-robin abstraction for a list that only ever has one
+real, currently-usable entry (`adsb_lol`'s own docs flag a likely future
+feeder-gated key requirement; `adsb_exchange` needs a paid key VCAS
+doesn't have) would be speculative generality with nothing to actually
+select between right now — closer to over-engineering than a faithful
+port. If a second provider is ever added back to the PWA's own config,
+extending `AdsbFiClient.kt` (or generalising it into a real multi-
+provider client) is a reasonable, real, separately-scoped follow-up.
+
+**Deliberately scoped to polling + normalising only, not indicators or
+rendering.** `VcasMapRenderer` now owns an `AdsbFiClient`, started/
+stopped alongside GPS updates (the same lifecycle
+`startLocationUpdatesIfPermitted()`/`stopLocationUpdates()` already
+manage), and stores each successful poll's result in `latestAircraft` —
+but nothing yet feeds that list through `Indicators.build()`/
+`AircraftExtrapolation.extrapolateAll()` (the already-ported, already-
+tested pipeline that exists for exactly this), and nothing draws
+anything on the map surface. This isn't an oversight — matching the
+user's own exact phrasing ("wire up ADS-B polling," not "...and
+indicators" or "...and rendering"), and matching how GPS wiring itself
+was scoped to driving the camera without also drawing a user marker.
+Real polling is independently observable/verifiable right now via a log
+line (`Log.i("VcasMapRenderer", "ADS-B: N aircraft in range (...)")`),
+not a placeholder. Feeding `latestAircraft` through `Indicators`/
+`AircraftExtrapolation` and actually drawing traffic markers on the
+MapLibre surface remains a separate, larger follow-up.
+
+**Honest status, same caveat as every other Android-integration file in
+this project**: `AdsbFiClient.kt` and `VcasMapRenderer.kt`'s new wiring
+have never been compiled against a real Android SDK — no way to verify
+that here. `NormaliseAircraft.kt` is the one piece of this pass that IS
+genuinely, fully verified (real `kotlinc`+JUnit4 execution against a real
+`org.json:json` implementation), the same distinction `CameraAnchor.kt`
+already established for the GPS-wiring follow-up.
+
+Not yet done: feeding `latestAircraft` through `Indicators.build()`/
+`AircraftExtrapolation`, drawing traffic markers on the map surface, the
+device-compass heading fallback, and routing — each a separate,
+substantially larger step, addressed only on further explicit
+instruction.

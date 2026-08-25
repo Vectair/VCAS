@@ -24,6 +24,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.constants.MapLibreConstants
 import org.maplibre.android.geometry.LatLng
+import org.vectair.vcas.car.logic.AircraftExtrapolation
 import org.vectair.vcas.car.logic.CameraAnchor
 import org.vectair.vcas.car.logic.NavigationCameraEvaluator
 
@@ -77,6 +78,16 @@ import org.vectair.vcas.car.logic.NavigationCameraEvaluator
  * itself still a real, separate, not-yet-done piece of work — until
  * then, the camera simply holds its last known GPS heading while
  * stationary rather than tracking device orientation.
+ *
+ * **ADS-B polling (2026-08-25 follow-up)**: owns an `AdsbFiClient`,
+ * started/stopped alongside GPS updates (see `startLocationUpdatesIfPermitted()`/
+ * `stopLocationUpdates()`) — see `AdsbFiClient.kt`'s own doc comment for
+ * why it calls adsb.fi directly rather than through the PWA's CORS relay.
+ * Deliberately scoped to just polling + normalising for now, not
+ * rendering: `latestAircraft` is stored and logged so real polling is
+ * independently observable/verifiable, but nothing yet feeds it through
+ * `Indicators.build()`/`AircraftExtrapolation` or draws it on the map
+ * surface — that's a separate, larger follow-up (see CLAUDE.md).
  */
 class VcasMapRenderer(
     private val carContext: CarContext,
@@ -97,7 +108,14 @@ class VcasMapRenderer(
 
     private var locationUpdatesActive = false
     private var lastKnownBearingDeg = 0.0
+    private var lastKnownLocation: Location? = null
     private val locationListener = LocationListenerCompat { location -> onLocationChanged(location) }
+
+    private var latestAircraft: List<AircraftExtrapolation.Aircraft> = emptyList()
+    private val adsbClient = AdsbFiClient(
+        locationProvider = { lastKnownLocation },
+        onAircraftUpdated = { aircraft -> onAircraftUpdated(aircraft) }
+    )
 
     init {
         serviceLifecycle.addObserver(this)
@@ -218,6 +236,7 @@ class VcasMapRenderer(
                 locationListener
             )
             locationUpdatesActive = true
+            adsbClient.start()
         } catch (e: SecurityException) {
             // The permission check above should make this unreachable —
             // kept as a safety net, not a substitute for the check.
@@ -229,9 +248,18 @@ class VcasMapRenderer(
         if (!locationUpdatesActive) return
         carContext.getSystemService(LocationManager::class.java)?.removeUpdates(locationListener)
         locationUpdatesActive = false
+        adsbClient.stop()
+    }
+
+    private fun onAircraftUpdated(aircraft: List<AircraftExtrapolation.Aircraft>) {
+        latestAircraft = aircraft
+        val preview = aircraft.take(5).joinToString(", ") { it.hex }
+        val suffix = if (aircraft.size > 5) ", …" else ""
+        Log.i(LOG_TAG, "ADS-B: ${aircraft.size} aircraft in range" + if (aircraft.isEmpty()) "" else " ($preview$suffix)")
     }
 
     private fun onLocationChanged(location: Location) {
+        lastKnownLocation = location
         if (location.hasBearing()) {
             lastKnownBearingDeg = location.bearing.toDouble()
         }

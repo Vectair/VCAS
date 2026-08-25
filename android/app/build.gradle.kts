@@ -66,4 +66,18 @@ dependencies {
     // dl.google.com, so unlike androidx.car.app above this version WAS
     // resolvable/verifiable from this sandbox.
     testImplementation("junit:junit:4.13.2")
+
+    // Real org.json implementation for LOCAL unit tests only (2026-08-25,
+    // ADS-B follow-up — NormaliseAircraftTest.kt). Android's own SDK
+    // bundles org.json at runtime (so NormaliseAircraft.kt itself needs
+    // no dependency line at all for the real app build), but local
+    // src/test/java unit tests run on the plain host JVM, not a device —
+    // Android's own android.jar stub throws on most platform classes
+    // there, and org.json is one of them. This standard, widely-used
+    // pattern (a real org.json:json artifact, testImplementation-scoped
+    // so it never reaches the actual APK) supplies a working
+    // implementation for exactly that gap. Verified reachable the same
+    // way as the MapLibre SDK above — this version's .jar was actually
+    // downloaded from repo1.maven.org, not assumed.
+    testImplementation("org.json:json:20240303")
 }

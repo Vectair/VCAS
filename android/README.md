@@ -142,14 +142,34 @@ Same honest caveat as the rest of this project: `VcasMapRenderer.kt`/
 cross-checked against real source instead. `CameraAnchor.kt` is the
 exception — genuinely verified, not just corroborated.
 
+## Phase 2 follow-up: real ADS-B polling (2026-08-25, same day)
+
+`AdsbFiClient.kt` polls adsb.fi directly (no CORS relay — that's a
+browser-only workaround; a native `HttpURLConnection` has no CORS
+restriction to route around, per CLAUDE.md's own "ADS-B data source"
+section) on a 3s timer, centered on the live GPS fix. Responses are
+normalised via a new port, `NormaliseAircraft.kt` — the second
+discovered-along-the-way logic dependency (after `routeGeometry.js`),
+with its own real, fully-verified `kotlinc`+JUnit4 test suite (30 tests,
+alongside the existing 152). `VcasMapRenderer` starts/stops the client
+alongside GPS updates and stores each poll's result — deliberately not
+yet fed through `Indicators`/`AircraftExtrapolation` or drawn anywhere;
+that's real, observable via a log line, but scoped no further than
+"polling" per the explicit ask. See CLAUDE.md's entry for the full
+`??`-vs-`||` care this port needed and why the PWA's own multi-provider
+round-robin wasn't ported (VCAS's real config only ever has one
+provider).
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
 navigationCameraEvaluator logic to Kotlin is DONE (see CLAUDE.md — all
-six files plus the discovered `routeGeometry.js` dependency, each with
-its own real `kotlinc`+JUnit4-verified test suite). Real GPS now drives
-the camera (see above). Not yet done: real ADS-B polling, drawing
-traffic indicators on the map surface, the device-compass heading
-fallback, routing, swapping the demo map style for VCAS's real one, and
-the foreground-service/background-execution work. See CLAUDE.md for the
-full phase list and current status.
+six files plus the discovered `routeGeometry.js`/`normaliseAircraft.js`
+dependencies, each with its own real `kotlinc`+JUnit4-verified test
+suite). Real GPS drives the camera and real ADS-B polling is live (see
+above). Not yet done: feeding polled aircraft through `Indicators`/
+`AircraftExtrapolation` and drawing traffic markers on the map surface,
+the device-compass heading fallback, routing, swapping the demo map
+style for VCAS's real one, and the foreground-service/background-
+execution work. See CLAUDE.md for the full phase list and current
+status.
