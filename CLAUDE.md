@@ -3978,3 +3978,137 @@ real map — real GPS, real ADS-B polling, drawing traffic indicators on
 the map surface, driving the camera via `NavigationCameraEvaluator`'s
 own output. Each is a separate, substantially larger step, addressed
 only on further explicit instruction.
+
+## Android Auto phase 2 follow-up: real GPS driving the camera (2026-08-25, same day)
+
+Direct instruction to continue: "Wire up real GPS to drive the camera
+next." The first of the "not yet done" items listed just above this
+entry. Real location fixes now flow into the already-ported
+`NavigationCameraEvaluator`, and its output drives the real MapLibre
+camera — the first time any of the six ported logic files is actually
+wired to live device input rather than just unit-tested.
+
+**Location permission flow — researched against two real, disagreeing
+references, followed the more authoritative one where they conflicted.**
+Both `android/car-samples` (Google's own official sample) and
+`maplibre/MapLibre-Android-Auto-Sample` (already cloned for phase 2's map
+work) implement a location-permission screen, but via genuinely different
+mechanisms: the MapLibre sample assumes a phone-projected Android Auto
+session can't show a system permission dialog at all and routes around it
+by launching a separate phone-side `Activity`
+(`PhonePermissionActivity.kt`); Google's own official sample
+(`RequestPermissionScreen.java`) calls `CarContext.requestPermissions()`
+directly with no such workaround, asserted working. Followed Google's
+simpler, more authoritative approach — `LocationPermissionScreen.kt` is
+adapted from `RequestPermissionScreen.java`, not the community sample's
+more elaborate version. Both references independently agree on the
+surrounding structure regardless — `VcasSession.onCreateScreen()` pushes
+`MapScreen` first (as the screen stack's base, since the map itself needs
+no location permission to render) and pushes `LocationPermissionScreen`
+on top only if permission is missing, with a grant callback popping back
+to the already-live map underneath (`ScreenManager.popToRoot()` —
+confirmed against Google's own sample; the MapLibre sample's `popTo(
+"ROOT")` uses a marker string that isn't how the real API actually
+works).
+
+**A real, previously-unverified API mismatch caught by checking real
+source instead of trusting phase 1's own never-independently-verified
+code**: phase 1's original (now-deleted) `MainScreen.kt` used
+`MessageTemplate.Builder().setTitle(...).setHeaderAction(...)` — but
+Google's own `RequestPermissionScreen.java`, building the exact same
+`MessageTemplate`, uses `.setHeader(new Header.Builder().setTitle(...)
+.setStartHeaderAction(...).build())` instead — a newer, unified `Header`
+object bundling both, not the older separate calls. `LocationPermissionScreen.kt`
+was written against the confirmed-current pattern.
+
+**GPS itself**: plain `android.location.LocationManager` (`GPS_PROVIDER`,
+`LocationListenerCompat` from `androidx.core` for the SAM-lambda-friendly
+listener), not Play Services' `FusedLocationProviderClient` — confirmed
+against Google's own sample using the identical API for the identical
+purpose (`NavigationSession.java`'s `requestLocationUpdates()`). Needs no
+extra dependency at all, unlike Play Services location (`dl.google.com`-
+hosted, unverifiable from this sandbox the same way `androidx.car.app`
+already is). `VcasMapRenderer.startLocationUpdatesIfPermitted()` is
+called from three places — `VcasSession` (immediately, if already
+granted), `LocationPermissionScreen`'s grant callback, and
+`onSurfaceAvailable()` itself (defensively, in case the surface becomes
+ready before either of the other two paths runs) — deliberately
+idempotent (a `locationUpdatesActive` guard) so calling it redundantly
+from all three costs nothing.
+
+**Driving the real camera — `CameraAnchor.kt`, the one piece of this
+follow-up kept as pure, independently-verified logic.** `Navigation
+CameraEvaluator.evaluate()` returns `anchorX`/`anchorY` as *fractions of
+the viewport* — where the user's real position should render on screen —
+exactly the concept CLAUDE.md's own "Camera anchor math" section
+documents at length for the PWA's `CameraController`, which achieves it
+via a manual per-frame `jumpTo()`+`panBy()` animation loop specifically
+because that was the tool available in a browser. MapLibre Native's
+Android SDK exposes the same underlying padded-center convention as a
+first-class, declarative part of `CameraPosition` itself (a `padding`
+array alongside target/zoom/tilt/bearing — confirmed by reading
+`CameraPosition.kt`/`MapLibreMap.java` directly in the cloned
+`maplibre-native` source), so this follow-up uses that native support
+directly rather than porting the PWA's own frame-loop workaround.
+`CameraAnchor.paddingForAnchor(anchorFraction, dimension)` derives the
+`(low, high)` padding pair placing MapLibre's padded-center at exactly
+`anchorFraction * dimension`, always leaving whichever side needs less
+padding at exactly zero rather than splitting padding across both sides.
+Deliberately kept in `org.vectair.vcas.car.logic` with zero Android/
+MapLibre imports specifically so it could be verified the same way as
+every other file in that package — `CameraAnchorTest.kt`, 9 `@Test`
+methods, checking the actual padded-center invariant
+(`low + (dimension-low-high)/2 == anchorFraction*dimension`) rather than
+just hand-picked output numbers, including a sweep across 9 fractions ×
+4 realistic viewport dimensions. **All 9 pass against the real, shipped
+`CameraAnchor.kt`, alongside the pre-existing 143 tests from the six
+prior logic ports (152 total, zero failures)** — same standalone
+`kotlinc`+JUnit4 toolchain used throughout this project's Android work.
+
+**A real, load-bearing native-SDK constraint found by reading
+`MapLibreConstants.java` directly, not assumed**: the evaluator's own
+pitch clamp is `[0, 85]` (a value that reads as a web-MapLibre-GL-JS-era
+convention, already documented as-is in `NavigationCameraEvaluator.kt`'s
+own port) — but MapLibre Native's Android SDK declares its OWN, stricter
+`MAXIMUM_TILT = 60`. `HIGHWAY_GUIDANCE`'s own base preset pitch (60) sits
+exactly at this native ceiling with zero headroom, meaning this isn't a
+defensive formality: `VcasMapRenderer.applyCameraResult()` clamps
+`result.pitch` to MapLibre's real `MAXIMUM_TILT` before building the
+`CameraPosition`, since building one with `tilt > 60` would throw
+(`CameraPosition`'s own constructor javadoc, read directly, documents
+this as an `IllegalArgumentException`).
+
+**Known, honestly-scoped simplifications, documented inline rather than
+silently left as unstated gaps**: `mode` is hardcoded `"nav"` (no
+AIR-mode-equivalent UI exists in the native app yet) and `routeActive` is
+hardcoded `false` (no routing wired up yet — phase 3's job, and without
+it `TURN_APPROACH`/`DECOUPLED_MANEUVER` can never actually be reached, so
+that bearing mode isn't specially handled either). Camera bearing always
+follows the GPS fix's own reported heading, holding the last known value
+while stationary — there's no compass-sensor fallback yet. CLAUDE.md's
+own native-rewrite scoping note already correctly flags `compassHeading.js`
+as NOT needing a port at all (native Android reads a real orientation
+sensor directly instead of fighting browser API fragmentation) — but
+actually wiring up `SensorManager`/`Sensor.TYPE_ROTATION_VECTOR` for the
+stationary case is itself still real, separate, not-yet-done work, not
+something this pass silently completed.
+
+**Honest status, same caveat as the rest of this native project**:
+`VcasMapRenderer.kt`/`VcasSession.kt`/`LocationPermissionScreen.kt` have
+never been compiled — no Android SDK, no `dl.google.com` access, same
+limitation as everything else in `android/`. Every non-trivial API call
+used here was cross-checked against real source (Google's official
+sample, the MapLibre community sample, and MapLibre Native's own actual
+SDK source read directly for `CameraPosition`/`CameraUpdateFactory`/
+`MapLibreMap`/`LatLng`/`MapLibreConstants`) — corroboration, not
+compilation. `CameraAnchor.kt` is the one piece of this pass that IS
+genuinely, fully verified, being pure Kotlin with no platform
+dependency. Opening this in Android Studio is still the actual check for
+everything else.
+
+Not yet done: real ADS-B polling, drawing traffic indicators on the map
+surface (`Indicators.kt`'s own output has nowhere to render yet), the
+device-compass fallback for stationary heading, and routing (needed
+before `TURN_APPROACH`/`DECOUPLED_MANEUVER` can ever be exercised) — each
+a separate, substantially larger step, addressed only on further explicit
+instruction.

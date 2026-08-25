@@ -7,10 +7,24 @@
          rewrite scoping" note, step 1). Phase 2 (2026-08-25) adds the
          first real content, MapLibre Native rendered onto the car's own
          Surface — INTERNET is now genuinely needed for map tile loading,
-         not added preemptively. ACCESS_FINE_LOCATION /
-         ACCESS_BACKGROUND_LOCATION still wait for GPS wiring, a later
-         step. -->
+         not added preemptively. ACCESS_BACKGROUND_LOCATION still waits for
+         the foreground-service work (phase 4) — the camera-driving GPS
+         wiring below only ever runs while the map screen is actually
+         visible/foregrounded, so the plain (foreground-only)
+         ACCESS_FINE_LOCATION below is sufficient for it. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- REQUIRED to drive the camera off real GPS fixes (2026-08-25,
+         phase 2 follow-up) — LocationManager.requestLocationUpdates()
+         throws SecurityException without it. Confirmed against Google's
+         own official navigation sample (android/car-samples,
+         NavigationSession.java's requestLocationUpdates()), which uses
+         the exact same plain android.location.LocationManager API this
+         project does (not Play Services' FusedLocationProviderClient,
+         which would need a dl.google.com-hosted dependency this sandbox
+         can't verify — LocationManager needs no extra dependency at all
+         and is what the authoritative sample itself uses). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
     <!-- REQUIRED to render onto a custom Surface at all (2026-08-25,
          phase 2) — without this, AppManager.setSurfaceCallback() has

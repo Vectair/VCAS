@@ -116,14 +116,40 @@ The map style is MapLibre's own public demo tiles
 reference sample itself uses — not VCAS's real MapTiler style yet. See
 `VcasMapContainer.kt`'s own `TODO` for why that wasn't wired in directly.
 
+## Phase 2 follow-up: real GPS driving the camera (2026-08-25, same day)
+
+The first of the ported logic files actually wired to live device input:
+`NavigationCameraEvaluator` now receives real `LocationManager` GPS
+fixes, and its pitch/zoom/anchor output drives the real MapLibre camera
+via `CameraAnchor.kt` (a small, deliberately pure/Android-independent
+helper — the one piece of this follow-up that IS genuinely, fully
+verified, with its own real `kotlinc`+JUnit4 test suite same as the six
+logic ports). Also adds a real location-permission flow
+(`LocationPermissionScreen`), built from Google's own official sample's
+pattern rather than the MapLibre community sample's — the two
+genuinely disagree on the request mechanism; see CLAUDE.md's entry for
+which was followed and why.
+
+Known, honestly-scoped gaps, not silently-left-unstated ones: no AIR-
+mode-equivalent UI yet (`mode` is hardcoded `"nav"`), no routing yet
+(`routeActive` hardcoded `false`, so `TURN_APPROACH` can never actually
+trigger), and no compass-sensor fallback for heading while stationary
+(camera bearing just holds its last known GPS heading). See CLAUDE.md's
+entry for the full reasoning on each.
+
+Same honest caveat as the rest of this project: `VcasMapRenderer.kt`/
+`VcasSession.kt`/`LocationPermissionScreen.kt` have never been compiled,
+cross-checked against real source instead. `CameraAnchor.kt` is the
+exception — genuinely verified, not just corroborated.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
 navigationCameraEvaluator logic to Kotlin is DONE (see CLAUDE.md — all
 six files plus the discovered `routeGeometry.js` dependency, each with
-its own real `kotlinc`+JUnit4-verified test suite). Not yet done: wiring
-any of that ported logic to this phase-2 map (real GPS, real ADS-B
-polling, drawing traffic indicators on the map surface), swapping the
-demo style for VCAS's real one, and the foreground-service/background-
-execution work. See CLAUDE.md for the full phase list and current
-status.
+its own real `kotlinc`+JUnit4-verified test suite). Real GPS now drives
+the camera (see above). Not yet done: real ADS-B polling, drawing
+traffic indicators on the map surface, the device-compass heading
+fallback, routing, swapping the demo map style for VCAS's real one, and
+the foreground-service/background-execution work. See CLAUDE.md for the
+full phase list and current status.
