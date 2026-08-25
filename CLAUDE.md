@@ -3036,3 +3036,85 @@ DOM this sandbox (or any web-only tooling) can inspect — so the "no
 colour flash at handoff" claim rests on the now-matching manifest value
 feeding it, confirmed correct, rather than a direct screenshot of the
 OS splash itself.
+
+## Android Auto phase 1: first real-device test, and the actual first real bug (2026-08-25)
+
+The project owner did the actual first-ever build/sideload of the
+`android/` skeleton (see "Phase 1 started" above) on their own Windows
+machine + real OnePlus Nord 2T 5G + real Kia head unit — the genuine
+first time any of this code has run anywhere, exactly as the honesty
+notes in `android/README.md` anticipated. Worth recording the real
+obstacles hit along the way, since several were generic Windows/Android
+dev environment friction that has nothing to do with VCAS's own code but
+will recur if this ever needs setting up again on a different machine:
+
+- **Stale local clone.** The project owner already had an old
+  `C:\Users\dmshs\VCAS` folder from early in this project's history (no
+  `android/`, no `CLAUDE.md`, pre-dates most of this file) — opening it
+  directly in Android Studio silently showed that old, unrelated project
+  tree instead of anything resembling the current repo. Fixed with a
+  plain `git fetch`/`checkout`/`pull` in that same folder, 118 commits
+  behind. **Lesson for next time this comes up**: always confirm
+  `git branch --show-current` / `git log -1` in an existing local clone
+  before assuming it's current, rather than trusting that a folder with
+  the right name is actually up to date.
+- **Kotlin compile daemon crashes, twice, in two different ways**
+  (`DaemonCrashedException` with RMI/serialization errors, then later a
+  bare `CompileService$CallResult$Error` with no further detail) on the
+  very first real compile. Very likely Windows Defender's real-time
+  protection interfering with the daemon process/file writes — Android
+  Studio's own "Microsoft Defender may affect IDE" notification, with
+  specific folder-exclusion suggestions
+  (`.gradle`, the Android SDK path, the Android Studio install path, and
+  the project folder itself), was sitting unactioned the whole time.
+  Fixed two ways together: actually clicking "Exclude folders" on that
+  notification, and adding `kotlin.compiler.execution.strategy=in-process`
+  to `android/gradle.properties` (compiles Kotlin inside the main Gradle
+  daemon's own JVM instead of spawning a separate out-of-process Kotlin
+  daemon at all — sidesteps the whole failure class, negligible cost for
+  a 3-file phase-1 project). Once both were in place, the daemon issue
+  never recurred.
+- **USB driver hell, real and time-consuming.** The phone's USB mode was
+  defaulting to "No data transfer"/"Charging" (fixed by switching to
+  File Transfer/Android Auto or MTP explicitly — a very common root cause
+  of "nothing happens when I plug in a phone," worth checking first next
+  time before assuming a driver problem). Once that was fixed, Windows
+  still only recognised the phone as a generic "MTP USB Device," not a
+  debuggable Android device — a real missing-ADB-driver problem, not
+  fixed by Android Studio's own Google USB Driver SDK package
+  (installed but didn't resolve it) nor by OnePlus's own downloadable
+  driver (turned out not to register anything with Windows Device
+  Manager at all — possibly a bad/non-functional download, never
+  diagnosed further since the next option worked). **What actually
+  worked: Android's built-in wireless (Wi-Fi) debugging** — Developer
+  options → Wireless debugging → "Pair device with QR code", paired from
+  Android Studio's Device Manager panel. Zero drivers needed, and this is
+  worth trying FIRST next time a phone doesn't show up over USB on
+  Windows, rather than as a last resort after exhausting driver options —
+  it would have saved real time here.
+- **The actual first real code bug, found via a real head unit**: once
+  the build/install/sideload mechanics all finally worked, VCAS still
+  didn't appear anywhere on the Kia's Android Auto launcher — not in the
+  visible list, not even in "Hidden apps" (checked directly via the
+  head unit's own "Customise Launcher" screen, which lists every
+  installed car-compatible app either way) — meaning Android Auto never
+  registered it as a valid car app candidate at all, not merely a
+  visibility/settings problem. Root cause, confirmed against Google's own
+  Car App Library docs (`developer.android.com/training/cars/apps/
+  navigation`, fetched via `WebFetch` since `dl.google.com` itself is
+  blocked from this sandbox — see "Sandbox environment notes"):
+  `AndroidManifest.xml` was missing a manifest-level permission that's
+  specifically required for the `NAVIGATION` category (VCAS's own
+  category, correctly declared elsewhere in the same manifest):
+  ```xml
+  <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES"/>
+  ```
+  This is distinct from, and in addition to, the existing
+  `<category android:name="androidx.car.app.category.NAVIGATION"/>`
+  intent-filter entry and the `com.google.android.gms.car.application`
+  meta-data — none of those alone are sufficient for the `NAVIGATION`
+  category specifically; other categories (POI, IoT, etc.) don't carry
+  this same extra requirement. Added the missing `<uses-permission>` line
+  to `AndroidManifest.xml`. **Not yet re-verified against a real head
+  unit** — the project owner still needs to rebuild/reinstall and check
+  the Kia's launcher again; update this entry once confirmed either way.

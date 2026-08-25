@@ -9,6 +9,18 @@
          GPS and ADS-B polling actually come online, not before they're
          needed. -->
 
+    <!-- REQUIRED for the NAVIGATION category specifically (2026-08-25,
+         found the hard way — see CLAUDE.md's phase-1 real-device debug
+         log): without this, Android Auto doesn't just hide the app, it
+         never registers it as a valid car app candidate at all — VCAS was
+         absent from BOTH the visible and "Hidden apps" lists on a real
+         Kia head unit's launcher customisation screen, not merely sitting
+         unchecked in the hidden list. Confirmed via Google's own Car App
+         Library navigation-category docs (developer.android.com/training/
+         cars/apps/navigation), unreachable directly from this sandbox
+         (dl.google.com is blocked) but fetched via WebFetch instead. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES"/>
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name">
