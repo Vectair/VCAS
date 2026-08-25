@@ -26,6 +26,24 @@
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name">
 
+        <!-- Phone-side entry point (2026-08-25 follow-up) — every real Car
+             App Library sample has one; VCAS didn't, which is what the
+             earlier, already-known-harmless "Default Activity not found"
+             Android Studio warning was pointing at. Not required for
+             Android Auto's own discovery of VcasCarAppService below (that
+             runs off this service's own intent-filter, independent of any
+             launcher activity) — added for parity with real samples and to
+             remove the warning, not as a fix for the car-side visibility
+             issue. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Declares this app as a car app, and its category — "navigation"
              is what VCAS actually is (turn-by-turn + a live traffic
              overlay), not "poi"/"parking"/"charging". Confirmed current and

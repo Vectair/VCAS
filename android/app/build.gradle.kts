@@ -41,4 +41,12 @@ dependencies {
     // the current androidx.car.app release when first building for real.
     implementation("androidx.car.app:app:1.4.0")
     implementation("androidx.core:core-ktx:1.13.1")
+
+    // JUnit 4 for pure-JVM unit tests (src/test/java — no device/emulator
+    // needed, runs via Gradle's `test` task or Android Studio's own test
+    // runner). Added 2026-08-25 for the geo.js -> Geo.kt port's own test
+    // suite (see GeoTest.kt) — this is mavenCentral()-hosted, not
+    // dl.google.com, so unlike androidx.car.app above this version WAS
+    // resolvable/verifiable from this sandbox.
+    testImplementation("junit:junit:4.13.2")
 }

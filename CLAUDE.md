@@ -3244,3 +3244,110 @@ will recur if this ever needs setting up again on a different machine:
   Manifest" view, to rule out anything the Gradle manifest merger itself
   might be silently dropping or altering — a class of failure this
   file-by-file source comparison can't see.
+
+## Android Auto phase 1, continued: launcher MainActivity + first Kotlin logic port (2026-08-25, same day)
+
+The project owner can't vehicle-test right now, so rather than sit idle
+on the still-unconfirmed manifest fixes above, agreed to push forward on
+two things that don't need a car at all: the missing launcher activity
+flagged (but not fixed) in the systematic-diff writeup above, and
+starting the Kotlin port of the "cleanly portable" pure-logic files
+listed under "Long-term destination" at the top of this file — begun
+with `geo.js`, the smallest and most self-contained of the group,
+explicitly as a first case rather than a commitment to port everything
+in one sitting.
+
+**`MainActivity.kt`** (new, `android/app/src/main/java/org/vectair/vcas/car/`) —
+the phone-side tap-the-icon entry point every real Car App Library sample
+has and VCAS didn't (the direct cause of the earlier, already-known-
+harmless "Default Activity not found" Android Studio warning noted in
+the systematic-diff writeup above). Deliberately minimal: a plain
+`android.app.Activity` (not `androidx.activity.ComponentActivity` — no
+reason to pull in a new Maven dependency whose current version this
+sandbox can't verify live, for a placeholder with no real content yet)
+showing a single centred `TextView` pointing the user at Android Auto.
+**Not** what drives Android Auto's own discovery of the car app — that's
+entirely `VcasCarAppService`'s own manifest intent-filter, independent of
+any launcher activity existing — added for sample parity and to clear the
+warning, not as a fifth guess at the still-open visibility bug.
+`AndroidManifest.xml` gained the matching `<activity>` declaration with a
+`MAIN`/`LAUNCHER` intent-filter, placed ahead of the existing car-app
+meta-data with a comment making the "not the fix for car-side visibility"
+distinction explicit, so a future read doesn't mistake it for a fourth
+attempted root-cause fix.
+
+**`geo.js` → `Geo.kt`, the first native logic port (`android/app/src/main/
+java/org/vectair/vcas/car/logic/Geo.kt`).** A structural, near line-for-
+line translation of `src/logic/geo.js`'s 379 lines — `calculateBearing`,
+`calculateDistanceMeters`/`calculateDistanceNm`, `calculateRelativeBearing`,
+`bandedRadiusFraction`, `maxRadiusForBearing`, `projectToPolarPosition`,
+`projectPosition`/`destinationPoint`, `circleCoordinates`/`arcCoordinates`,
+`circularPlotRadius`, `computeSquarePlotLayout` — as a Kotlin `object Geo`
+with small data classes (`Point`, `LatLon`, `Rect`, `SquarePlotLayout`)
+standing in for the JS versions' plain object returns. Confirms the
+"cleanly portable... translates to Kotlin close to line-for-line" claim
+made about this file at the top of this document was correct, not just
+assumed. Greek-letter JS identifiers (φ/λ/Δ/δ/θ) spelled out as ASCII
+(`phi`/`lambda`/`delta`/`theta`) — a deliberate choice, not an oversight,
+referencing this project's own earlier documented incident where an
+external test harness silently mangled those exact characters over a
+charset mismatch (see the Stage 3 aircraft-list verification note
+earlier in this file); no reason to carry that fragility into a second
+language when ASCII names cost nothing here.
+
+**Verified by actually compiling and running real tests against real
+`kotlinc`/JUnit4 — not just read for correctness — despite this sandbox
+having no Android SDK, Gradle, or emulator at all.** Assembled a
+standalone Kotlin 2.0.0 compiler + JUnit4 toolchain directly from raw
+Maven Central jars (`kotlin-compiler`, `kotlin-stdlib`,
+`kotlin-script-runtime`, `kotlin-daemon-embeddable`,
+`org.jetbrains.intellij.deps:trove4j`, `org.jetbrains:annotations`,
+`junit:junit:4.13.2`, `org.hamcrest:hamcrest-core:1.3`, all fetched via
+plain `curl` against `repo1.maven.org` — reachable from this sandbox even
+though `dl.google.com` isn't, same asymmetry already noted elsewhere in
+this file for the `androidx.car.app` dependency itself), invoked directly
+via `java -cp <jars> org.jetbrains.kotlin.cli.jvm.K2JVMCompiler`. Two real
+compile failures were hit and fixed along the way (`NoClassDefFoundError`
+for `kotlin.jvm.internal.Intrinsics`, then for
+`org.jetbrains.annotations.NotNull` during backend codegen) — both
+resolved by getting `kotlin-stdlib`/`annotations` jars onto the compiler's
+own **launch** classpath, not just the inner `-cp` used to resolve source
+symbols, a distinction that wasn't obvious until the second failure
+pointed at it. This is the same "verify against real execution, not code
+review" discipline this file already establishes at length for JS (Node
+simulations, real MapLibre/Playwright renders) and RAW mode's projection
+math — applied here to a brand-new language/toolchain rather than skipped
+because the obvious tools (Android Studio, Gradle) aren't available in
+this environment.
+
+`GeoTest.kt` (new, `android/app/src/test/java/org/vectair/vcas/car/
+logic/`) — a real JUnit4 suite, 34 `@Test` methods across every ported
+function, deliberately split into two verification styles rather than
+one applied uniformly: analytically-exact expected values for functions
+with a clean closed form (cardinal bearings; equatorial/meridian
+great-circle distance = `6371000 * radians(1°)` exactly; nm-per-degree ≈
+60.0; `bandedRadiusFraction`'s clamp/boundary behaviour, including a
+direct cross-check against this file's own documented real case — an 8nm
+aircraft against `[2,5,10]` bands must equal `2.6/3.0`, per the "RAW ND-
+style range selector" section above; `destinationPoint` exact round-trips;
+`computeSquarePlotLayout`'s portrait/landscape/exact-square/degenerate
+arithmetic) versus relational/invariant assertions for the harder polar-
+projection trig where a hand-derived literal would be brittle and easy to
+get subtly wrong (`maxRadiusForBearing` dead-ahead equals the exact
+Y-headroom formula; FOV-edge radius must be strictly less than dead-ahead
+on a narrow viewport; `circularPlotRadius` exactly equals the `min` of
+its two defining bearings, mirroring the numerical proof already done for
+the JS version per "RAW is a field-of-view-restricted circular display"
+above; `projectToPolarPosition` returns `null` outside the FOV, non-null
+at its edge, `x` exactly equal to center X at bearing 0, and a farther
+range within the same band produces a strictly smaller `y` since screen Y
+is inverted). **Result: all 34 tests passed on first clean compile+run** —
+zero transcription bugs found between `geo.js` and `Geo.kt`, a genuinely
+verified port rather than an assumed-correct one.
+
+Not yet done, and explicitly not implied by this entry: no further pure-
+logic files (`visibility.js`, `relevance.js`, `aircraftExtrapolation.js`,
+`indicators.js`, `navigationCameraEvaluator.js`) have been started —
+`geo.js` was agreed as the first case specifically to prove the
+translate-and-verify approach works at all, not as the start of an
+uninterrupted porting sprint through the rest of the list.
