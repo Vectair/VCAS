@@ -4234,3 +4234,61 @@ Not yet done: feeding `latestAircraft` through `Indicators.build()`/
 device-compass heading fallback, and routing — each a separate,
 substantially larger step, addressed only on further explicit
 instruction.
+
+## First real Android Studio build, first real compile error — a reference-source VERSION mismatch, not a mistake in the API shape (2026-08-26)
+
+The project owner did the actual first-ever real build attempt of all
+the phase-2/GPS/ADS-B work above, in Android Studio on their own
+machine. Real compiler output, not another sandbox-side corroboration
+pass: `LocationPermissionScreen.kt:68:14 Unresolved reference: setHeader`.
+
+**Root cause**: `LocationPermissionScreen.kt` was originally written
+against `.setHeader(Header.Builder().setTitle(...).setStartHeaderAction(...)
+.build())` on `MessageTemplate.Builder`, copied from Google's own
+official `android/car-samples` repo's `RequestPermissionScreen.java` —
+this project's own established "verify against real reference source"
+discipline, applied as it has been throughout every logic port and
+manifest fix in this file. But that specific API call doesn't exist on
+the real, public `androidx.car.app:app:1.4.0` release VCAS's
+`build.gradle.kts` is actually pinned to — because `car-samples`' own
+`libs.versions.toml` pins `androidx-car = "1.9.0-alpha01"`, a newer,
+unreleased AndroidX-internal monorepo build. This exact discrepancy had
+already been flagged once before, during phase 1's systematic manifest
+diff ("not a fair like-for-like comparison... VCAS's own build already
+compiles clean against the public release") — but that earlier flag was
+about a dependency version number, not about individual API calls
+differing in shape between versions, so it didn't prevent this file from
+being written against the newer, unavailable API shape.
+
+**Fix**: MapLibre's own community reference sample
+(`maplibre/MapLibre-Android-Auto-Sample`, already cloned and used for
+phase 2's map work) correctly pins `carApp = "1.4.0"` — the SAME version
+VCAS actually uses — and its own `CarPermissionScreen.kt` uses the
+plain, older pattern instead: `.setTitle(...)` and `.setHeaderAction(...)`
+called directly on `MessageTemplate.Builder`, no separate `Header` object
+at all. This also matches phase 1's own original (now-deleted)
+`MainScreen.kt`, which used the same direct-builder pattern. Rewrote
+`LocationPermissionScreen.kt`'s `onGetTemplate()` to match: removed the
+`Header` import and the `.setHeader(Header.Builder()...)` block, added
+`.setTitle("Location Permission").setHeaderAction(Action.APP_ICON)`
+directly on the `MessageTemplate.Builder` chain instead.
+
+**The real lesson, sharpened from what was already on record**:
+cross-checking an API call against real reference source only protects
+against a mistake if that source targets the SAME LIBRARY VERSION
+actually pinned in the project — not just "the same library, from an
+authoritative/official source." Google's own sample is entirely
+legitimate and correctly-written for the version IT targets; the bug was
+using it as a stand-in for a different, older version's API surface
+without checking whether that specific call was even present at 1.4.0.
+Going forward, when both an official sample and a community sample of
+the same library are available and their pinned versions genuinely
+differ from what VCAS uses, prefer whichever one's pinned version
+actually matches VCAS's own dependency line — that match matters more
+than which source is more "official." This is the first real compile
+error from an actual Android Studio build across all of this project's
+Android Auto work to date; everything else built so far compiled clean
+on the first attempt, per the project owner's own confirmation.
+
+Fixed, committed, and pushed; not yet re-confirmed by a fresh build —
+that's the immediate next step once the project owner retries it.

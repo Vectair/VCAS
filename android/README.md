@@ -160,6 +160,19 @@ that's real, observable via a log line, but scoped no further than
 round-robin wasn't ported (VCAS's real config only ever has one
 provider).
 
+## First real build: one real compile error, fixed (2026-08-26)
+
+The project owner's actual first Android Studio build hit one real
+compiler error: `LocationPermissionScreen.kt`'s `.setHeader(Header...)`
+call doesn't exist on the real `androidx.car.app:app:1.4.0` VCAS is
+pinned to — it was copied from Google's own official sample, which
+targets a newer, unreleased `1.9.0-alpha01` internal build. Fixed by
+switching to the plain `.setTitle()`/`.setHeaderAction()` pattern the
+MapLibre community sample uses (that sample correctly pins `1.4.0`, same
+as VCAS). See CLAUDE.md's dated entry for the full root-cause writeup and
+the lesson it leaves for future reference-source checks: matching the
+actual pinned VERSION matters as much as the source being official.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/

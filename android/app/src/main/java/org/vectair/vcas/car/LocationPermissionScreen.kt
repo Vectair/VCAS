@@ -7,7 +7,6 @@ import androidx.car.app.Screen
 import androidx.car.app.ScreenManager
 import androidx.car.app.model.Action
 import androidx.car.app.model.CarColor
-import androidx.car.app.model.Header
 import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.ParkedOnlyOnClickListener
 import androidx.car.app.model.Template
@@ -26,6 +25,22 @@ import androidx.car.app.model.Template
  * no such workaround and is asserted working). Followed the official
  * sample where they disagreed, same discipline phase 2's manifest
  * comments already establish for `MAP_TEMPLATES`.
+ *
+ * **`onGetTemplate()` uses the plain `.setTitle()`/`.setHeaderAction()`
+ * calls, NOT `.setHeader(Header...)`** — a real compile error on the
+ * first actual Android Studio build (2026-08-26) caught a version
+ * mismatch this project's own "verify against real source" discipline
+ * missed: `android/car-samples`' `RequestPermissionScreen.java`, the
+ * reference this screen was originally built from, targets
+ * `androidx.car.app 1.9.0-alpha01` in its own build file (an AndroidX-
+ * internal monorepo build, already flagged as such during phase 1's own
+ * systematic diff) — NOT the real public `1.4.0` release VCAS is
+ * actually pinned to, where `MessageTemplate.Builder.setHeader()`
+ * doesn't exist. The MapLibre community sample's own
+ * `CarPermissionScreen.kt` — which correctly targets `1.4.0`, same as
+ * VCAS — uses the plain `.setTitle()`/icon-on-the-builder pattern this
+ * file now matches. Lesson: cross-checking against real source only
+ * helps if it's the same library VERSION, not just the same library.
  *
  * `VcasSession` pushes `MapScreen` first (as the screen stack's base) and
  * this screen on top only when permission is missing — granting it here
@@ -59,18 +74,14 @@ class LocationPermissionScreen(
             )
             .build()
 
-        // MessageTemplate.Builder uses a Header (title + header action bundled
-        // together), not the older separate .setTitle()/.setHeaderAction()
-        // calls — confirmed against this exact template in Google's own
-        // RequestPermissionScreen.java, not assumed from phase 1's
-        // never-independently-verified MainScreen.kt (now deleted).
+        // Plain .setTitle()/.setHeaderAction() directly on the builder —
+        // the real car-app 1.4.0 API (see this class's own doc comment
+        // above for why the earlier .setHeader(Header...) version was
+        // wrong: that came from a reference targeting a newer, unreleased
+        // androidx.car.app version this project doesn't actually use).
         return MessageTemplate.Builder("VCAS needs location access to track your position and drive the map.")
-            .setHeader(
-                Header.Builder()
-                    .setTitle("Location Permission")
-                    .setStartHeaderAction(Action.APP_ICON)
-                    .build()
-            )
+            .setTitle("Location Permission")
+            .setHeaderAction(Action.APP_ICON)
             .addAction(grantAction)
             .build()
     }
