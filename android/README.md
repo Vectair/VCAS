@@ -173,6 +173,17 @@ as VCAS). See CLAUDE.md's dated entry for the full root-cause writeup and
 the lesson it leaves for future reference-source checks: matching the
 actual pinned VERSION matters as much as the source being official.
 
+**The rebuild after that fix succeeded with no further errors** — the
+first fully clean compile of all of phase 2 (real MapLibre map, GPS-
+driven camera, ADS-B polling), confirmed on a real machine. Next real
+checks, not yet done: install the APK on the phone, sideload via
+Android Auto Developer Mode, and confirm VCAS actually shows up and
+launches in the car's app list (the original phase-1 question, never
+yet re-confirmed since those manifest fixes) — then whether the map
+renders on the car's Surface and GPS/ADS-B actually flow in at runtime.
+A clean compile only proves the code is valid against the real SDK, not
+that any of that runtime behavior works yet.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/

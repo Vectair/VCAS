@@ -4292,3 +4292,21 @@ on the first attempt, per the project owner's own confirmation.
 
 Fixed, committed, and pushed; not yet re-confirmed by a fresh build —
 that's the immediate next step once the project owner retries it.
+
+**Confirmed (2026-08-26, same day): the rebuild succeeded with no
+further errors.** This is the first clean, full compile of all of phase
+2's work — the real MapLibre map integration, the GPS-driven camera
+(`VcasMapRenderer`/`CameraAnchor`), and the ADS-B polling
+(`AdsbFiClient`/`NormaliseAircraft`) — confirmed against a real Android
+Studio build, not sandbox corroboration. Only one real error surfaced
+across this entire body of work (the `setHeader` version mismatch
+above), and it's now fixed. **Still not yet done/confirmed**: installing
+the built APK onto the phone, and — the actual open question left over
+from phase 1, never yet re-confirmed after phase 1's own manifest fixes
+— whether VCAS shows up and launches in Android Auto's car-side app
+list at all. A clean compile says the code is syntactically/type valid
+against the real SDK; it says nothing yet about runtime behavior (does
+the map actually render on the car's Surface, does GPS/ADS-B actually
+flow in, does Android Auto register the app as a candidate). Those are
+the next real checks, in that order, once the project owner installs
+and sideloads.
