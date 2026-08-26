@@ -2,6 +2,13 @@
 # coordinates and timestamps, must never be committed.
 logs/
 
+# Secrets — the log.php/relay.php deploy tokens and any other local-only
+# credentials. These files are never committed to this repo, only handed
+# off/deployed directly (see CLAUDE.md's "Central observation log" and
+# "ADS-B data source" sections) — never remove this entry.
+.env
+.env.*
+
 # OS/editor cruft
 .DS_Store
 Thumbs.db
