@@ -4582,3 +4582,24 @@ pass) and reusing patterns already confirmed to compile clean in the
 real Android Studio build. The actual check is still building and
 running this on a real device — which is exactly how the gap this whole
 entry addresses was found in the first place.
+
+### Follow-up: `styles.xml`'s own comment broke the build (2026-08-26, same day)
+
+The real second build attempt (the very first XML resource this project
+has ever added) failed with `The string "--" is not permitted within
+comments` — a real, easy-to-forget XML rule: an XML comment body can
+never contain two consecutive hyphen characters anywhere inside it, not
+just at the delimiters. `styles.xml`'s own doc comment referenced the
+CSS custom-property names it was duplicating with their real leading
+two-hyphen prefix (as literally written in `VCAS.css`, e.g. the
+background-dark and background-panel tokens) — which is exactly that
+forbidden sequence, twice. Fixed by rewriting the comment to name those
+tokens without their two-hyphen prefix, and added an explicit note
+inside the same comment (itself carefully written with no two-hyphen
+sequence anywhere) warning that this is the reason, so a future edit
+doesn't reintroduce it. Every other `.xml` file already in `android/`
+was re-checked the same way (`grep` for a literal `--` outside a
+comment's own opening/closing delimiters) and came back clean — this was
+new to `styles.xml` specifically, not a latent issue elsewhere. The
+`.kt` files' own `--bg-panel`/`--accent`-style comments are unaffected —
+Kotlin's `//`/`/* */` comments have no such restriction, only XML's do.

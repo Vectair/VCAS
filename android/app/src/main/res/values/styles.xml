@@ -13,15 +13,21 @@
       screen) — MainActivity now builds its own top bar matching VCAS's
       real cockpit-panel palette instead.
 
-      Colours are the same --bg-dark/--bg-panel/--accent tokens from
-      src/styles/VCAS.css's Night theme (the always-dark palette RAW mode
-      and this phone screen both use — no Day theme or Day/Night toggle
-      exists here yet, a deliberate, separately-scoped simplification,
-      same as noted in MainActivity.kt's own doc comment). Duplicated as
-      hex literals rather than read from VCAS.css — there's no build-time
-      bridge between this native project and the PWA's CSS, the same
-      reason src/config.js's MAPTILER_KEY is duplicated in
-      PhoneMapContainer.kt. Keep in sync by hand if the palette changes.
+      Colours are the same bg-dark/bg-panel/accent custom-property values
+      from src/styles/VCAS.css's Night theme (the always-dark palette RAW
+      mode and this phone screen both use — no Day theme or Day/Night
+      toggle exists here yet, a deliberate, separately-scoped
+      simplification, same as noted in MainActivity.kt's own doc
+      comment). Duplicated as hex literals rather than read from
+      VCAS.css — there's no build-time bridge between this native project
+      and the PWA's CSS, the same reason src/config.js's MAPTILER_KEY is
+      duplicated in PhoneMapContainer.kt. Keep in sync by hand if the
+      palette changes. (Note for future edits to this comment: an XML
+      comment body cannot contain two consecutive hyphen characters
+      anywhere at all, which is why the CSS custom-property names above
+      are written without their real two-hyphen prefix — writing them
+      with that prefix broke the very first real compile attempt of this
+      file, caught and fixed the same day.)
     -->
     <style name="Theme.VCAS" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">#12181c</item>
