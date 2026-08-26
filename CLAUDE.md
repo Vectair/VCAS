@@ -4431,3 +4431,154 @@ Android Studio build (`VcasMapRenderer.kt`'s own GPS wiring, the plain
 `Activity` base class choice) — corroboration plus reuse of
 already-verified patterns, not compilation of this exact new code. The
 real check is still opening this in Android Studio and building it.
+
+## Phone screen, real pass 1: real icons, real map style, real chrome (2026-08-26, same day)
+
+First real-device feedback on the phone screen above: a screenshot
+showing generic default red pin markers on MapLibre's own demo tiles,
+with a bare "VCAS" label in the OS's default black action bar —
+technically working (54 real aircraft polled and plotted) but visually
+nothing like VCAS. Correct reaction, and a fair one — the "known
+simplifications" note above undersold how far a functional pipeline
+still was from looking like the app. Asked directly what to prioritize;
+project owner chose all three, in order: real marker icons/colours, real
+map style, real chrome.
+
+### 1. Real TCAS-style aircraft icons, via `SymbolManager` not classic `Marker`
+
+The very first cut used `MapLibreMap.addMarker(MarkerOptions)` — found,
+while building this, to be marked `@Deprecated` in the real SDK source
+in favour of a separate Annotation Plugin artifact, and — the actual
+reason it had to go, not just the deprecation notice — to have **no icon-
+anchor customisation at all**. A custom (non-pin-shaped) bitmap icon
+would be pinned by a fixed corner instead of centred on the true point,
+exactly backwards for a TCAS-style symbol that has to sit centred on the
+aircraft's real position, not dangle from it like a map pin.
+
+Added `org.maplibre.gl:android-plugin-annotation-v9:3.0.2`
+(`SymbolManager`/`SymbolOptions`, GL-rendered — not a per-marker View the
+way the plugin's sibling MarkerView variant works, which matters at 50+
+aircraft). **Version-compatibility checked before pinning it, learned the
+hard way from the `androidx.car.app` 1.4.0-vs-1.9.0-alpha mismatch that
+caused this project's one real compile error so far** (see above): the
+plugin's own POM (downloaded and read directly from `repo1.maven.org`)
+declares a dependency on `android-sdk:11.3.0` — a same-major-line minor
+version behind the `11.7.0` this project already pins, not a cross-
+major/pre-release jump. Its real API (`SymbolManager`'s constructor/
+`create()`/`addClickListener()`, `SymbolOptions`' builder methods,
+`Property.ICON_ANCHOR_CENTER`) was cross-checked against the actual
+plugin source, cloned and checked out at the matching `v3.0.2` git tag
+(`maplibre/maplibre-plugins-android`) — not guessed from the older
+Mapbox-derived API's general shape, same discipline as every other
+dependency in this project.
+
+`PhoneAircraftIcons.kt` (new) draws the real shape (diamond/circle/
+square, ported from `aircraftSymbol.js`'s own SVG paths) plus a
+direction-of-travel arrow (ported from `map.js`'s `_directionArrowSvg()`)
+onto a real Android `Bitmap` via `Canvas`/`Path`. The arrow's rotation
+was worked out by re-reading the PWA's actual CSS transform order on
+`.direction-arrow` (`translate(-50%,-50%) rotate(trackDeg)
+translateY(-16px)`) rather than guessing: the arrow orbits the ICON's own
+centre point at a fixed radius (drawn at a fixed offset "above" the icon,
+THEN rotated by `trackDeg` around the icon's centre), not rotating in
+place while floating above it — the base shape itself is never rotated,
+matching `aircraftSymbol.js`'s own doc comment that position alone
+carries bearing.
+
+**Bitmap layout is a square with the shape dead-centre, specifically so
+`Property.ICON_ANCHOR_CENTER` genuinely centres the TRUE aircraft
+position on the shape's own visual centre** — not some point compromised
+by the arrow's variable position, which (unlike the earlier assumption
+that it always sits "above" the icon) can orbit to ANY angle depending on
+`trackDeg`. The bitmap's radius is sized to always contain the arrow at
+any rotation, and the shape is drawn at the exact geometric centre either
+way.
+
+**Icon images are deliberately named and reused, not regenerated per
+aircraft per poll** — `Style.addImage(name, bitmap)` with an
+already-used name updates that image in place rather than accumulating a
+new one, so `PhoneAircraftIcons.iconNameFor()` derives a deterministic
+name from the actual shape/colour/fillOpacity/track values (track
+quantized to 15° buckets, not the exact float) rather than a unique ID
+per call — bounding the real distinct-image count to a few hundred at
+most, reused across every poll, instead of leaking a new bitmap into the
+style's image cache every 3 seconds forever.
+
+`SymbolManager`'s `OnSymbolClickListener` has no built-in info window
+(unlike the classic `Marker` API's title/snippet bubble) — tapping a
+symbol now shows the same title/visibility-label/altitude/distance text
+via a plain `Toast` instead (`MainActivity.kt`'s `symbolInfoById`, keyed
+by each poll's own `Symbol.id`).
+
+### 2. Real map style — MapTiler's own pre-made `streets-v2`, not VCAS's custom 31-layer style
+
+**A real scope distinction, stated plainly rather than glossed over**:
+`src/map/navStyle.js` builds the PWA's actual Hybrid look layer-by-layer
+against raw OpenMapTiles vector tiles with VCAS's own tuned colour
+palette (31 layer definitions, day/night variants) — porting THAT whole
+thing to Kotlin `Style.Builder` calls is a real, separate, substantially
+larger undertaking, comparable in scope to the rest of the "genuine UI
+rebuild" work this project has already flagged elsewhere, not something
+folded into this pass. What's wired in instead is MapTiler's own
+pre-made `streets-v2` style — a single `style.json` URL swapped in for
+the demo-tiles URL, same shape, same `MAPTILER_KEY` `src/config.js`
+already has (duplicated in `PhoneMapContainer.kt` — no build-time bridge
+between this native project and the PWA's own JS config, same reasoning
+already established for the crash reporter's duplicated `LOG_ENDPOINT`/
+`LOG_ENDPOINT_KEY`). Real streets/imagery now show instead of demo
+tiles — not VCAS's own hand-tuned Hybrid palette, an honest middle
+ground.
+
+**Explicit confirmation asked before reusing the key**, since it's a
+real decision touching the project owner's MapTiler account/quota, not
+just code: try the existing key first (low risk — if MapTiler's
+dashboard has it domain/referrer-restricted for web use, native tile
+requests simply fail visibly rather than silently overcharging
+anything), rather than holding off for a separate native-specific key.
+Confirmed: try the existing key. A real `MapView.
+OnDidFailLoadingMapListener` falls back to the demo style once if the
+real key does turn out to be rejected, rather than leaving the map
+permanently blank — a load failure is now visible/recoverable, not
+silently fatal.
+
+### 3. Chrome pass — VCAS's real cockpit-panel palette, not the OS default action bar
+
+New `res/values/styles.xml` (`Theme.VCAS`, `parent="android:Theme.
+Material.NoActionBar"`) removes the bare black OS action bar showing
+just "VCAS" with no other styling — the exact thing the reported
+screenshot showed. Plain framework theme, not AppCompat/Material
+Components, same "avoid a new `dl.google.com`-hosted dependency this
+sandbox can't verify" discipline `MainActivity`'s own plain `Activity`
+base class and `requestPermissions()` permission flow already
+established. `MainActivity` now builds its own two-line top bar (title +
+live status) styled with the SAME `--bg-panel`/`--text-primary`/
+`--text-secondary`/`--accent` hex tokens `VCAS.css`'s Night theme
+actually uses (duplicated as literals for the same "no build-time bridge
+to CSS" reason as the MapTiler key above) — plus a thin `--accent`-
+coloured rule under the bar, echoing how the cockpit-panel rebrand
+elsewhere in this project uses that colour as a distinct brand line
+rather than the panel's own neutral material colour (see "Cockpit-panel
+chrome rebrand" above).
+
+**Deliberately NOT a port of the PWA's full top bar** (mode buttons,
+ADS-B status pill, settings gear, the `#adsb-credit` line) — this is
+still a single-view walking screen with no modes or settings yet, so
+only the material/typography language was applied, not every element
+that bar carries. **Flagged, not silently dropped**: the adsb.fi credit
+line specifically is a real Pre-V1-checklist obligation (see that
+section above — "their usage terms require citing them... for as long as
+their data is used") that this screen doesn't yet satisfy, and would
+need to before this screen could ever ship beyond personal use, same as
+every other adsb.fi-consuming surface in this app. Always-dark palette
+only, no Day/Night toggle — matching RAW mode's own "no day mode for a
+cockpit instrument" precedent, and consistent with the still-open
+"icons always use `vis.color`, not day/colourblind variants" gap already
+noted in `MainActivity.kt`'s own doc comment.
+
+**Honest status, same caveat as the rest of this file**: none of this
+compiled here either — cross-checked against real MapLibre/plugin source
+(the plugin cloned fresh at its matching git tag specifically for this
+pass) and reusing patterns already confirmed to compile clean in the
+real Android Studio build. The actual check is still building and
+running this on a real device — which is exactly how the gap this whole
+entry addresses was found in the first place.

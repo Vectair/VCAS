@@ -64,7 +64,8 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
-        android:label="@string/app_name">
+        android:label="@string/app_name"
+        android:theme="@style/Theme.VCAS">
 
         <!-- Phone-side entry point. Originally added (2026-08-25) purely
              for Car App Library sample parity and to clear a harmless

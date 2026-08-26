@@ -211,6 +211,34 @@ directory — cross-checked directly against the cloned MapLibre Native
 Android SDK source, and reusing GPS/lifecycle patterns already confirmed
 to compile clean in the just-verified real build.
 
+## Phone screen, real pass 1 (2026-08-26, same day)
+
+First real-device screenshot of the phone screen showed generic red pin
+markers on demo tiles under a bare OS action bar — working end to end,
+but nothing like VCAS visually. Fixed in priority order (markers, then
+map style, then chrome):
+
+- **Real icons**: `PhoneAircraftIcons.kt` draws VCAS's actual TCAS shape/
+  colour/direction-arrow (ported from `aircraftSymbol.js`/`map.js`) onto
+  a real `Bitmap`, rendered via `SymbolManager` (a new Maven Central
+  dependency, `android-plugin-annotation-v9`, version-checked against the
+  pinned `android-sdk` before adding it) instead of the classic
+  `@Deprecated` `Marker` API, which has no icon-anchor centering at all.
+- **Real map style**: MapTiler's own pre-made `streets-v2` style.json,
+  reusing the same key `src/config.js` already has (explicit go-ahead
+  from the project owner to try it) — not VCAS's own hand-tuned 31-layer
+  custom style (`navStyle.js`), which is a real, separate, much larger
+  port not attempted here. Falls back to the demo style on a real load
+  failure instead of leaving the map blank.
+- **Real chrome**: a `Theme.VCAS` (`NoActionBar`) plus a real top bar
+  built with VCAS's actual cockpit-panel hex tokens, replacing the bare
+  OS action bar — not a port of the PWA's full top bar (no modes/settings
+  exist on this screen yet).
+
+See CLAUDE.md's dated entry for the full reasoning on each, including the
+version-compatibility check done on the new plugin dependency and why the
+map style is a deliberate middle ground, not VCAS's real Hybrid look.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/

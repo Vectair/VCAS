@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      2026-08-26, phone-screen chrome pass. Plain framework theme
+      (android:Theme.Material.NoActionBar), not an AppCompat/Material
+      Components theme — same "avoid a new dl.google.com-hosted
+      dependency this sandbox can't verify" discipline already
+      established for MainActivity's own plain android.app.Activity base
+      class (see MainActivity.kt's own doc comment) and the plain
+      requestPermissions() permission flow. NoActionBar removes the
+      default black title bar showing a bare "VCAS" label with no other
+      styling (visible in the very first real-device screenshot of this
+      screen) — MainActivity now builds its own top bar matching VCAS's
+      real cockpit-panel palette instead.
+
+      Colours are the same --bg-dark/--bg-panel/--accent tokens from
+      src/styles/VCAS.css's Night theme (the always-dark palette RAW mode
+      and this phone screen both use — no Day theme or Day/Night toggle
+      exists here yet, a deliberate, separately-scoped simplification,
+      same as noted in MainActivity.kt's own doc comment). Duplicated as
+      hex literals rather than read from VCAS.css — there's no build-time
+      bridge between this native project and the PWA's CSS, the same
+      reason src/config.js's MAPTILER_KEY is duplicated in
+      PhoneMapContainer.kt. Keep in sync by hand if the palette changes.
+    -->
+    <style name="Theme.VCAS" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#12181c</item>
+        <item name="android:statusBarColor">#12181c</item>
+        <item name="android:navigationBarColor">#12181c</item>
+    </style>
+</resources>

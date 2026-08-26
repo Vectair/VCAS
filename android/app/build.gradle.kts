@@ -59,6 +59,25 @@ dependencies {
     // alone.
     implementation("org.maplibre.gl:android-sdk:11.7.0")
 
+    // MapLibre Annotation Plugin (2026-08-26, phone-screen real aircraft
+    // icons) — SymbolManager/SymbolOptions, used instead of the classic
+    // (and @Deprecated in the real SDK source) MapLibreMap.addMarker()/
+    // Marker API, specifically because it supports a genuine centred icon
+    // anchor (Property.ICON_ANCHOR_CENTER) that classic Marker has no
+    // equivalent for at all. Version-compatibility checked before pinning
+    // (learned the hard way from the androidx.car.app 1.4.0-vs-1.9.0-alpha
+    // mismatch — see CLAUDE.md): this plugin version's own POM declares a
+    // dependency on android-sdk:11.3.0, a same-major-line minor version
+    // behind the 11.7.0 pinned above, not a cross-major/pre-release jump —
+    // confirmed by downloading and reading the real POM from
+    // repo1.maven.org, not assumed. Source cross-checked directly against
+    // the real, version-tagged plugin repo (maplibre/maplibre-plugins-
+    // android, checked out at the matching v3.0.2 git tag) for
+    // SymbolManager's constructor/create()/addClickListener() and
+    // SymbolOptions' builder methods, not guessed from the older Mapbox-
+    // derived API's general shape.
+    implementation("org.maplibre.gl:android-plugin-annotation-v9:3.0.2")
+
     // JUnit 4 for pure-JVM unit tests (src/test/java — no device/emulator
     // needed, runs via Gradle's `test` task or Android Studio's own test
     // runner). Added 2026-08-25 for the geo.js -> Geo.kt port's own test
