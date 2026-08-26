@@ -4310,3 +4310,124 @@ the map actually render on the car's Surface, does GPS/ADS-B actually
 flow in, does Android Auto register the app as a candidate). Those are
 the next real checks, in that order, once the project owner installs
 and sideloads.
+
+## A real phone-visible app, independent of Android Auto (2026-08-26, same day)
+
+Direct instruction: VCAS should work like Google Maps — a real,
+independently-useful standalone app when tapped directly on the phone
+(walking, no car involved), not just a car-projected experience via
+Android Auto. Since phase 1, `MainActivity` had existed only as a
+placeholder ("Open Android Auto while connected to your car") — real
+content for the phone-tap case had never been built. Asked directly
+whether the fastest path (a `MainActivity` hosting a `WebView` around the
+already-deployed, already-tested PWA) or a fully native Kotlin phone UI
+was wanted, since the two differ hugely in scope; the project owner chose
+**fully native** — no shortcut through the web UI, matching the same
+standard CLAUDE.md's own scoping note already set for the car-Surface UI
+layer ("needs a genuine rebuild," not a WebView wrapper).
+
+**One APK, two independent entry points — neither stands in for the
+other.** `VcasCarAppService`/`VcasSession`/`MapScreen` (the whole car
+side, phases 1-2 above) is completely untouched by this work.
+`MainActivity` — previously a bare placeholder — is now a real, separate
+screen: its own `MapView`, its own GPS wiring, its own `AdsbFiClient`
+instance, its own camera-driving logic. Android Auto's own discovery of
+the car app was never driven by `MainActivity` existing or not (that's
+`VcasCarAppService`'s own manifest intent-filter, independent of any
+launcher activity — established back in phase 1's own systematic diff),
+so making `MainActivity` real doesn't touch or risk the car-side path at
+all.
+
+**New files**: `PhoneMapContainer.kt` (a plain-Activity sibling to
+`VcasMapContainer.kt`, genuinely simpler in three ways: no `CarContext`,
+no manual gesture math since a MapView added to a real Activity view
+hierarchy already receives real touch/pinch/pan gestures itself — unlike
+Android Auto's `SurfaceCallback`, which only delivers synthetic
+scroll/scale calls — and real `onCreate(Bundle?)`/`onSaveInstanceState
+(Bundle)` lifecycle calls wired up, which the car-Surface `Presentation`
+path has no equivalent for). `MainActivity.kt` is a full rewrite: real
+`LocationManager` GPS wiring (identical pattern to `VcasMapRenderer.kt`'s
+already-established one), the same `AdsbFiClient` instance type reused
+completely unchanged (it has zero `CarContext` dependency, confirmed
+before reusing it), and `NavigationCameraEvaluator`/`CameraAnchor` reused
+exactly as the car side uses them — but with `mode = "air"` rather than
+`"nav"`, since the evaluator's flat, centred, low-pitch `AIR` preset
+(pitch 0, zoom 10, anchor 0.5/0.5) is the right camera geometry for
+"glance at what's around you while walking," not the driving-oriented
+urban/highway/turn state machine `mode = "nav"` drives on the car side.
+
+**Deliberately calls `Visibility.estimate()`/`Geo.calculateDistanceNm()`
+directly, not the `Indicators.build()`/`buildAll()` pipeline** — those
+two entry points exist for the PWA's NAV/RAW polar-projection display
+(screen x/y around a forward-looking anchor, relevance-gated, FOV-
+restricted), concepts that only mean something for that specific
+display. This screen is a real geographic map: every currently-tracked
+aircraft is plotted at its own true lat/lon via a MapLibre `Marker`,
+matching how the PWA's own AIR mode works (unfiltered by relevance, not
+polar-projected) rather than NAV/RAW's teardrop-gated display. Routing
+through `Indicators` here would compute a polar x/y this screen never
+uses and imply a relevance gate real map markers don't have —
+`Visibility`/`Geo` (the same two dependencies `Indicators` itself is
+built from) are called directly instead, just without the parts specific
+to the other display.
+
+**Real-source-checked, not guessed, the same discipline this project's
+whole Android history is built on** — cross-referenced directly against
+the cloned `maplibre-native` source rather than assumed from the car-side
+code's own success: `MapView.java`'s own doc comments (read directly)
+confirm the real Activity-lifecycle contract (`onCreate(Bundle?)` from
+`Activity#onCreate`, `onSaveInstanceState(Bundle)` from
+`Activity#onSaveInstanceState`, plus `onStart`/`onResume`/`onPause`/
+`onStop`/`onDestroy`/`onLowMemory`) — a contract the car-Surface
+`Presentation` path never needed since a `Presentation` has no
+`Activity`-style save/restore lifecycle to hand a `Bundle` through.
+`MapLibreMap.addMarker(MarkerOptions)`/`removeMarker`/`clear()` and
+`BaseMarkerOptions.position()/title()/snippet()` were all confirmed
+present in the real SDK source before use — `OnMarkerClickListener` is
+real too but deliberately NOT wired up, since `MapLibreMap.java`'s own
+javadoc confirms tapping a marker with `title()`/`snippet()` set already
+shows a built-in info window with that text with no listener needed at
+all, the simplest possible "tap for detail" implementation. Also
+confirmed directly: this classic `Marker`/`addMarker()` API is itself
+marked `@Deprecated` in the real source (in favour of a separate
+Annotation Plugin Maven artifact) — noted, not chased; migrating to that
+plugin is real, separate follow-up work, not something silently glossed
+over, and the deprecated-but-present API is a reasonable choice for a
+first pass over pulling in a new, `dl.google.com`-unrelated but still
+unverified dependency.
+
+**Permission flow uses plain `Activity#requestPermissions()`/
+`onRequestPermissionsResult()`** (framework API since API 23, matching
+this project's `minSdk`) rather than `androidx.activity`'s
+`registerForActivityResult` — consistent with `MainActivity`'s original
+phase-1 choice to stay on plain `android.app.Activity` rather than
+`androidx.activity.ComponentActivity` specifically to avoid a new
+`dl.google.com`-hosted dependency this sandbox can't verify live.
+
+**Known, deliberately-scoped simplifications for this first pass, stated
+plainly rather than left as silent gaps**: no own-position marker (the
+camera already centres on the true GPS fix every update via AIR's
+0.5/0.5 anchor, so the user's position is always screen-center); markers
+are fully cleared and rebuilt on every ADS-B poll (3s) rather than
+diffed by hex the way the PWA's own `EosMap.renderAirMarkers` already
+is — a real, later optimization opportunity, not a correctness gap; no
+`AircraftExtrapolation` smoothing between polls (already ported and
+verified, just not wired in here yet); no per-visibility-category marker
+icon tinting (the tier's own colour/label is plain text in the marker's
+info-window snippet instead of a coloured icon bitmap); foreground-only
+by design (GPS/ADS-B start in `onResume()`, stop in `onPause()`) since
+this activity only holds foreground-scoped `ACCESS_FINE_LOCATION`, not
+`ACCESS_BACKGROUND_LOCATION` — real background tracking needs the
+already-scoped-but-undone "phase 4" foreground-`Service` work, not
+something an Activity alone can correctly provide.
+
+**Honest status, same caveat as every other Android-integration file in
+this project**: never compiled — no Android SDK in this sandbox, same
+limitation as everything else in `android/`. Every non-trivial API call
+was cross-checked against the real MapLibre Native Android SDK source
+(cloned locally), and the GPS/permission/lifecycle wiring reuses patterns
+already established and JUST confirmed to compile clean in a real
+Android Studio build (`VcasMapRenderer.kt`'s own GPS wiring, the plain
+`Activity` base class choice) — corroboration plus reuse of
+already-verified patterns, not compilation of this exact new code. The
+real check is still opening this in Android Studio and building it.

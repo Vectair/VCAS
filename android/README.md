@@ -184,6 +184,33 @@ renders on the car's Surface and GPS/ADS-B actually flow in at runtime.
 A clean compile only proves the code is valid against the real SDK, not
 that any of that runtime behavior works yet.
 
+## A real phone-visible app, not just a car-projected one (2026-08-26)
+
+`MainActivity` — previously a bare placeholder screen — is now a real,
+independent standalone experience: its own MapLibre `MapView`, real GPS
+via `LocationManager`, real ADS-B via the same `AdsbFiClient` the car
+side uses, and every currently-tracked aircraft plotted as a real map
+marker at its true lat/lon (tap a marker for a built-in info window with
+type/altitude/distance/visibility). This is fully native Kotlin, not a
+WebView wrapping the PWA — a direct choice, matching the "genuine
+rebuild, not a shortcut" standard already set for the car-Surface UI.
+
+One APK, two independent entry points: `VcasCarAppService`/`VcasSession`/
+`MapScreen` (the car side) is completely untouched — Android Auto's own
+discovery of it was never driven by `MainActivity` existing at all.
+Tapping the app icon on the phone now opens a real, useful screen
+instead of a redirect message; connecting to a car still launches the
+separate native car-app screen. See CLAUDE.md's dated entry for the full
+design reasoning (why `mode = "air"` for the camera, why this calls
+`Visibility`/`Geo` directly instead of the `Indicators` pipeline, and the
+list of deliberately-scoped simplifications — no own-position marker, no
+marker diffing/extrapolation yet, foreground-only).
+
+**Never compiled**, same honest caveat as everything else in this
+directory — cross-checked directly against the cloned MapLibre Native
+Android SDK source, and reusing GPS/lifecycle patterns already confirmed
+to compile clean in the just-verified real build.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
