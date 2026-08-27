@@ -5083,3 +5083,92 @@ stable, basic framework APIs, not cross-checked against a cloned SDK
 source the way the MapLibre-specific calls in this project are (same
 judgment already applied to the adsb.fi attribution line above). The
 real check is still opening this in Android Studio and building it.
+
+## Native phone screen: settings screen + real traffic filtering (2026-08-27, same day)
+
+The last item from the "have we reached the starting point yet?" gap
+list tackled this session: the PWA's `#settings-screen` had no native
+counterpart at all, and — a real, previously-undocumented finding from
+reading `app.js`'s own fetch loop while building this — **this native
+app had never filtered aircraft by anything**: no ground-vehicle/
+obstacle exclusion, no stale-aircraft removal, no ground-aircraft hide,
+no low-altitude suppression. Every one of those is unconditional or
+settings-driven filtering `app.js`'s own `aircraftList = result.aircraft.
+filter(...)` pass has always applied, at the single point BOTH NAV and
+AIR read from — genuinely new behaviour for this native app, not just a
+missing UI for existing logic.
+
+**`VcasSettings.kt`** (new) — a single `SharedPreferences`-backed object
+combining the PWA's `colorblindMode.js` and `altitudeSuppressPanel.js`
+(no reason for three separate near-empty files' worth of ceremony
+natively) — `isColorblindSafeEnabled()`/`toggleColorblindSafe()`,
+`isGroundHidden()`/`setGroundHidden()` (default `true`, matching the JS
+default's own reasoning: ground aircraft usually have no usable altitude
+at all, so the numeric threshold can't catch them), `isAltSuppressEnabled()`/
+`altSuppressThresholdFt()`/`setAltSuppressThreshold()` with the same
+`[200, 500, 1000, 2000, 3000]` ft preset list.
+
+**`onAircraftUpdated()` now filters, matching `app.js`'s exact four
+checks and their order** — ground-vehicle/obstacle exclusion and stale
+removal (`CONFIG.REMOVE_THRESHOLD_SECONDS`, 30s) unconditionally, ground-
+hide and altitude-suppression gated on the new settings — applied once,
+before `latestAircraft` is set, so both RAW and AIR/HYBRID inherit it
+for free exactly like the PWA's own single filtering point.
+
+**`buildSettingsScreen()`** — a full-screen modal `FrameLayout` overlay
+(not a separate `Activity` — no reason for this small a feature to need
+its own lifecycle/back-stack entry), added last in `onCreate()` so it
+draws on top of everything, opened via a new settings gear in the top
+bar (`buildTopBar()`, restructured from a vertical stack into a
+horizontal row so the gear can sit at the right edge). Two of the PWA's
+three sections are ported, one deliberately isn't — stated in the
+function's own doc comment, not silently dropped:
+- **Display & Accessibility** → only the colour-blind-safe toggle. The
+  PWA's Theme (Day/Auto/Night) row and "Range rings in Air view" toggle
+  are both skipped — this app has no Day/Night theming at all yet
+  (`VcasPalette.kt` has no day-variant colours to switch to) and AIR mode
+  has no range-rings map layer built yet either. Shipping a toggle with
+  no real effect behind it would be exactly the kind of half-finished
+  control this project's own conventions reject.
+- **Traffic Filtering** → both rows, in full, wired to the real filtering
+  pass above.
+- **Data & Logging** → not included at all. The PWA's "Export buffered
+  observations" button exists because `ObservationLogger`/the LOG
+  ground-truth panel exist — neither has been ported to this native app,
+  so there's nothing for an export button to export. A real, separate,
+  much larger follow-up, not a settings-screen gap.
+
+**Colour-blind palette is wired into every mode's colour selection, not
+just stored as a flag** — `RawPlotView.kt`/`RawAircraftListView.kt`
+gained a `displayColorHex()`/inline equivalent matching `ui.js`'s own
+`_displayColor()` priority exactly: colourblind-safe wins over RAW's own
+reference-matched `colorRaw` whenever the setting is on ("accessibility
+wins over reference-fidelity," per that function's own comment,
+faithfully preserved here), falling back to `colorRaw` then plain
+`color`. `MainActivity.kt`'s `renderAirMarkers()` does the simpler AIR/
+HYBRID equivalent (no `colorRaw` concept there — just `color` vs
+`colorblindSafe`). Toggling the setting re-renders immediately (RAW via
+`refreshRawMode()`, AIR/HYBRID via `renderAirMarkers(latestAircraft)`)
+rather than waiting for the next GPS/ADS-B tick, matching `app.js`'s own
+`onColorblindToggleClick()` exactly, including which two branches it
+re-renders.
+
+**A real bug caught and fixed before it shipped, not after**: the first
+draft of `refreshSettingsScreen()`'s toggle/preset-button active-state
+update used `setBackgroundColor()` — which replaces a `View`'s entire
+background with a flat `ColorDrawable`, silently discarding the rounded
+`GradientDrawable` every one of these buttons is actually built with.
+Caught by re-reading the diff rather than assumed fine; fixed with a
+`setToggleActive()` helper that mutates the existing `GradientDrawable`'s
+colour in place (`(view.background as? GradientDrawable)?.setColor(...)`)
+instead of replacing it.
+
+**Honest status, same caveat as every other native UI file in this
+project**: never compiled — no Android SDK in this sandbox.
+`SharedPreferences`/`ScrollView`/`GradientDrawable` are long-stable,
+basic framework APIs, not cross-checked against a cloned SDK source the
+way the MapLibre-specific calls elsewhere in this project are — same
+judgment already applied to `EditText`/`TextWatcher` for the destination
+search box. Verified by careful manual re-reads of the diff plus a
+brace/paren balance check, not a real compiler pass. The real check is
+still opening this in Android Studio and building it.

@@ -77,6 +77,7 @@ class RawPlotView @JvmOverloads constructor(
     private var selectedRangeNm: Double = Indicators.RING_BANDS_NM.last()
     private var selectedHex: String? = null
     private var chromeTopInsetPx = 0f
+    private var colorblindSafe = false
 
     private var tapTargets = TapTargets(null, emptyList())
 
@@ -91,7 +92,8 @@ class RawPlotView @JvmOverloads constructor(
         bandsNm: List<Double>,
         selectedRangeNm: Double,
         selectedHex: String?,
-        chromeTopInsetPx: Float
+        chromeTopInsetPx: Float,
+        colorblindSafe: Boolean = false
     ) {
         this.withinRange = withinRange
         this.beyondRange = beyondRange
@@ -104,8 +106,22 @@ class RawPlotView @JvmOverloads constructor(
         this.selectedRangeNm = selectedRangeNm
         this.selectedHex = selectedHex
         this.chromeTopInsetPx = chromeTopInsetPx
+        this.colorblindSafe = colorblindSafe
         invalidate()
     }
+
+    /**
+     * Colour selection priority — matches `ui.js`'s own `_displayColor()`
+     * exactly: "Accessibility wins over reference-fidelity — colourblind-
+     * safe applies even in RAW style, checked first regardless of which
+     * style is active." RAW's own reference-matched `colorRaw` is the
+     * fallback below that, `color` the final fallback if either is blank.
+     * (The PWA's own day/night `colorDay` branch is skipped entirely here
+     * — RAW forces dark regardless of theme in the PWA too, and this
+     * native app has no Day/Night theming at all yet.)
+     */
+    private fun displayColorHex(vis: org.vectair.vcas.car.logic.Visibility.EstimateResult): String =
+        if (colorblindSafe) vis.colorblindSafe.ifBlank { vis.color } else vis.colorRaw.ifBlank { vis.color }
 
     // ---- Paints (reused across draws) ----
     private val bgPaint = Paint().apply { color = VcasPalette.parse(VcasPalette.RAW_BG); style = Paint.Style.FILL }
@@ -300,7 +316,7 @@ class RawPlotView @JvmOverloads constructor(
         for (item in withinRange) {
             val x = (item.x ?: continue).toFloat()
             val y = (item.y ?: continue).toFloat()
-            val colorHex = item.vis.colorRaw.ifBlank { item.vis.color }
+            val colorHex = displayColorHex(item.vis)
             val color = try { VcasPalette.parse(colorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
 
             val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -341,7 +357,7 @@ class RawPlotView @JvmOverloads constructor(
         for (item in beyondRange) {
             val x = (item.x ?: continue).toFloat()
             val y = (item.y ?: continue).toFloat()
-            val colorHex = item.vis.colorRaw.ifBlank { item.vis.color }
+            val colorHex = displayColorHex(item.vis)
             val color = try { VcasPalette.parse(colorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
             val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; this.color = color }
             canvas.drawCircle(x, y, dp(4f), dotPaint)

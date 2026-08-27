@@ -311,6 +311,20 @@ with results tappable to route there — same 350ms debounce/staleness-
 token pattern as `app.js`'s own `_searchDestination()`. Tap-the-map still
 works alongside it. See CLAUDE.md's dated entry.
 
+## Native phone screen: settings screen + real traffic filtering (2026-08-27, same day)
+
+A real settings screen (`buildSettingsScreen()`, a gear button in the
+top bar) with two of the PWA's three sections ported: colour-blind-safe
+palette (wired into RAW/AIR/HYBRID's colour selection, not just stored)
+and traffic filtering (hide-ground-aircraft, low-altitude suppression
+presets — `VcasSettings.kt`). Building this surfaced a real, previously-
+undocumented gap: this native app had never filtered aircraft by
+anything (no ground-vehicle exclusion, no stale removal, no ground-hide,
+no altitude suppression) — `onAircraftUpdated()` now applies the same
+four checks `app.js`'s own fetch loop always has. Day/Night theming and
+Data & Logging (export) are deliberately NOT in this settings screen —
+neither has a real underlying feature yet. See CLAUDE.md's dated entry.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
@@ -318,9 +332,10 @@ navigationCameraEvaluator/routeGeometry logic to Kotlin is DONE (see
 CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
 suite). Real GPS drives the camera, real ADS-B polling is live, real
 HYBRID-mode routing/guidance/reroute is live, adsb.fi attribution is
-shown, and destination search is wired (see above). Not yet done: a
-settings screen, an onboarding screen, Day/Night theming, RAW's real
-popup card, the device-compass heading fallback, swapping the demo/
-MapTiler-streets map style for VCAS's real hand-tuned Hybrid look, and
-the foreground-service/background-execution work. See CLAUDE.md for the
-full phase list and current status.
+shown, destination search is wired, and a real settings screen with
+traffic filtering exists (see above). Not yet done: an onboarding
+screen, Day/Night theming, RAW's real popup card, the device-compass
+heading fallback, swapping the demo/MapTiler-streets map style for
+VCAS's real hand-tuned Hybrid look, and the foreground-service/
+background-execution work. See CLAUDE.md for the full phase list and
+current status.

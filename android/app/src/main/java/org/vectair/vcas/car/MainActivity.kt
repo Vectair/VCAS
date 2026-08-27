@@ -105,27 +105,35 @@ import kotlin.math.roundToInt
  * see `PhoneAircraftIcons.kt`'s own doc comment for the full reasoning
  * and the version-compatibility check done before adding it.
  *
+ * **A real settings screen now exists** (`buildSettingsScreen()`,
+ * 2026-08-27) — colour-blind-safe palette (wired into RAW/AIR/HYBRID's
+ * colour selection alike, see `RawPlotView.kt`/`RawAircraftListView.kt`'s
+ * own `displayColorHex()` and this class's `renderAirMarkers()`) and real
+ * traffic filtering (hide-ground-aircraft, low-altitude suppression
+ * presets — `VcasSettings.kt`, applied in `onAircraftUpdated()`'s own
+ * filtering pass, the first time either has ever been filtered natively).
+ * Its own doc comment explains exactly which PWA settings sections are
+ * ported and which are deliberately not (Theme, AIR range rings, Data &
+ * Logging) and why.
+ *
  * **Known, deliberately-scoped simplifications, not silently-left
  * gaps**: no own-position marker in AIR/HYBRID (the camera already
  * centres on the true GPS fix); AIR/HYBRID symbols are cleared/rebuilt
  * each poll rather than diffed by hex; no `AircraftExtrapolation`
  * smoothing between polls anywhere yet; no Day/Night theming (this app
  * is always-dark, matching RAW's own "no day mode for a cockpit
- * instrument" precedent, extended app-wide since there's no settings
- * screen yet to host a toggle); RAW mode's aircraft-tap detail is a
- * plain `Toast`, not the PWA's real popup card (`#popup`) with its own
- * log/suppress buttons; HYBRID's destination picking supports both tap-
- * the-map AND a debounced name/address search box (`OrsGeocoder.kt`,
- * 2026-08-27 follow-up) but is not gated behind a settings/preferences
- * screen the way the PWA's own destination picker toggle is (there's no
- * settings screen natively yet at all); HYBRID's route line is one plain
- * `LineLayer`, not the PWA's own 3-layer glow/line/highlight polyline;
- * no destination pin/marker on the map for either picking method;
- * `TURN_APPROACH`'s
- * `DECOUPLED_MANEUVER` bearing mode is computed by
- * `NavigationCameraEvaluator` but not yet consumed — the camera bearing
- * always follows the raw GPS fix bearing, same as AIR. Each is real,
- * separately-scoped follow-up work, not silently skipped.
+ * instrument" precedent — genuinely deferred now because `VcasPalette.kt`
+ * has no day-variant colours to switch to, NOT because there's nowhere
+ * to put a toggle now that a real settings screen exists); RAW mode's
+ * aircraft-tap detail is a plain `Toast`, not the PWA's real popup card
+ * (`#popup`) with its own log/suppress buttons; HYBRID's route line is
+ * one plain `LineLayer`, not the PWA's own 3-layer glow/line/highlight
+ * polyline; no destination pin/marker on the map for either the tap-map
+ * or search-box picking method; `TURN_APPROACH`'s `DECOUPLED_MANEUVER`
+ * bearing mode is computed by `NavigationCameraEvaluator` but not yet
+ * consumed — the camera bearing always follows the raw GPS fix bearing,
+ * same as AIR. Each is real, separately-scoped follow-up work, not
+ * silently skipped.
  */
 class MainActivity : Activity() {
 
@@ -163,6 +171,12 @@ class MainActivity : Activity() {
     private lateinit var rawListView: RawAircraftListView
     private val modeButtons = mutableMapOf<String, TextView>()
 
+    // ---- Settings screen state (2026-08-27) ----
+    private var settingsScreenView: View? = null
+    private var colorblindToggleBtn: TextView? = null
+    private var groundHideToggleBtn: TextView? = null
+    private val altPresetButtons = mutableMapOf<String, TextView>() // "off" or a PRESETS_FT value as string
+
     // ---- HYBRID navigation state (2026-08-27) ----
     private var guidanceCardView: View? = null
     private var guidanceText: TextView? = null
@@ -193,6 +207,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        VcasSettings.init(this)
 
         val root = FrameLayout(this)
 
@@ -234,6 +249,12 @@ class MainActivity : Activity() {
             toggleBar,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
         )
+
+        // Added last so it draws on top of everything else, modal-style —
+        // see buildSettingsScreen()'s own doc comment.
+        val settingsScreen = buildSettingsScreen()
+        settingsScreenView = settingsScreen
+        root.addView(settingsScreen, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
         setContentView(root)
         applyModeVisibility()
@@ -434,19 +455,18 @@ class MainActivity : Activity() {
 
     /**
      * Two-line top bar (title + live status) styled with VCAS's real
-     * cockpit-panel palette — see `VcasPalette.kt`'s own doc comment.
-     * Deliberately NOT the PWA's full top bar (ADS-B status pill,
-     * settings gear) — no settings screen exists natively yet. The
-     * adsb.fi credit line IS included now (2026-08-27 follow-up) — see
-     * `buildAdsbCreditLine()`'s own doc comment for why this one specific
-     * piece couldn't stay deferred the way the rest of the top bar could.
+     * cockpit-panel palette — see `VcasPalette.kt`'s own doc comment. A
+     * real settings gear (opens `buildSettingsScreen()`) now sits at the
+     * bar's right edge, 2026-08-27. Still deliberately NOT the PWA's own
+     * ADS-B status pill — that has no real native counterpart yet (no
+     * live/stale/error status tracking beyond the plain aircraft-count
+     * text already shown). The adsb.fi credit line was added the same
+     * day, before the settings gear — see `buildAdsbCreditLine()`'s own
+     * doc comment for why it couldn't stay deferred the way the rest of
+     * the top bar could.
      */
     private fun buildTopBar(): View {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL))
-            setPadding(28, 20, 28, 14)
-        }
+        val textColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val title = TextView(this).apply {
             text = "VCAS"
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
@@ -461,9 +481,26 @@ class MainActivity : Activity() {
             text = "Acquiring position…"
         }
         statusText = status
-        bar.addView(title)
-        bar.addView(status)
-        bar.addView(buildAdsbCreditLine())
+        textColumn.addView(title)
+        textColumn.addView(status)
+        textColumn.addView(buildAdsbCreditLine())
+
+        val gear = TextView(this).apply {
+            text = "⚙"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 22f
+            setPadding(28, 0, 0, 0)
+            setOnClickListener { openSettingsScreen() }
+        }
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL))
+            setPadding(28, 20, 28, 14)
+        }
+        bar.addView(textColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        bar.addView(gear)
 
         val accentRule = View(this).apply { setBackgroundColor(VcasPalette.parse(VcasPalette.ACCENT)) }
         val wrapper = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -480,11 +517,12 @@ class MainActivity : Activity() {
      * long as their data is displayed, not a one-time acknowledgment —
      * this is why the PWA places it in its persistent top bar
      * (`#adsb-credit`, `index.html`) rather than a splash screen shown
-     * once. Every other piece of the PWA's top bar (ADS-B status pill,
-     * settings gear) was fair to defer since this app has no settings
-     * screen yet to gate them behind — this one piece couldn't wait,
-     * since this screen has been polling and displaying adsb.fi's data
-     * since the very first phase-1 pass with no citation anywhere.
+     * once. Originally added before this app had any settings screen to
+     * gate a settings gear behind — that gear now exists (see
+     * `buildSettingsScreen()`), but this credit line was never gated
+     * behind it in the first place and still doesn't need to be; an
+     * ongoing citation still belongs in the persistent chrome, not a
+     * screen the user has to go open.
      *
      * Exact wording matches the PWA's own real markup
      * (`index.html`: `Data: <a href="https://adsb.fi">adsb.fi</a>`), not
@@ -556,6 +594,244 @@ class MainActivity : Activity() {
         modeButtons.forEach { (mode, btn) ->
             val active = mode == currentMode
             btn.setBackgroundColor(if (active) VcasPalette.parse(VcasPalette.BTN_ACTIVE_BG) else Color.TRANSPARENT)
+        }
+    }
+
+    // ---- Settings screen (2026-08-27) — a structural port of index.html's
+    // #settings-screen + app.js's _openSettingsScreen/_renderAltPresets/
+    // _refreshSettingsScreen, trimmed to the sections that actually have a
+    // real effect in this native app today. See buildSettingsScreen()'s
+    // own doc comment for exactly what's included and what's deliberately
+    // deferred. ----
+
+    /**
+     * A full-screen modal overlay (`FrameLayout`, added last in
+     * `onCreate()` so it draws on top of everything else), matching the
+     * PWA's own `#settings-screen` div — a real in-app screen, not a
+     * separate `Activity`, since there's no reason for this small a
+     * feature to need its own lifecycle/back-stack entry.
+     *
+     * **Two of the PWA's three sections are ported, one deliberately
+     * isn't, stated plainly rather than silently dropped:**
+     * - **Display & Accessibility** → only the colour-blind-safe palette
+     *   toggle. The PWA's Theme (Day/Auto/Night) row and "Range rings in
+     *   Air view" toggle are both skipped — this app has no Day/Night
+     *   theming at all yet (`VcasPalette.kt` has no day variant to switch
+     *   to), and AIR mode has no range-rings map layer built yet either
+     *   (unlike the PWA's real `EosMap.updateRangeRings`). Adding a
+     *   toggle with no real effect behind it would be exactly the kind of
+     *   half-finished control this project's own conventions reject —
+     *   both are real, separate follow-ups once their underlying feature
+     *   exists, not omissions here.
+     * - **Traffic Filtering** → both rows, in full: hide-aircraft-on-
+     *   ground and the low-altitude suppression presets. Both are wired
+     *   to a real filtering pass (`onAircraftUpdated()`'s own doc
+     *   comment) that applies to every mode's aircraft list, matching
+     *   `app.js`'s own single filtering point.
+     * - **Data & Logging** → not included at all. The PWA's "Export
+     *   buffered observations" button exists because `ObservationLogger`/
+     *   the LOG ground-truth panel exist — neither has been ported to
+     *   this native app yet, so there's nothing here for an export
+     *   button to export. A real, separate, much larger follow-up (the
+     *   whole LOG panel/central-log system), not a settings-screen gap.
+     */
+    private fun buildSettingsScreen(): View {
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_DARK))
+            visibility = View.GONE
+        }
+
+        val scroll = android.widget.ScrollView(this)
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 48, 32, 48)
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 32)
+        }
+        val title = TextView(this).apply {
+            text = "Settings"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 20f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        }
+        val close = TextView(this).apply {
+            text = "✕"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 20f
+            setPadding(24, 0, 0, 0)
+            setOnClickListener { closeSettingsScreen() }
+        }
+        header.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(close)
+        body.addView(header)
+
+        body.addView(buildSettingsSectionHeader("Display & Accessibility"))
+        body.addView(buildSettingsToggleRow("Colour-blind-safe palette") { btn ->
+            colorblindToggleBtn = btn
+            btn.setOnClickListener {
+                VcasSettings.toggleColorblindSafe()
+                refreshSettingsScreen()
+                // Re-render immediately rather than waiting for the next GPS/
+                // ADS-B tick, matching app.js's own onColorblindToggleClick().
+                if (currentMode == "raw") {
+                    refreshRawMode()
+                } else if (lastKnownLocation != null) {
+                    renderAirMarkers(latestAircraft)
+                }
+            }
+        })
+
+        body.addView(buildSettingsSectionHeader("Traffic Filtering"))
+        body.addView(buildSettingsToggleRow("Hide aircraft on the ground") { btn ->
+            groundHideToggleBtn = btn
+            btn.setOnClickListener {
+                VcasSettings.setGroundHidden(!VcasSettings.isGroundHidden())
+                refreshSettingsScreen()
+            }
+        })
+        body.addView(TextView(this).apply {
+            text = "Low-altitude suppression"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 20, 0, 8)
+        })
+        body.addView(buildAltPresetsSection())
+
+        scroll.addView(body)
+        overlay.addView(scroll, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        return overlay
+    }
+
+    private fun buildSettingsSectionHeader(text: String): View {
+        return TextView(this).apply {
+            this.text = text
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 32, 0, 12)
+        }
+    }
+
+    /**
+     * A label + a right-aligned On/Off toggle button, matching
+     * `index.html`'s `.settings-row`/`.settings-toggle-btn` shape.
+     * `wireButton` lets the caller both stash the button reference (for
+     * `refreshSettingsScreen()` to update its text/active state later)
+     * and attach its click handler — done this way rather than returning
+     * the button separately since every caller needs to do both anyway.
+     */
+    private fun buildSettingsToggleRow(label: String, wireButton: (TextView) -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 16, 0, 16)
+        }
+        val labelView = TextView(this).apply {
+            text = label
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 14f
+            typeface = VcasFonts.display(this@MainActivity)
+        }
+        val toggleBtn = TextView(this).apply {
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            setPadding(28, 12, 28, 12)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(VcasPalette.parse(VcasPalette.BTN_BG))
+                cornerRadius = 6f
+            }
+        }
+        wireButton(toggleBtn)
+        row.addView(labelView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(toggleBtn)
+        return row
+    }
+
+    /**
+     * "Off (show everything)" + one row per `VcasSettings.
+     * ALT_SUPPRESS_PRESETS_FT` value, matching `_renderAltPresets()`'s own
+     * button set exactly (same values: 200/500/1000/2000/3000ft). Stacked
+     * as full-width rows rather than the PWA's own wrapping flex-row
+     * layout — a plain `LinearLayout` has no wrap behaviour, and stacking
+     * vertically is a reasonable, honest simplification for a first pass
+     * rather than pulling in a flexbox-equivalent dependency for six
+     * buttons.
+     */
+    private fun buildAltPresetsSection(): View {
+        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        fun addPresetButton(key: String, label: String, onClick: () -> Unit) {
+            val btn = TextView(this).apply {
+                text = label
+                setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+                textSize = 13f
+                typeface = VcasFonts.display(this@MainActivity)
+                setPadding(24, 18, 24, 18)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(VcasPalette.parse(VcasPalette.BTN_BG))
+                    cornerRadius = 6f
+                }
+                setOnClickListener { onClick(); refreshSettingsScreen() }
+            }
+            altPresetButtons[key] = btn
+            container.addView(btn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 })
+        }
+
+        addPresetButton("off", "Off (show everything)") {
+            VcasSettings.setAltSuppressThreshold(false, VcasSettings.altSuppressThresholdFt())
+        }
+        VcasSettings.ALT_SUPPRESS_PRESETS_FT.forEach { ft ->
+            addPresetButton(ft.toString(), "Below $ft ft") {
+                VcasSettings.setAltSuppressThreshold(true, ft)
+            }
+        }
+        return container
+    }
+
+    private fun openSettingsScreen() {
+        settingsScreenView?.visibility = View.VISIBLE
+        refreshSettingsScreen()
+    }
+
+    private fun closeSettingsScreen() {
+        settingsScreenView?.visibility = View.GONE
+    }
+
+    /**
+     * Sets a toggle/preset button's active-state colour by mutating its
+     * existing rounded `GradientDrawable` background in place — NOT
+     * `setBackgroundColor()`, which would replace that drawable with a
+     * plain flat `ColorDrawable` and silently lose the rounded corners
+     * every one of these buttons is built with.
+     */
+    private fun setToggleActive(view: TextView, active: Boolean) {
+        val color = VcasPalette.parse(if (active) VcasPalette.BTN_ACTIVE_BG else VcasPalette.BTN_BG)
+        (view.background as? android.graphics.drawable.GradientDrawable)?.setColor(color)
+    }
+
+    /** Re-syncs every dynamic bit of the settings screen with current state — matches `_refreshSettingsScreen()`. */
+    private fun refreshSettingsScreen() {
+        colorblindToggleBtn?.let { btn ->
+            val on = VcasSettings.isColorblindSafeEnabled()
+            btn.text = if (on) "On" else "Off"
+            setToggleActive(btn, on)
+        }
+        groundHideToggleBtn?.let { btn ->
+            val on = VcasSettings.isGroundHidden()
+            btn.text = if (on) "On" else "Off"
+            setToggleActive(btn, on)
+        }
+        val enabled = VcasSettings.isAltSuppressEnabled()
+        val thresholdKey = VcasSettings.altSuppressThresholdFt().toString()
+        altPresetButtons.forEach { (key, btn) ->
+            val active = if (key == "off") !enabled else (enabled && key == thresholdKey)
+            setToggleActive(btn, active)
         }
     }
 
@@ -761,14 +1037,44 @@ class MainActivity : Activity() {
         map.easeCamera(CameraUpdateFactory.newCameraPosition(position), CAMERA_EASE_DURATION_MS)
     }
 
-    private fun onAircraftUpdated(aircraft: List<AircraftExtrapolation.Aircraft>) {
-        latestAircraft = aircraft
-        statusText?.text = "${aircraft.size} aircraft in range"
+    /**
+     * Traffic filtering (2026-08-27, settings screen follow-up) — ports
+     * `app.js`'s own `aircraftList = result.aircraft.filter(...)` pass
+     * (the one place the PWA filters BEFORE feeding either NAV or AIR),
+     * applied here at the same single point every mode's rendering reads
+     * from (`latestAircraft`). The first two checks are unconditional —
+     * no settings toggle governs them, matching the PWA exactly — the
+     * last two are real, user-configurable settings (`VcasSettings.kt`),
+     * previously not filtered anywhere in this native app at all.
+     */
+    private fun onAircraftUpdated(rawAircraft: List<AircraftExtrapolation.Aircraft>) {
+        val filtered = rawAircraft.filter { a ->
+            // Ground service vehicles/fixed obstacles are never aircraft — unconditional, no toggle.
+            if (a.isGroundVehicleOrObstacle) return@filter false
+            // Stale removal — matches CONFIG.REMOVE_THRESHOLD_SECONDS exactly.
+            if (a.lastSeenSeconds >= REMOVE_THRESHOLD_SECONDS) return@filter false
+            // Aircraft themselves on the ground — a real settings toggle, separate
+            // from the altitude threshold below since ground aircraft usually have
+            // no usable altitude at all (see NormaliseAircraft.kt).
+            if (VcasSettings.isGroundHidden() && a.onGround) return@filter false
+            // Low-altitude clutter suppression — only ever suppresses a KNOWN
+            // altitude below the threshold, never missing altitude data.
+            if (VcasSettings.isAltSuppressEnabled() &&
+                a.altitudeFt != null &&
+                a.altitudeFt < VcasSettings.altSuppressThresholdFt()
+            ) {
+                return@filter false
+            }
+            true
+        }
+
+        latestAircraft = filtered
+        statusText?.text = "${filtered.size} aircraft in range"
 
         if (currentMode == "raw") {
             refreshRawMode()
         } else {
-            renderAirMarkers(aircraft)
+            renderAirMarkers(filtered)
         }
     }
 
@@ -799,9 +1105,16 @@ class MainActivity : Activity() {
             val title = (a.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: a.hex) + " · " + (a.type ?: "?")
             val info = "$title\n${vis.label} · $altText · ${"%.1f".format(distanceNm)} nm"
 
-            val iconName = PhoneAircraftIcons.iconNameFor(vis.shape, vis.color, vis.fillOpacity, a.trackDeg)
+            // Colourblind-safe palette (2026-08-27) — AIR/HYBRID have no
+            // RAW-style reference-fidelity color to weigh against, unlike
+            // RawPlotView.kt's own displayColorHex(), so this is just a
+            // straight swap: vis.color normally, vis.colorblindSafe when
+            // the setting is on, matching ui.js's own _displayColor()
+            // priority (colourblind wins whenever it's enabled).
+            val colorHex = if (VcasSettings.isColorblindSafeEnabled()) vis.colorblindSafe.ifBlank { vis.color } else vis.color
+            val iconName = PhoneAircraftIcons.iconNameFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg)
             if (style.getImage(iconName) == null) {
-                style.addImage(iconName, PhoneAircraftIcons.bitmapFor(vis.shape, vis.color, vis.fillOpacity, a.trackDeg))
+                style.addImage(iconName, PhoneAircraftIcons.bitmapFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg))
             }
 
             val options = SymbolOptions()
@@ -1100,13 +1413,14 @@ class MainActivity : Activity() {
             beyondRange = beyondRange,
             headingDeg = heading,
             speedMph = speedMph,
-            routeInfo = null, // no routing anywhere in this native project yet
+            routeInfo = null, // RAW mode itself carries no route info — that's HYBRID's own guidance card
             square = square,
             anchorY = anchorY,
             bandsNm = activeBandsNm,
             selectedRangeNm = selectedRangeNm,
             selectedHex = selectedHex,
-            chromeTopInsetPx = chromeTopInset.toFloat()
+            chromeTopInsetPx = chromeTopInset.toFloat(),
+            colorblindSafe = VcasSettings.isColorblindSafeEnabled()
         )
 
         rawListView.let { list ->
@@ -1123,7 +1437,7 @@ class MainActivity : Activity() {
             }
         }
         val sortedForList = sortForRawList(allRelevant, rawSortMode)
-        rawListView.update(sortedForList, rawSortMode, beyondRangeHexes, selectedHex)
+        rawListView.update(sortedForList, rawSortMode, beyondRangeHexes, selectedHex, VcasSettings.isColorblindSafeEnabled())
     }
 
     private fun sortForRawList(items: List<Indicators.IndicatorItem>, mode: String): List<Indicators.IndicatorItem> {
@@ -1194,5 +1508,8 @@ class MainActivity : Activity() {
         // Matches app.js's own destination-search debounce (350ms).
         private const val DEST_SEARCH_DEBOUNCE_MS = 350L
         private const val MAX_DEST_SEARCH_RESULTS = 6
+
+        // Matches CONFIG.REMOVE_THRESHOLD_SECONDS (src/config.js) exactly.
+        private const val REMOVE_THRESHOLD_SECONDS = 30.0
     }
 }

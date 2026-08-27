@@ -65,7 +65,13 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
         addView(scrollView, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
-    fun update(items: List<Indicators.IndicatorItem>, sortMode: String, beyondRangeHexes: Set<String>, selectedHex: String?) {
+    fun update(
+        items: List<Indicators.IndicatorItem>,
+        sortMode: String,
+        beyondRangeHexes: Set<String>,
+        selectedHex: String?,
+        colorblindSafe: Boolean = false
+    ) {
         sortButtons.forEach { (key, btn) ->
             val active = key == sortMode
             btn.setBackgroundColor(if (active) Color.argb((0.16f * 255).toInt(), 240, 240, 240) else Color.TRANSPARENT)
@@ -96,7 +102,11 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
                 setOnClickListener { onRowClick?.invoke(item) }
             }
 
-            val colorHex = item.vis.colorRaw.ifBlank { item.vis.color }
+            // Same colourblind-wins-over-RAW-fidelity priority as
+            // RawPlotView.kt's own displayColorHex() — see that function's
+            // doc comment for the full reasoning (mirrors ui.js's
+            // _displayColor()).
+            val colorHex = if (colorblindSafe) item.vis.colorblindSafe.ifBlank { item.vis.color } else item.vis.colorRaw.ifBlank { item.vis.color }
             val dotColor = try { android.graphics.Color.parseColor(colorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
             val dot = View(context).apply {
                 background = android.graphics.drawable.GradientDrawable().apply {
