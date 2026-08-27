@@ -4794,3 +4794,195 @@ against a real compiler — cross-checked against real Android SDK API
 signatures (`Paint`/`Canvas`/`RectF`/`GradientDrawable`/
 `ResourcesCompat` method shapes) where non-obvious, not guessed. The
 real check is still opening this in Android Studio and building it.
+
+## Phone screen, real pass 3: real HYBRID navigation (2026-08-27)
+
+Direct instruction, following on from real pass 2's RAW-mode build and
+a status check on "where's the navigation function": "ok keep working
+then. the starting point for the apk version is the current state of
+the pwa." — the same standing constraint from earlier the same day
+("I insist that we use where that part of the project had reached
+before the move to an apk based app as the starting point") now applied
+to HYBRID specifically. Before writing any code, did the same full
+design-review discipline already established for RAW mode: read
+`src/routing/orsProvider.js`, `src/routing/orsGeocoder.js`,
+`src/navigation/maneuverTracker.js` in full, and the relevant sections
+of `app.js` (`requestRouteTo`, `clearActiveRoute`, `_showRouteCard`/
+`_updateRouteCard`, `_checkOffRoute`, `_rerouteFromCurrentPosition`,
+`_updateGuidanceCard`, `_fmtDistance`/`_fmtDuration`).
+
+**Three new pure-logic Kotlin ports, verified the same way as every
+prior logic port in this project — real `kotlinc`+JUnit4 execution, not
+a read-through:**
+- `OrsProvider.kt` — structural port of `orsProvider.js`'s
+  `getRoute()`/response parsing (`profileFor`, `directionsUrl`,
+  `parseRouteResponse`), same real-`HttpURLConnection`-on-a-background-
+  executor shape `AdsbFiClient.kt` already established. `OrsProviderTest.kt`,
+  7 tests: real ORS response-shape parsing (geometry/distance/duration/
+  steps), missing-steps degrading to an empty list rather than crashing,
+  no-features/malformed-JSON/too-few-coordinates all returning `null`
+  rather than throwing, `profileFor()`'s mode→ORS-profile-id mapping
+  (with an unknown mode falling back to `driving-car`), and
+  `directionsUrl()`'s lon/lat-ordering + URL shape.
+- `OrsGeocoder.kt` — structural port of `orsGeocoder.js`'s
+  `search()`/`parseSearchResponse()` (Pelias-shaped GeoJSON,
+  `features[].properties.label`/`features[].geometry.coordinates`).
+  `OrsGeocoderTest.kt`, 7 tests: label/lon-lat-swap parsing, a missing
+  label falling back to the query text, a feature with no coordinates
+  being skipped rather than crashing the whole parse, empty-features
+  returning an empty list, `MIN_CHARS`(3)/blank-API-key both short-
+  circuiting `search()` without attempting a real network call (which
+  would hang/fail in this sandbox anyway — the actual behavioural
+  guarantee the test checks), and `searchUrl()`'s focus-point param only
+  appearing when both lat/lon are provided. **Not yet wired to a search
+  box UI** — see this pass's own "not yet done" list below.
+- `ManeuverTracker.kt` — structural port of `maneuverTracker.js`'s
+  `nextManeuver()`: finds the user's snapped position via
+  `RouteGeometry.nearestOnLine()` (already ported/tested), locates the
+  current step by `way_points` indexing, and targets the NEXT step
+  (or stays on the current one if already on the last). `ManeuverTrackerTest.kt`,
+  7 tests: targeting the second step from the route start (distance
+  cross-checked against `RouteGeometry.distanceToIndex()` directly, not
+  a hand-computed literal — same discipline `GeoTest.kt`/`RelevanceTest.kt`
+  already established), correctly landing on the arrival step at the
+  route's own end (remaining distance ≈0), staying on the same target
+  mid-step, and four degrade-to-`exists=false` guards (no steps, null
+  steps, too few coordinates, null coordinates).
+
+**Full regression run after adding these three files: 203 tests total
+(the pre-existing 182 + 21 new), zero failures** — confirmed via the
+same standalone Maven-Central-jar `kotlinc`+JUnit4 toolchain used
+throughout this project's Android work, re-run again after this pass's
+`MainActivity.kt`/`PhoneMapContainer.kt` changes to confirm no
+regression (the UI-layer changes don't touch this toolchain's pure-logic
+files at all, but re-running costs nothing and this project's own
+discipline is to verify rather than assume).
+
+**Route line — a real `GeoJsonSource`+`LineLayer`, not a screen
+overlay** (`PhoneMapContainer.kt`'s new `updateRouteLine()`), matching
+the PWA's own "range rings/route line are real map layers" discipline
+(see "Range rings" above) — real pan/zoom/rotate correctness for free
+from MapLibre, deliberately simpler than the PWA's own 3-layer glow/
+line/highlight polyline (`src/map.js`'s `_showRouteCard()`) — one plain
+line, an honest simplification for this first pass. Every non-trivial
+API used (`GeoJsonSource(id, geoJson)` constructor + `setGeoJson(String)`,
+`LineLayer(layerId, sourceId)` + `withProperties()`, `Style.addSource`/
+`addLayer`/`getSource`/`getLayer`/`removeLayer`/`removeSource`,
+`PropertyFactory.lineColor`/`lineWidth`/`lineCap`/`lineJoin`,
+`Property.LINE_CAP_ROUND`/`LINE_JOIN_ROUND`) was cross-checked directly
+against the cloned `maplibre-native` SDK source before use, same
+discipline as every other MapLibre call in this project — not assumed
+from the general shape of a web-MapLibre-GL-JS-style API. Re-applies
+itself after a style reload (the demo-tiles fallback path) via a
+`lastRouteCoordinates`-remembering wrapper, so a route survives the rare
+case of the MapTiler key getting rejected mid-session.
+
+**Tap-to-set-destination**, not the PWA's full debounced name/address
+search box — a deliberate first-pass scope decision, not an oversight:
+`OrsGeocoder.kt` is ported and tested specifically so wiring a real
+search UI later is a small, self-contained follow-up, not a new logic
+problem. `PhoneMapContainer.kt` gained a small `onMapReady()` queue (a
+real MapLibreMap doesn't exist yet at `onCreate()` time, so a listener
+registered there has to be deferred) so `MainActivity.kt` can call
+`map.addOnMapClickListener { point -> onMapTapped(point) }` once. The
+real `MapLibreMap.OnMapClickListener` interface shape (`boolean
+onMapClick(@NonNull LatLng point)`) was confirmed directly against
+`MapLibreMap.java` before writing this, not assumed to mirror
+`OnSymbolClickListener`'s own Boolean-consumed pattern just because it
+looked similar. `onMapTapped()` only acts in HYBRID mode with no route
+already active — cancel via the guidance card's own ✕ button first,
+matching the PWA's own "one destination at a time" shape.
+
+**Guidance/ETA card** (`buildGuidanceCard()`) — a Kotlin-chrome
+equivalent of the PWA's `#guidance-card`+`#route-card`, collapsed into
+one card: a top row (next-maneuver instruction via `ManeuverTracker`, or
+a "tap the map to set a destination" hint, + a ✕ cancel) and a mono-font
+ETA/distance/arrival-clock line below it, structural port of `app.js`'s
+`_updateGuidanceCard()`/`_updateRouteCard()` — remaining distance/
+duration/arrival-clock computed the exact same way the PWA does
+(`RouteGeometry.nearestOnLine()` + `distanceToIndex()` to the route's
+own final coordinate, duration scaled by the remaining-distance
+fraction of the route's own ORS-declared total, matching `_updateRouteCard()`'s
+own reasoning for why a proportional-scaling estimate is more robust
+than summing per-step durations). Hidden entirely outside HYBRID mode —
+a route started in HYBRID keeps running (GPS updates, off-route checks)
+in the background while RAW/AIR are showing, it just isn't displayed
+until the user switches back, matching how the PWA's own route/guidance
+state has always been a NAV-mode-only concept (see "Navigation-side
+status check" above).
+
+**Camera wiring — `updateHybridCamera()`, `mode="nav"` (not `"air"`)
+with `routeActive`/`routeCoordinates` fed from `activeRoute`.** This is
+the first place in EITHER native project (car side or phone side) the
+already-ported `NavigationCameraEvaluator`'s urban/highway/turn state
+machine actually engages off a real route rather than `routeActive=false`
+always forcing the flat `NAV_IDLE` preset — the car side's own GPS-
+wiring follow-up (see above) never had a real route to drive
+`TURN_APPROACH`/`HIGHWAY_GUIDANCE` with. With no active route yet,
+`NAV_IDLE`'s own preset still evaluates (a reasonable "just show me the
+map" default before a destination is picked), matching the PWA's own
+pre-route behaviour.
+
+**Off-route detection + reroute** (`checkOffRoute()`/
+`rerouteFromCurrentPosition()`/`performRouteRequest()`) — a structural
+port of `_checkOffRoute()`/`_rerouteFromCurrentPosition()`: the user's
+real perpendicular distance to the route polyline
+(`RouteGeometry.nearestOnLine()` + `Geo.calculateDistanceMeters()`,
+deliberately a different question from what `ManeuverTracker`'s own
+distance-ALONG-the-route always answers regardless of how far away the
+nearest point really is), `offRouteSinceMs` tracking when the deviation
+FIRST started (reset to null the moment the user's back within
+threshold) so a real deviation has to persist continuously for the full
+dwell delay before a reroute fires — `OFF_ROUTE_THRESHOLD_METERS`/
+`OFF_ROUTE_REROUTE_DELAY_MS` duplicated from `src/config.js`'s
+`CONFIG.OFF_ROUTE_THRESHOLD_METERS`(50)/`OFF_ROUTE_REROUTE_DELAY_SECONDS`(6)
+exactly. `performRouteRequest()` is shared by both the initial
+`requestRouteTo()` and `rerouteFromCurrentPosition()` — a real
+background network call via a single-thread `Executors` pool (same
+`NetworkOnMainThreadException`-avoidance reasoning `AdsbFiClient.kt`
+already established), with `routeRequestToken` captured before dispatch
+and checked after the response lands on the main-looper `Handler` — the
+same stale-response guard `app.js`'s own `_routeRequestToken` provides,
+so a slow, now-superseded request (the route was cleared, or a
+different destination tapped, while this one was still in flight) can't
+clobber newer state. A failed reroute doesn't retry the very next tick —
+`offRouteSinceMs` resets to "now," restarting the dwell delay, matching
+`_rerouteFromCurrentPosition()`'s own reasoning for not hammering ORS
+every ~1s while genuinely off-route and failing.
+
+**Duplicated config, same reasoning as `MAPTILER_KEY`**:
+`ORS_API_KEY` is copied from `src/config.js`'s `CONFIG.ORS_API_KEY` as a
+`MainActivity.kt` companion constant — no build-time bridge between this
+native project and the PWA's own JS config exists, same "keep in sync by
+hand" caveat already established for `MAPTILER_KEY`/`LOG_ENDPOINT`.
+
+**Known, deliberately-scoped simplifications for this pass, stated
+plainly rather than left as silent gaps** (folded into `MainActivity.kt`'s
+own class-level doc comment too, not just here): destination picking is
+tap-the-map only, not the PWA's full debounced search UI; the route line
+is one plain line, not the PWA's 3-layer glow/line/highlight; `TURN_APPROACH`'s
+`DECOUPLED_MANEUVER` bearing mode is computed by
+`NavigationCameraEvaluator` but not yet consumed by
+`applyCameraResult()` — camera bearing always follows the raw GPS fix
+bearing, same as AIR, not yet the route-bearing-decoupled behaviour a
+real turn approach should show; no destination pin/marker on the map
+(the route line itself is the only visual indication of where it leads);
+no off-route camera behaviour beyond the reroute itself firing (the PWA
+has none either beyond the reroute, so this isn't a regression, just
+worth naming). Each is real, separately-scoped follow-up work.
+
+**Honest status, same caveat as every other Android-integration file in
+this project**: never compiled — no Android SDK in this sandbox. Every
+non-trivial MapLibre API call used in this pass (`GeoJsonSource`/
+`LineLayer`/`Style` source-and-layer methods/`PropertyFactory`/
+`MapLibreMap.OnMapClickListener`) was cross-checked directly against the
+cloned `maplibre-native` SDK source before use, same discipline as every
+prior MapLibre integration in this project. `OrsProvider.kt`/
+`OrsGeocoder.kt`/`ManeuverTracker.kt` (the pure-logic layer this pass's
+UI wiring depends on) ARE genuinely, fully verified — real
+`kotlinc`+JUnit4 execution, 203/203 tests passing — the same distinction
+`CameraAnchor.kt`/`NormaliseAircraft.kt` already established for earlier
+passes: pure logic gets real test execution in this sandbox, platform/
+UI code gets source cross-referencing instead, and the real remaining
+check for the latter is still opening this in Android Studio and
+building it.

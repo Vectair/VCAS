@@ -15,6 +15,10 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
 
 /**
  * Owns a real MapLibre `MapView`'s lifecycle for the phone-side, walking-
@@ -93,6 +97,70 @@ class PhoneMapContainer(private val activity: Activity) {
     var symbolManagerInstance: SymbolManager? = null
         private set
 
+    // Deferred "run this once a real MapLibreMap exists" queue — MainActivity
+    // wires HYBRID mode's tap-to-set-destination listener via this rather
+    // than reaching into getMapAsync itself, since onCreate() runs before
+    // the map is actually ready. Re-invoked (not just the FIRST time) on
+    // every style load, including the demo-style fallback below, since
+    // MapLibreMap.OnMapClickListener registration is on the map instance
+    // itself (confirmed via MapLibreMap.java — addOnMapClickListener takes
+    // the listener directly, no Style dependency) and the same MapLibreMap
+    // instance persists across a style reload, so re-adding is a safe,
+    // idempotent no-op duplicate-avoidance concern left to the caller —
+    // MainActivity only ever calls onMapReady() once, from onCreate().
+    private val mapReadyActions = mutableListOf<(MapLibreMap) -> Unit>()
+
+    @MainThread
+    fun onMapReady(action: (MapLibreMap) -> Unit) {
+        val map = mapLibreMapInstance
+        if (map != null) action(map) else mapReadyActions.add(action)
+    }
+
+    // Route line — a real GeoJsonSource+LineLayer (2026-08-27, HYBRID mode
+    // navigation), not a screen overlay, matching the PWA's own "range
+    // rings/route line are real map layers, not a screen-space SVG"
+    // discipline (see CLAUDE.md's "Range rings" section) — real pan/zoom/
+    // rotate correctness for free from MapLibre. Kept deliberately simple
+    // relative to the PWA's own `_showRouteCard()` 3-layer glow/line/
+    // highlight polyline (see src/map.js) — a single real line, not a
+    // faithful line-for-line visual port, an honest simplification for
+    // this first pass.
+    private var lastRouteCoordinates: List<DoubleArray>? = null
+
+    fun updateRouteLine(coordinates: List<DoubleArray>?) {
+        lastRouteCoordinates = coordinates
+        applyRouteLineToStyle()
+    }
+
+    private fun applyRouteLineToStyle() {
+        val style = mapLibreMapInstance?.style ?: return
+        val coordinates = lastRouteCoordinates
+        if (coordinates == null || coordinates.size < 2) {
+            if (style.getLayer(ROUTE_LAYER_ID) != null) style.removeLayer(ROUTE_LAYER_ID)
+            if (style.getSource(ROUTE_SOURCE_ID) != null) style.removeSource(ROUTE_SOURCE_ID)
+            return
+        }
+        val geoJson = routeLineGeoJson(coordinates)
+        val existingSource = style.getSource(ROUTE_SOURCE_ID) as? GeoJsonSource
+        if (existingSource != null) {
+            existingSource.setGeoJson(geoJson)
+        } else {
+            style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, geoJson))
+            val layer = LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+                PropertyFactory.lineColor(Color.parseColor(VcasPalette.ACCENT)),
+                PropertyFactory.lineWidth(5f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+            )
+            style.addLayer(layer)
+        }
+    }
+
+    private fun routeLineGeoJson(coordinates: List<DoubleArray>): String {
+        val coordsJson = coordinates.joinToString(",") { "[${it[0]},${it[1]}]" }
+        return "{\"type\":\"Feature\",\"geometry\":{\"type\":\"LineString\",\"coordinates\":[$coordsJson]}}"
+    }
+
     @MainThread
     fun createView(savedInstanceState: android.os.Bundle?): View {
         MapLibre.getInstance(activity)
@@ -111,7 +179,10 @@ class PhoneMapContainer(private val activity: Activity) {
                 // signature) — only available once this callback fires, not
                 // at getMapAsync time.
                 symbolManagerInstance = SymbolManager(mapView, map, style)
+                applyRouteLineToStyle()
             }
+            mapReadyActions.forEach { it(map) }
+            mapReadyActions.clear()
         }
 
         // Real load failure (e.g. the MapTiler key rejecting a native,
@@ -125,6 +196,7 @@ class PhoneMapContainer(private val activity: Activity) {
                     map.setStyle(Style.Builder().fromUri(demoStyleUrl)) { style ->
                         symbolManagerInstance?.onDestroy()
                         symbolManagerInstance = SymbolManager(mapView, map, style)
+                        applyRouteLineToStyle()
                     }
                 }
             }
@@ -174,5 +246,10 @@ class PhoneMapContainer(private val activity: Activity) {
         mapViewInstance?.onDestroy()
         mapViewInstance = null
         mapLibreMapInstance = null
+    }
+
+    companion object {
+        private const val ROUTE_SOURCE_ID = "vcas-route-source"
+        private const val ROUTE_LAYER_ID = "vcas-route-layer"
     }
 }

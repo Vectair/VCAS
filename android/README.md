@@ -260,9 +260,10 @@ were the whole app. Fixed by:
 - **A RAW/AIR/HYBRID mode switcher** in `MainActivity.kt`, RAW default
   (matching the PWA). GPS/ADS-B keep running regardless of mode; only
   rendering branches.
-- **HYBRID is an honest placeholder** — no real routing/turn-by-turn
-  exists anywhere in this native project yet, so it deliberately reuses
-  AIR's rendering rather than shipping a distinct broken screen.
+- **HYBRID was an honest placeholder in this pass** — no real routing/
+  turn-by-turn existed anywhere in this native project yet, so it
+  deliberately reused AIR's rendering rather than shipping a distinct
+  broken screen. **Superseded by real pass 3, below.**
 - **Real B612/B612 Mono fonts** bundled (`res/font/`, downloaded
   directly from the same Google Fonts CDN the PWA uses) and a real
   `VcasPalette.kt` with the actual Night-theme hex values.
@@ -270,19 +271,36 @@ were the whole app. Fixed by:
 See CLAUDE.md's dated entry for the full design-review provenance, the
 label-decluttering port (the one piece that couldn't be a literal
 translation — Canvas has no `getBoundingClientRect()`), and the complete
-list of what's deliberately not built yet (real Hybrid navigation, RAW's
-real popup card, plot pagination, Day/Night theming).
+list of what's deliberately not built yet (RAW's real popup card, plot
+pagination, Day/Night theming).
+
+## Phone screen, real pass 3: real HYBRID navigation (2026-08-27)
+
+HYBRID now does real routing, not the AIR-reuse placeholder pass 2
+shipped. Three new pure-logic Kotlin ports — `OrsProvider.kt`
+(OpenRouteService directions), `OrsGeocoder.kt` (name/address search,
+ported+tested but not yet wired to a search UI), `ManeuverTracker.kt`
+(next-turn-by-turn instruction) — each with a real `kotlinc`+JUnit4 test
+suite (21 new tests, 203 total across the whole `logic/` package, zero
+failures). `MainActivity.kt`/`PhoneMapContainer.kt` gained: a real route
+line (`GeoJsonSource`+`LineLayer`), tap-to-set-destination, a guidance/
+ETA card, `NavigationCameraEvaluator`'s urban/highway/turn state machine
+actually engaging off a real route for the first time in either native
+project, and off-route detection + automatic reroute (50m threshold /
+6s dwell, matching `src/config.js` exactly). See CLAUDE.md's dated entry
+for the full port writeup and the honest "not yet done" list (search-box
+UI, a multi-layer route line, `TURN_APPROACH`'s decoupled bearing mode,
+a destination marker).
 
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
-navigationCameraEvaluator logic to Kotlin is DONE (see CLAUDE.md — all
-six files plus the discovered `routeGeometry.js`/`normaliseAircraft.js`
-dependencies, each with its own real `kotlinc`+JUnit4-verified test
-suite). Real GPS drives the camera and real ADS-B polling is live (see
-above). Not yet done: feeding polled aircraft through `Indicators`/
-`AircraftExtrapolation` and drawing traffic markers on the map surface,
-the device-compass heading fallback, routing, swapping the demo map
-style for VCAS's real one, and the foreground-service/background-
-execution work. See CLAUDE.md for the full phase list and current
-status.
+navigationCameraEvaluator/routeGeometry logic to Kotlin is DONE (see
+CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
+suite). Real GPS drives the camera, real ADS-B polling is live, and real
+HYBRID-mode routing/guidance/reroute is live (see above). Not yet done:
+the destination search-box UI (`OrsGeocoder.kt` is ready for it), RAW's
+real popup card, the device-compass heading fallback, swapping the demo/
+MapTiler-streets map style for VCAS's real hand-tuned Hybrid look, and
+the foreground-service/background-execution work. See CLAUDE.md for the
+full phase list and current status.

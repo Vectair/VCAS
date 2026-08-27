@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -25,8 +27,12 @@ import org.vectair.vcas.car.logic.AircraftExtrapolation
 import org.vectair.vcas.car.logic.CameraAnchor
 import org.vectair.vcas.car.logic.Geo
 import org.vectair.vcas.car.logic.Indicators
+import org.vectair.vcas.car.logic.ManeuverTracker
 import org.vectair.vcas.car.logic.NavigationCameraEvaluator
+import org.vectair.vcas.car.logic.OrsProvider
+import org.vectair.vcas.car.logic.RouteGeometry
 import org.vectair.vcas.car.logic.Visibility
+import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 /**
@@ -54,12 +60,19 @@ import kotlin.math.roundToInt
  *   already had before this pass (real MapLibre map, real markers,
  *   `mode="air"` flat camera) — unchanged by this entry, just now
  *   correctly understood as one of three, not the whole app.
- * - **HYBRID** — active navigation with aircraft overlaid: NOT built yet.
- *   Real routing/turn-by-turn doesn't exist anywhere in this native
- *   project (car side or phone side), so for now the HYBRID button
- *   deliberately reuses the exact same AIR rendering path rather than
- *   shipping a distinct broken/fake screen — see `switchMode()`'s own
- *   comment. A real, separately-scoped follow-up, not silently skipped.
+ * - **HYBRID** — active navigation with aircraft overlaid: real routing
+ *   (2026-08-27 follow-up, "the starting point for the apk version is
+ *   the current state of the pwa"). Ports `src/routing/orsProvider.js`/
+ *   `orsGeocoder.js`/`navigation/maneuverTracker.js` (as `OrsProvider.kt`/
+ *   `OrsGeocoder.kt`/`ManeuverTracker.kt`, already ported+tested) and
+ *   `app.js`'s `requestRouteTo`/`_checkOffRoute`/
+ *   `_rerouteFromCurrentPosition`/`_updateGuidanceCard`/`_updateRouteCard`
+ *   state machine into this class — see the "---- HYBRID navigation
+ *   ----" section below for the full port writeup. Map markers/camera
+ *   still share AIR's own `renderAirMarkers()`/`applyCameraResult()` —
+ *   only `mode`/`routeActive`/`routeCoordinates` differ in the
+ *   `NavigationCameraEvaluator.Ctx` passed in, matching how the PWA's
+ *   own NAV/AIR modes already share most of their rendering machinery.
  *
  * **GPS/ADS-B**: the exact same `LocationManager`/`AdsbFiClient` pattern
  * `VcasMapRenderer.kt` already established (plain framework
@@ -90,8 +103,15 @@ import kotlin.math.roundToInt
  * instrument" precedent, extended app-wide since there's no settings
  * screen yet to host a toggle); RAW mode's aircraft-tap detail is a
  * plain `Toast`, not the PWA's real popup card (`#popup`) with its own
- * log/suppress buttons — a real, separate follow-up. Each is real,
- * separately-scoped follow-up work.
+ * log/suppress buttons; HYBRID's destination picking is tap-the-map
+ * only, not the PWA's full debounced name/address search UI
+ * (`OrsGeocoder.kt` is ported and tested, just not wired to a search box
+ * yet); HYBRID's route line is one plain `LineLayer`, not the PWA's own
+ * 3-layer glow/line/highlight polyline; `TURN_APPROACH`'s
+ * `DECOUPLED_MANEUVER` bearing mode is computed by
+ * `NavigationCameraEvaluator` but not yet consumed — the camera bearing
+ * always follows the raw GPS fix bearing, same as AIR. Each is real,
+ * separately-scoped follow-up work, not silently skipped.
  */
 class MainActivity : Activity() {
 
@@ -129,6 +149,22 @@ class MainActivity : Activity() {
     private lateinit var rawListView: RawAircraftListView
     private val modeButtons = mutableMapOf<String, TextView>()
 
+    // ---- HYBRID navigation state (2026-08-27) ----
+    private var guidanceCardView: View? = null
+    private var guidanceText: TextView? = null
+    private var etaText: TextView? = null
+    private var cancelRouteButton: View? = null
+
+    private var activeRoute: OrsProvider.Route? = null
+    private var routeDestLat: Double? = null
+    private var routeDestLon: Double? = null
+    private var rerouteInFlight = false
+    private var routeRequestToken = 0
+    private var offRouteSinceMs: Long? = null
+
+    private val routeExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -151,10 +187,18 @@ class MainActivity : Activity() {
         }
         root.addView(rawListView, FrameLayout.LayoutParams(0, 0)) // sized/positioned per-frame in refreshRawMode()
 
+        // Top bar + HYBRID's guidance card stacked in one vertical group so
+        // the card sits directly below the bar rather than both fighting
+        // over the same Gravity.TOP position independently.
+        val topStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val topBar = buildTopBar()
         topBarView = topBar
+        topStack.addView(topBar)
+        val guidanceCard = buildGuidanceCard()
+        guidanceCardView = guidanceCard
+        topStack.addView(guidanceCard)
         root.addView(
-            topBar,
+            topStack,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP)
         )
 
@@ -167,10 +211,70 @@ class MainActivity : Activity() {
 
         setContentView(root)
         applyModeVisibility()
+        updateGuidanceCard()
+
+        // Tap-to-set-destination — HYBRID mode only, gated inside
+        // onMapTapped() itself (registered once here since the real
+        // MapLibreMap doesn't exist yet at onCreate() time; PhoneMapContainer
+        // queues it via onMapReady() until the map is actually ready).
+        mapContainer.onMapReady { map ->
+            map.addOnMapClickListener { point -> onMapTapped(point) }
+        }
 
         if (!hasLocationPermission()) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_PERMISSION_REQUEST_CODE)
         }
+    }
+
+    /**
+     * HYBRID's guidance/ETA card — a Kotlin-chrome equivalent of the PWA's
+     * `#guidance-card`+`#route-card` (`app.js`'s `_updateGuidanceCard()`/
+     * `_updateRouteCard()`), collapsed into one card rather than two
+     * separate DOM elements: a top row (next-maneuver instruction or a
+     * "tap the map" hint, + a ✕ cancel button) and a mono-font ETA/
+     * distance line below it. Hidden outside HYBRID mode entirely — see
+     * `updateGuidanceCard()`.
+     */
+    private fun buildGuidanceCard(): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL_ALT))
+            setPadding(28, 14, 28, 14)
+            visibility = View.GONE
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val guidance = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 15f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        }
+        guidanceText = guidance
+        val cancel = TextView(this).apply {
+            text = "✕"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 18f
+            setPadding(24, 0, 0, 0)
+            visibility = View.GONE
+            setOnClickListener { clearActiveRoute() }
+        }
+        cancelRouteButton = cancel
+        row.addView(guidance, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(cancel)
+
+        val eta = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.mono(this@MainActivity)
+            setPadding(0, 6, 0, 0)
+        }
+        etaText = eta
+
+        card.addView(row)
+        card.addView(eta)
+        return card
     }
 
     /**
@@ -256,12 +360,15 @@ class MainActivity : Activity() {
     }
 
     /**
-     * HYBRID deliberately falls through to the exact same rendering path
-     * as AIR right now — see this class's own doc comment on why a real
-     * distinct Hybrid screen (real routing/turn-by-turn) isn't built yet.
-     * `currentMode` still tracks "hybrid" separately so the toggle bar
-     * highlights the right button and this fallback is easy to find and
-     * replace later (`grep` for this comment) without archaeology.
+     * HYBRID's map/marker rendering still falls through to AIR's own
+     * `renderAirMarkers()`/`applyCameraResult()` — only the
+     * `NavigationCameraEvaluator.Ctx` fed to the shared camera code
+     * differs (`updateHybridCamera()` vs `updateAirCamera()`), matching
+     * how the PWA's own NAV/AIR modes already share most of their
+     * rendering machinery rather than duplicating it. A route started in
+     * HYBRID keeps running (GPS/off-route checks) in the background even
+     * while RAW/AIR are showing — only the guidance card's own visibility
+     * is mode-gated, see `updateGuidanceCard()`.
      */
     private fun switchMode(mode: String) {
         if (mode == currentMode) return
@@ -269,6 +376,7 @@ class MainActivity : Activity() {
         selectedHex = null
         updateModeButtonHighlight()
         applyModeVisibility()
+        updateGuidanceCard()
         if (mode == "raw") refreshRawMode()
     }
 
@@ -302,6 +410,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        routeExecutor.shutdownNow()
         mapContainer.onDestroy()
         super.onDestroy()
     }
@@ -362,10 +471,14 @@ class MainActivity : Activity() {
             lastKnownBearingDeg = location.bearing.toDouble()
         }
 
-        if (currentMode == "raw") {
-            refreshRawMode()
-        } else {
-            updateAirCamera(location)
+        when (currentMode) {
+            "raw" -> refreshRawMode()
+            "hybrid" -> {
+                checkOffRoute(location)
+                updateHybridCamera(location)
+                updateGuidanceCard()
+            }
+            else -> updateAirCamera(location)
         }
     }
 
@@ -379,6 +492,40 @@ class MainActivity : Activity() {
         val ctx = NavigationCameraEvaluator.Ctx(
             mode = "air",
             routeActive = false,
+            userLat = location.latitude,
+            userLon = location.longitude,
+            userSpeedMph = speedMph,
+            viewportWidth = width,
+            viewportHeight = height
+        )
+        val result = cameraEvaluator.evaluate(ctx)
+        applyCameraResult(location, result, width, height)
+    }
+
+    /**
+     * HYBRID's own camera update — `mode="nav"` (not `"air"`) with
+     * `routeActive`/`routeCoordinates` fed from `activeRoute`, so
+     * `NavigationCameraEvaluator`'s urban/highway/turn state machine
+     * actually engages once a route exists (this is the first place in
+     * either native project — car side or phone side — this state
+     * machine runs off a REAL route rather than `routeActive=false`
+     * always forcing `NAV_IDLE`). With no active route it still evaluates
+     * `NAV_IDLE`'s own flat preset, a reasonable "just show me the map,
+     * north/heading-up" default while a destination hasn't been picked
+     * yet — matching the PWA's own NAV_IDLE behaviour before a route is
+     * requested.
+     */
+    private fun updateHybridCamera(location: Location) {
+        val mapView = mapContainer.mapViewInstance ?: return
+        val width = mapView.width.toDouble()
+        val height = mapView.height.toDouble()
+        if (width <= 0.0 || height <= 0.0) return
+
+        val speedMph = if (location.hasSpeed()) location.speed * MPS_TO_MPH else 0.0
+        val ctx = NavigationCameraEvaluator.Ctx(
+            mode = "nav",
+            routeActive = activeRoute != null,
+            routeCoordinates = activeRoute?.geometry,
             userLat = location.latitude,
             userLon = location.longitude,
             userSpeedMph = speedMph,
@@ -466,6 +613,216 @@ class MainActivity : Activity() {
 
         val symbols = symbolManager.create(optionsWithInfo.map { it.first })
         symbols.forEachIndexed { index, symbol -> symbolInfoById[symbol.id] = optionsWithInfo[index].second }
+    }
+
+    // ---- HYBRID navigation: real routing, a structural port of app.js's
+    // requestRouteTo()/clearActiveRoute()/_checkOffRoute()/
+    // _rerouteFromCurrentPosition()/_updateGuidanceCard()/
+    // _updateRouteCard() onto OrsProvider.kt/RouteGeometry.kt/
+    // ManeuverTracker.kt (already ported+tested, see CLAUDE.md's dated
+    // entries for each) — read straight through in full before writing
+    // this, per the standing "the pwa is the starting point" instruction. ----
+
+    /**
+     * Tap-to-set-destination — HYBRID mode only, and only before a route
+     * exists (cancel the active one via the guidance card's ✕ first, same
+     * "one destination at a time" shape the PWA's own `requestRouteTo()`
+     * has). Deliberately does NOT offer the PWA's full debounced name/
+     * address search UI in this pass — `OrsGeocoder.kt` is ported and
+     * tested, just not wired to a search box yet, a real, separately-
+     * scoped follow-up (see this class's own "Known simplifications" doc
+     * comment).
+     */
+    private fun onMapTapped(point: LatLng): Boolean {
+        if (currentMode != "hybrid" || activeRoute != null) return false
+        requestRouteTo(point.latitude, point.longitude)
+        return true
+    }
+
+    private fun requestRouteTo(destLat: Double, destLon: Double) {
+        val origin = lastKnownLocation
+        if (origin == null) {
+            Toast.makeText(this, "Waiting for a GPS fix before routing…", Toast.LENGTH_SHORT).show()
+            return
+        }
+        routeDestLat = destLat
+        routeDestLon = destLon
+        performRouteRequest(origin.latitude, origin.longitude, destLat, destLon) {
+            Toast.makeText(this, "Couldn't find a route", Toast.LENGTH_SHORT).show()
+            routeDestLat = null
+            routeDestLon = null
+        }
+    }
+
+    /**
+     * Off-route recovery — keeps the SAME `routeDestLat`/`routeDestLon`
+     * (unlike `requestRouteTo()`, which sets them), matching
+     * `_rerouteFromCurrentPosition()`'s own "re-request from the user's
+     * current position toward the still-unchanged destination" contract.
+     */
+    private fun rerouteFromCurrentPosition() {
+        if (rerouteInFlight) return
+        val destLat = routeDestLat ?: return
+        val destLon = routeDestLon ?: return
+        val origin = lastKnownLocation ?: return
+        performRouteRequest(origin.latitude, origin.longitude, destLat, destLon) {
+            // A failed reroute doesn't retry next tick — restart the dwell
+            // timer from now, same as app.js's own _rerouteFromCurrentPosition(),
+            // to avoid hammering ORS every ~1s while genuinely off-route and failing.
+            offRouteSinceMs = System.currentTimeMillis()
+        }
+    }
+
+    /**
+     * Shared by both `requestRouteTo()` and `rerouteFromCurrentPosition()`
+     * — a real background network call (`OrsProvider.getRoute()`, plain
+     * blocking `HttpURLConnection`, same reasoning as `AdsbFiClient.kt`'s
+     * own single-thread executor: this would throw
+     * `NetworkOnMainThreadException` run inline). `routeRequestToken` is
+     * captured before dispatch and checked after the response lands — the
+     * same stale-response guard `app.js`'s own `_routeRequestToken`
+     * provides, so a slow, now-superseded request (the user cleared the
+     * route, or tapped a different destination, while this one was still
+     * in flight) can't clobber newer state.
+     */
+    private fun performRouteRequest(
+        originLat: Double,
+        originLon: Double,
+        destLat: Double,
+        destLon: Double,
+        onFailure: () -> Unit
+    ) {
+        val token = ++routeRequestToken
+        rerouteInFlight = true
+        updateGuidanceCard()
+        routeExecutor.execute {
+            val route = OrsProvider.getRoute(ORS_API_KEY, "driving", originLat, originLon, destLat, destLon)
+            mainHandler.post {
+                if (token != routeRequestToken) return@post // superseded — discard
+                rerouteInFlight = false
+                if (route == null) {
+                    onFailure()
+                    updateGuidanceCard()
+                    return@post
+                }
+                activeRoute = route
+                offRouteSinceMs = null
+                mapContainer.updateRouteLine(route.geometry)
+                updateGuidanceCard()
+            }
+        }
+    }
+
+    private fun clearActiveRoute() {
+        routeRequestToken++ // discards any in-flight request/response
+        activeRoute = null
+        routeDestLat = null
+        routeDestLon = null
+        rerouteInFlight = false
+        offRouteSinceMs = null
+        mapContainer.updateRouteLine(null)
+        updateGuidanceCard()
+    }
+
+    /**
+     * A structural port of `_checkOffRoute()` — the user's real
+     * perpendicular distance to the route polyline (via
+     * `RouteGeometry.nearestOnLine()` + `Geo.calculateDistanceMeters()`),
+     * a deliberately different question from what `ManeuverTracker`'s own
+     * "distance along the route" always answers regardless of how far
+     * away the nearest point really is. `offRouteSinceMs` tracks when the
+     * user was FIRST found beyond the threshold, reset to null the moment
+     * they're back within it — a real deviation has to persist
+     * continuously for the full dwell delay before a reroute actually
+     * fires, matching `OFF_ROUTE_THRESHOLD_METERS`/
+     * `OFF_ROUTE_REROUTE_DELAY_SECONDS` from `src/config.js`.
+     */
+    private fun checkOffRoute(location: Location) {
+        val route = activeRoute ?: return
+        if (rerouteInFlight) return
+
+        val nearest = RouteGeometry.nearestOnLine(route.geometry, location.longitude, location.latitude)
+        val perpendicularMeters = Geo.calculateDistanceMeters(
+            location.latitude, location.longitude,
+            nearest.point[1], nearest.point[0]
+        )
+        val now = System.currentTimeMillis()
+        if (perpendicularMeters > OFF_ROUTE_THRESHOLD_METERS) {
+            val since = offRouteSinceMs
+            if (since == null) {
+                offRouteSinceMs = now
+            } else if (now - since >= OFF_ROUTE_REROUTE_DELAY_MS) {
+                rerouteFromCurrentPosition()
+            }
+        } else {
+            offRouteSinceMs = null
+        }
+    }
+
+    /**
+     * A structural port of `_updateGuidanceCard()`/`_updateRouteCard()`,
+     * merged into the one card `buildGuidanceCard()` builds. Hidden
+     * entirely outside HYBRID mode — a route started in HYBRID keeps
+     * running in the background while RAW/AIR are showing (see
+     * `switchMode()`'s own doc comment), it just isn't displayed until
+     * the user switches back.
+     */
+    private fun updateGuidanceCard() {
+        val card = guidanceCardView ?: return
+        if (currentMode != "hybrid") {
+            card.visibility = View.GONE
+            return
+        }
+        card.visibility = View.VISIBLE
+
+        val route = activeRoute
+        if (route == null) {
+            guidanceText?.text = if (rerouteInFlight) "Finding route…" else "Tap the map to set a destination"
+            etaText?.text = ""
+            cancelRouteButton?.visibility = View.GONE
+            return
+        }
+        cancelRouteButton?.visibility = View.VISIBLE
+
+        val location = lastKnownLocation
+        guidanceText?.text = when {
+            rerouteInFlight -> "Rerouting…"
+            location == null -> "Head to destination"
+            else -> {
+                val next = ManeuverTracker.nextManeuver(route.geometry, route.steps, location.longitude, location.latitude)
+                if (next.exists) {
+                    "${next.instruction ?: "Continue"} — ${fmtDistance(next.distanceMeters ?: 0.0)}"
+                } else {
+                    "Head to destination"
+                }
+            }
+        }
+
+        if (location != null) {
+            val nearest = RouteGeometry.nearestOnLine(route.geometry, location.longitude, location.latitude)
+            val remainingMeters = RouteGeometry.distanceToIndex(route.geometry, nearest.segIdx, nearest.t, route.geometry.size - 1)
+            val fraction = if (route.distanceMeters > 0) (remainingMeters / route.distanceMeters).coerceIn(0.0, 1.0) else 0.0
+            val remainingSeconds = route.durationSeconds * fraction
+            val arrivalMs = System.currentTimeMillis() + (remainingSeconds * 1000).toLong()
+            etaText?.text = "${fmtDistance(remainingMeters)} · ${fmtDuration(remainingSeconds)} · ETA ${fmtClock(arrivalMs)}"
+        }
+    }
+
+    // ---- Numerical utilities — ports of app.js's own _fmtDistance/_fmtDuration ----
+
+    private fun fmtDistance(meters: Double): String =
+        if (meters >= 1000) "%.1f km".format(meters / 1000.0) else "${meters.roundToInt()} m"
+
+    private fun fmtDuration(seconds: Double): String {
+        val m = (seconds / 60.0).roundToInt()
+        return if (m >= 60) "${m / 60} h ${m % 60} m" else "$m min"
+    }
+
+    private fun fmtClock(epochMs: Long): String {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = epochMs }
+        val hh = cal.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
+        val mm = cal.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
+        return "$hh:$mm"
     }
 
     // ---- RAW mode: drives RawPlotView/RawAircraftListView off the exact
@@ -615,5 +972,16 @@ class MainActivity : Activity() {
         private const val MIN_LIST_PANEL_WIDTH_DP = 90f
         private const val MIN_LIST_PANEL_HEIGHT_DP = 70f
         private const val STALE_THRESHOLD_SECONDS = 15.0 // matches CONFIG.STALE_THRESHOLD_SECONDS in the PWA (src/config.js)
+
+        // Off-route dwell-timer constants, matching CONFIG.OFF_ROUTE_THRESHOLD_METERS/
+        // OFF_ROUTE_REROUTE_DELAY_SECONDS in src/config.js exactly (50m / 6s).
+        private const val OFF_ROUTE_THRESHOLD_METERS = 50.0
+        private const val OFF_ROUTE_REROUTE_DELAY_MS = 6000L
+
+        // Duplicated from src/config.js's CONFIG.ORS_API_KEY — same "no
+        // build-time bridge to the PWA's own JS config" reasoning already
+        // established for PhoneMapContainer's MAPTILER_KEY. Keep in sync
+        // by hand if the key ever rotates.
+        private const val ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0="
     }
 }
