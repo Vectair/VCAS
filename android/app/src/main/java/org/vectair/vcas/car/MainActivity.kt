@@ -1646,7 +1646,7 @@ class MainActivity : Activity() {
             plotHeight = square.squareSize,
             plotOffsetX = square.squareLeft,
             plotOffsetY = square.squareTop,
-            plotSafeInset = SQUARE_EDGE_MARGIN_DP * density,
+            plotSafeInset = (SQUARE_EDGE_MARGIN_DP * density).toDouble(),
             plotBandsNm = activeBandsNm
         )
 
