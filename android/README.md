@@ -325,6 +325,19 @@ four checks `app.js`'s own fetch loop always has. Day/Night theming and
 Data & Logging (export) are deliberately NOT in this settings screen —
 neither has a real underlying feature yet. See CLAUDE.md's dated entry.
 
+## Native phone screen: first-launch onboarding screen (2026-08-27, same day)
+
+A real first-launch onboarding screen (`buildOnboardingScreen()`, shown
+once per install via `VcasSettings.isOnboardingSeen()`) — Welcome/Three
+views/Getting somewhere/What the symbols mean, matching the PWA's own
+four sections. The legend is generated from the real `Visibility.
+getCategories()` table and `PhoneAircraftIcons.bitmapFor()` (the same
+icon-drawing code the real map markers use), not hand-copied, so it
+can't silently drift from what the app actually renders. "Getting
+somewhere" is reworded from the PWA's own copy (no 📍 button here — the
+HYBRID guidance card shows its search box directly). See CLAUDE.md's
+dated entry.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
@@ -332,9 +345,9 @@ navigationCameraEvaluator/routeGeometry logic to Kotlin is DONE (see
 CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
 suite). Real GPS drives the camera, real ADS-B polling is live, real
 HYBRID-mode routing/guidance/reroute is live, adsb.fi attribution is
-shown, destination search is wired, and a real settings screen with
-traffic filtering exists (see above). Not yet done: an onboarding
-screen, Day/Night theming, RAW's real popup card, the device-compass
+shown, destination search is wired, a real settings screen with traffic
+filtering exists, and first-launch onboarding is shown (see above). Not
+yet done: Day/Night theming, RAW's real popup card, the device-compass
 heading fallback, swapping the demo/MapTiler-streets map style for
 VCAS's real hand-tuned Hybrid look, and the foreground-service/
 background-execution work. See CLAUDE.md for the full phase list and

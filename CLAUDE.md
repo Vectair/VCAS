@@ -5172,3 +5172,73 @@ judgment already applied to `EditText`/`TextWatcher` for the destination
 search box. Verified by careful manual re-reads of the diff plus a
 brace/paren balance check, not a real compiler pass. The real check is
 still opening this in Android Studio and building it.
+
+## Native phone screen: first-launch onboarding screen (2026-08-27, same day)
+
+The next item off the "have we reached the starting point yet?" gap
+list: the PWA's `#onboarding-screen` (shown once per install, distinct
+from a splash — see the PWA's own "First-launch onboarding screen"
+entry above for why a launch splash and a one-time explanation screen
+are deliberately two different things) had no native counterpart.
+
+**`VcasSettings.kt`** gained `isOnboardingSeen()`/`markOnboardingSeen()`,
+backed by a versioned key (`onboarding_seen_v1`, mirroring `app.js`'s own
+`ONBOARDING_SEEN_KEY = "vcas-onboarding-seen-v1"`) — versioned, not a
+bare boolean, so a future symbology change that genuinely warrants
+re-showing it can bump the key deliberately, same reasoning the PWA's
+own key already documents.
+
+**`buildOnboardingScreen()`** — a full-screen modal overlay, same
+structural approach as `buildSettingsScreen()` (a real in-app screen,
+not a separate `Activity`), added last in `onCreate()` — even above the
+settings screen — so it's never accidentally hidden on a fresh install.
+Shown via `maybeShowOnboarding()` (gated on the seen flag, called once
+right after `setContentView()`), dismissed via a bottom CTA button
+(`dismissOnboarding()`) that marks the flag and hides the overlay.
+
+**Content mirrors the PWA's four sections, three carried over close to
+verbatim, one genuinely reworded**: "Welcome to VCAS," "Three views"
+(RAW/AIR/HYBRID tag rows + the range-readout tap-to-cycle note), and
+"What the symbols mean" (the real legend) all still accurately describe
+this native app's actual behaviour, so their copy is kept close to the
+PWA's own wording. "Getting somewhere" is genuinely reworded, not just
+copied — the PWA's own text references tapping a 📍 button to arm a
+dedicated destination-picker mode; this native app's HYBRID guidance
+card shows its search box directly whenever no route is active (see the
+"destination search box" entry above), with no separate arm/disarm
+button to describe, so the copy was rewritten to match what's actually
+there rather than describing a UI element this app doesn't have.
+
+**The legend is generated from the app's real code, not hand-copied
+approximations** — same discipline the PWA's own `_renderOnboardingLegend()`
+already established, applied natively for the first time: `Visibility.
+getCategories()` (the real tier table) drives both the label text and
+`PhoneAircraftIcons.bitmapFor()` — the SAME icon-drawing function every
+real AIR/HYBRID map marker already uses (`trackDeg=null` so no direction
+arrow is drawn, just the bare shape) — for the icon itself. If the real
+tier colours/shapes ever change, this legend changes with them
+automatically; it structurally cannot drift the way a hand-copied legend
+would, exactly the property the PWA's own version is built to guarantee.
+
+**A real, honest difference from the PWA's own legend footnote, not
+silently glossed over**: the PWA's note also describes a "dashed
+outline = predicted entry" modifier. This native app has never
+implemented that modifier anywhere — `PhoneAircraftIcons.kt`'s own doc
+comment already flags this (only the "overhead" chevron shape is
+ported, RAW-only, matching `RawPlotView.kt`'s actual `relevance.reason
+== "overhead"` check) — so the native footnote only mentions the
+chevron, not a feature that doesn't exist yet. Claiming the dashed
+modifier existed here would have been describing the PWA, not this app.
+
+**Honest status, same caveat as every other native UI file in this
+project**: never compiled — no Android SDK in this sandbox.
+`ScrollView`/`ImageView`/`GradientDrawable` are long-stable, basic
+framework APIs, not cross-checked against a cloned SDK source the way
+the MapLibre-specific calls elsewhere in this project are — same
+judgment already applied to the settings screen and destination search
+box. `PhoneAircraftIcons.bitmapFor()` itself is reused unchanged (no new
+API surface), so the only genuinely new platform code here is the
+`ScrollView`/`LinearLayout`/`TextView`/`ImageView` layout tree itself.
+Verified by careful manual re-reads of the diff plus a brace/paren
+balance check, not a real compiler pass. The real check is still
+opening this in Android Studio and building it.

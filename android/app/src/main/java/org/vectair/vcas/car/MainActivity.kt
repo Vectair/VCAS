@@ -22,6 +22,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -177,6 +178,9 @@ class MainActivity : Activity() {
     private var groundHideToggleBtn: TextView? = null
     private val altPresetButtons = mutableMapOf<String, TextView>() // "off" or a PRESETS_FT value as string
 
+    // ---- Onboarding screen state (2026-08-27) ----
+    private var onboardingScreenView: View? = null
+
     // ---- HYBRID navigation state (2026-08-27) ----
     private var guidanceCardView: View? = null
     private var guidanceText: TextView? = null
@@ -256,9 +260,18 @@ class MainActivity : Activity() {
         settingsScreenView = settingsScreen
         root.addView(settingsScreen, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
+        // Added last of all — even above the settings screen (which only
+        // ever opens from an explicit tap, so ordering between the two
+        // doesn't otherwise matter) — see buildOnboardingScreen()'s own
+        // doc comment.
+        val onboardingScreen = buildOnboardingScreen()
+        onboardingScreenView = onboardingScreen
+        root.addView(onboardingScreen, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+
         setContentView(root)
         applyModeVisibility()
         updateGuidanceCard()
+        maybeShowOnboarding()
 
         // Tap-to-set-destination — HYBRID mode only, gated inside
         // onMapTapped() itself (registered once here since the real
@@ -833,6 +846,215 @@ class MainActivity : Activity() {
             val active = if (key == "off") !enabled else (enabled && key == thresholdKey)
             setToggleActive(btn, active)
         }
+    }
+
+    // ---- First-launch onboarding screen (2026-08-27) — a structural port
+    // of index.html's #onboarding-screen + app.js's
+    // _maybeShowOnboarding()/_renderOnboardingLegend()/_initOnboarding(). ----
+
+    // Plain-language one-liners for the legend, keyed by the same `label`
+    // string `Visibility.getCategories()` uses — matches
+    // ONBOARDING_LEGEND_COPY in app.js verbatim, not re-derived wording.
+    // Angular-size thresholds are deliberately left out — "quick
+    // explanation" for non-technical testers, not a physics readout.
+    private val onboardingLegendCopy = mapOf(
+        "Certainly visible" to "Big and close — you shouldn't be able to miss it.",
+        "Likely visible" to "Large enough to actually resolve as an aircraft shape.",
+        "Possibly visible" to "Worth a look if you're already looking that way.",
+        "Very unlikely/not visible" to "Probably too small or far to spot by eye."
+    )
+
+    /**
+     * A full-screen modal overlay, same structural approach as
+     * `buildSettingsScreen()` (real in-app screen, not a separate
+     * `Activity`) — shown once per install (`VcasSettings.
+     * isOnboardingSeen()`), unlike the settings screen which only ever
+     * opens on an explicit tap. Added last in `onCreate()`, even above
+     * the settings screen, so it's never accidentally hidden behind
+     * anything on a fresh install.
+     *
+     * **Content mirrors the PWA's four sections, one adapted rather than
+     * copied verbatim**: "Welcome"/"Three views"/"What the symbols mean"
+     * carry the PWA's own real copy essentially unchanged (still
+     * accurate descriptions of this native app's actual RAW/AIR/HYBRID
+     * behaviour). "Getting somewhere" is reworded — the PWA's own text
+     * references tapping a 📍 button to open a dedicated destination
+     * search UI; this app's HYBRID guidance card shows its search box
+     * directly whenever no route is active (see `buildGuidanceCard()`),
+     * with no separate arm/disarm button to describe.
+     *
+     * **The legend is generated from the app's real code, not hand-
+     * copied approximations** — same discipline the PWA's own
+     * `_renderOnboardingLegend()` doc comment describes: `Visibility.
+     * getCategories()` (the real tier table) drives both the label text
+     * and `PhoneAircraftIcons.bitmapFor()` (the SAME icon-drawing code
+     * every real indicator/marker on screen already uses, with
+     * `trackDeg=null` so no direction arrow is drawn) for the icon
+     * itself — if the real tier colours/shapes ever change, this legend
+     * changes with them automatically, exactly like the PWA's own
+     * `AircraftSymbol.svg()`-driven version.
+     *
+     * **One real, honest difference from the PWA's own legend footnote,
+     * not silently glossed over**: the PWA's note also mentions a
+     * "dashed outline = predicted entry" modifier — this native app has
+     * never implemented that modifier anywhere (`PhoneAircraftIcons.kt`'s
+     * own doc comment already flags this: only the "overhead" chevron
+     * shape is ported, RAW-only, matching `RawPlotView.kt`'s actual
+     * `relevance.reason == "overhead"` check). The footnote here only
+     * mentions the chevron, not a feature that doesn't exist yet.
+     */
+    private fun buildOnboardingScreen(): View {
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_DARK))
+            visibility = View.GONE
+        }
+
+        val scroll = android.widget.ScrollView(this)
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 48, 32, 40)
+        }
+
+        body.addView(TextView(this).apply {
+            text = "Welcome to VCAS"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 20f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        })
+        body.addView(TextView(this).apply {
+            text = "VCAS shows you nearby aircraft while you drive, plotted by bearing and distance so you know where to actually look — plus turn-by-turn navigation to get you somewhere. Two things, one screen."
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 14f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 12, 0, 0)
+        })
+
+        body.addView(buildSettingsSectionHeader("Three views"))
+        body.addView(buildOnboardingTagRow("RAW", "A TCAS/ND-style instrument display — no map, just the traffic picture. Your default view."))
+        body.addView(buildOnboardingTagRow("AIR", "Top-down airspace view, every tracked aircraft, unfiltered."))
+        body.addView(buildOnboardingTagRow("HYBRID", "Road map with traffic overlaid."))
+        body.addView(TextView(this).apply {
+            text = "Tap any aircraft icon or indicator for its details. In RAW, tap the range readout (top right of the display) to cycle through how far out it shows."
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 12, 0, 0)
+        })
+
+        body.addView(buildSettingsSectionHeader("Getting somewhere"))
+        body.addView(TextView(this).apply {
+            text = "In HYBRID mode, search for a destination by name or tap the map directly — VCAS routes you there and keeps tracking traffic the whole way."
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 14f
+            typeface = VcasFonts.display(this@MainActivity)
+        })
+
+        body.addView(buildSettingsSectionHeader("What the symbols mean"))
+        body.addView(TextView(this).apply {
+            text = "Shape and colour show how easy an aircraft should actually be to spot with your own eyes right now — not how close it is on the map."
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 14f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 0, 0, 8)
+        })
+        Visibility.getCategories().forEach { category ->
+            body.addView(buildOnboardingLegendRow(category))
+        }
+        body.addView(TextView(this).apply {
+            text = "In RAW mode, an upward chevron shape means an aircraft is almost directly overhead — look up."
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_MUTED))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 12, 0, 0)
+        })
+
+        val dismiss = TextView(this).apply {
+            text = "Got it — let's go"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 28, 0, 28)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(VcasPalette.parse(VcasPalette.BTN_ACTIVE_BG))
+                cornerRadius = 8f
+            }
+            setOnClickListener { dismissOnboarding() }
+        }
+        body.addView(
+            dismiss,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 32 }
+        )
+
+        scroll.addView(body)
+        overlay.addView(scroll, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        return overlay
+    }
+
+    private fun buildOnboardingTagRow(tag: String, description: String): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8, 0, 8)
+        }
+        val tagView = TextView(this).apply {
+            text = tag
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(16, 8, 16, 8)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(VcasPalette.parse(VcasPalette.ACCENT))
+                cornerRadius = 6f
+            }
+        }
+        val desc = TextView(this).apply {
+            text = description
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(16, 0, 0, 0)
+        }
+        row.addView(tagView)
+        row.addView(desc, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        return row
+    }
+
+    private fun buildOnboardingLegendRow(category: Visibility.Category): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 10, 0, 10)
+        }
+        val icon = ImageView(this).apply {
+            setImageBitmap(PhoneAircraftIcons.bitmapFor(category.shape, category.color, category.fillOpacity, null))
+        }
+        row.addView(icon, LinearLayout.LayoutParams(72, 72).apply { rightMargin = 20 })
+
+        val textColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        textColumn.addView(TextView(this).apply {
+            text = category.label
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        })
+        textColumn.addView(TextView(this).apply {
+            text = onboardingLegendCopy[category.label] ?: ""
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+        })
+        row.addView(textColumn)
+        return row
+    }
+
+    private fun maybeShowOnboarding() {
+        if (VcasSettings.isOnboardingSeen()) return
+        onboardingScreenView?.visibility = View.VISIBLE
+    }
+
+    private fun dismissOnboarding() {
+        VcasSettings.markOnboardingSeen()
+        onboardingScreenView?.visibility = View.GONE
     }
 
     /**
