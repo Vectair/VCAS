@@ -239,6 +239,40 @@ See CLAUDE.md's dated entry for the full reasoning on each, including the
 version-compatibility check done on the new plugin dependency and why the
 map style is a deliberate middle ground, not VCAS's real Hybrid look.
 
+## Phone screen, real pass 2: the three-mode structure (2026-08-26, same day)
+
+Direct correction: phase 1's phone screen wasn't "VCAS with worse
+styling" — it was only ever AIR mode, one of VCAS's three real screens
+(RAW/HYBRID/AIR, each with its own distinct use case), built as if it
+were the whole app. Fixed by:
+
+- **A full design review before writing code** — the entire current
+  `VCAS.css` and `ui.js` read in full this session (not worked from
+  memory), per direct instruction to use "where that part of the
+  project had reached" as the starting point, not a fresh design.
+- **RAW mode built**: `RawPlotView.kt` (Canvas-drawn compass tape,
+  banded range rings, aircraft shapes/arrows/decluttered labels, ND-
+  style range selector) + `RawAircraftListView.kt` (the sortable
+  aircraft-list panel, a real scrolling Android view). A faithful port,
+  reusing the already-tested `Indicators.build()` pipeline exactly as
+  it was designed to be used — this is the first native screen that
+  actually needs it, unlike AIR/HYBRID's map markers.
+- **A RAW/AIR/HYBRID mode switcher** in `MainActivity.kt`, RAW default
+  (matching the PWA). GPS/ADS-B keep running regardless of mode; only
+  rendering branches.
+- **HYBRID is an honest placeholder** — no real routing/turn-by-turn
+  exists anywhere in this native project yet, so it deliberately reuses
+  AIR's rendering rather than shipping a distinct broken screen.
+- **Real B612/B612 Mono fonts** bundled (`res/font/`, downloaded
+  directly from the same Google Fonts CDN the PWA uses) and a real
+  `VcasPalette.kt` with the actual Night-theme hex values.
+
+See CLAUDE.md's dated entry for the full design-review provenance, the
+label-decluttering port (the one piece that couldn't be a literal
+translation — Canvas has no `getBoundingClientRect()`), and the complete
+list of what's deliberately not built yet (real Hybrid navigation, RAW's
+real popup card, plot pagination, Day/Night theming).
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/

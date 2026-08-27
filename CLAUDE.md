@@ -4603,3 +4603,194 @@ comment's own opening/closing delimiters) and came back clean — this was
 new to `styles.xml` specifically, not a latent issue elsewhere. The
 `.kt` files' own `--bg-panel`/`--accent`-style comments are unaffected —
 Kotlin's `//`/`/* */` comments have no such restriction, only XML's do.
+
+## Phone screen, real pass 2: the three-mode structure, RAW mode built (2026-08-26, same day)
+
+Direct correction from the project owner after "phase 1" of the phone
+screen (real icons/map style/chrome, above) still didn't read as VCAS:
+"I want you to build this: https://vectair.github.io/VCAS/... I insist
+that we use where that part of the project had reached before the move
+to an apk based app as the starting point." A prior attempt to scope
+this as "which single thing should I improve next" (map style vs.
+chrome vs. typeface) was the wrong framing entirely — the real gap
+wasn't polish on one screen, it was that the phone app only had ONE
+screen (what phase 1 built was actually just AIR mode) when VCAS has
+always been three separate screens with three different use cases:
+
+- **RAW** — "I'm on the move but don't need navigation assistance and if
+  something crosses my path I want the ability to quickly identify what
+  it is" — passive identification, the PWA's actual dark TCAS-style
+  plot, no map underneath at all.
+- **HYBRID** — "I'm getting navigation assistance but it also gives me
+  the option to identify what's flying past" — real navigation with
+  aircraft data superimposed. Explicit permission to let the map's
+  appearance diverge from the PWA's own hand-tuned Hybrid style if the
+  native build calls for it ("I don't mind if the Hybrid map appearance
+  changes due to the way it's built") — unlike RAW, which should
+  function "essentially like it is now."
+- **AIR** — "I'm not moving so can get a 360 view so am just interested
+  in what's nearby" — stationary, stripped-back, unfiltered ADS-B view.
+  This is what the phase-1 pass already built, just never correctly
+  understood as one of three rather than the whole app.
+
+**A full design review was done before writing any code, per direct
+instruction** ("please go back and fully review the design and style
+choices made") — the ENTIRE current `src/styles/VCAS.css` (2141 lines)
+and `src/ui.js` (1216 lines, every RAW-mode rendering function:
+`renderIndicators`/`declutterRenderedIndicators`/`renderCompassRing`/
+`renderRangeRingsOverlay`/`renderRangeSelector`/`renderAircraftList`/
+`renderSuppressedDots`/`showPopup`) were read in full this session — not
+worked from memory or from this file's own summaries of past sessions,
+matching the project's own repeated "verify against real source" rule
+applied here to design/CSS, not just code logic. `src/aircraftSymbol.js`
+and `src/map/navStyle.js` were already read in earlier sessions (see
+above) and re-confirmed still current.
+
+### RAW mode: built this pass, a faithful Canvas port
+
+New files: `RawPlotView.kt` (a custom `View` — Canvas-drawn compass
+tape, banded range rings, aircraft shapes/direction-arrows/decluttered
+labels, the ND-style range-selector button) and
+`RawAircraftListView.kt` (a real Android view — header sort-button row +
+scrollable rows — for the Stage 3 aircraft-list panel, deliberately NOT
+Canvas-drawn since it's a genuinely scrolling list widget, same
+"use the real platform widget" reasoning already established for
+`SymbolManager`/`MapView` elsewhere in this app).
+
+**Reuses the already-ported, already-tested `Indicators.build()`
+pipeline exactly as designed** — this is the first native consumer that
+actually calls it the way `indicators.js` intends (screen x/y around a
+forward-looking, FOV-restricted anchor), unlike AIR/HYBRID's map
+markers, which deliberately bypass it (see the phase-1 entry above for
+why). `MainActivity.kt`'s new `refreshRawMode()` builds the exact same
+`Indicators.UserState` shape `app.js`'s `refreshIndicators()` does for
+RAW — `plotWidth`/`plotHeight`/`plotOffsetX`/`plotOffsetY` from
+`Geo.computeSquarePlotLayout()`, `anchorY` read from
+`NavigationCameraEvaluator.STATE_PRESETS["NAV_RAW"].anchorY` (not a
+second constant, so it can't drift from the value a real camera would
+derive its own anchor from, matching the JS original's own explicit
+reasoning for doing exactly this), `plotBandsNm` as a slice of
+`RING_BANDS_NM` up to the selected range index. Every constant matches
+the real PWA source, not approximated: `RAW_COMPASS_RESERVED_PX`=80,
+`SQUARE_EDGE_MARGIN_PX`=16, default range index = position of 10nm in
+`RING_BANDS_NM`, `STALE_THRESHOLD_SECONDS`=15 (read from
+`src/config.js`, not guessed).
+
+**Label decluttering is the one piece that couldn't be a literal
+translation, and is called out as such in `RawPlotView.kt`'s own doc
+comment**: the PWA's `declutterRenderedIndicators()` measures REAL
+rendered DOM boxes via `getBoundingClientRect()` after painting; Canvas
+has no such pass. Label width/height instead comes from
+`Paint.measureText()` on the actual two label lines (type, altitude),
+computed before the declutter pass runs rather than after — but the
+algorithm itself (8 compass-direction candidates scored by total
+obstacle overlap, first-clear-candidate wins, leader-line escalation up
+to 5 steps for a still-crowded aircraft) is the same one, including the
+"own icon exempt, own arrow NOT exempt" distinction the PWA's own
+2026-08-24 fix established (see "Labels obscuring their own direction
+arrow" above) — ported directly into the obstacle-gathering code
+(`ownIconExemption` on each `Triple`), not re-derived from scratch.
+
+**Range rings share the exact same `Geo.circularPlotRadius`/
+`bandedRadiusFraction` formula the dots use** — the same "one shared
+source, not two independently-computed values" fix this file already
+documents at length for the PWA's own "8nm aircraft inside the 2nm ring"
+bug (see "Rings and dots share one scale now" above) — ported as the
+starting design here rather than something to rediscover a second time
+in Kotlin. The compass-tape/rings/dots/range-selector/list-panel all
+derive from the exact same `Geo.SquarePlotLayout` computed once per
+frame, matching the PWA's own "one shared source" discipline for the
+same reason.
+
+**A real ambiguity in the PWA's own CSS was resolved by re-deriving,
+not guessing**: the direction-arrow's `translate(-50%,-50%) rotate(deg)
+translateY(-18px)` transform order has two plausible readings — "rotate
+in place while floating above the icon" vs. "orbit the icon's own centre
+point." Re-derived from CSS's actual composition order (rightmost
+transform function applies first, to the element's own local
+coordinates, before earlier ones) rather than assumed: the arrow orbits
+the icon's centre at a fixed radius, pointing outward in the track
+direction — the intuitively-correct "TCAS chevron indicating heading"
+reading, and consistent with how the same ambiguity was already resolved
+for AIR/HYBRID's own `PhoneAircraftIcons.kt` bitmap arrows earlier this
+session. RAW's own `-18px` offset (not AIR's `-16px` — confirmed by
+reading `renderIndicators()` in `ui.js` directly rather than assuming
+the two match) is used here, not the value already baked into
+`PhoneAircraftIcons.kt`'s bitmaps.
+
+### Mode switcher + HYBRID's honest placeholder
+
+`MainActivity.kt` gained a RAW/AIR/HYBRID segmented control (bottom bar,
+`VCAS.css`'s `.mode-toggle` styling ported: flat segments in one
+bevelled bank, active segment gets `--btn-active-bg`), RAW default,
+matching the PWA's own button order and default (see "RAW as default"
+above) rather than inventing a new one. GPS and ADS-B polling now keep
+running continuously regardless of which mode is showing — only the
+RENDERING branches on `currentMode` (`refreshRawMode()` vs. the
+pre-existing AIR camera/marker code, now named `updateAirCamera()`/
+`renderAirMarkers()`) — matching how the PWA's own data polling is mode-
+independent, only its display isn't.
+
+**HYBRID is a deliberate, explicit placeholder, not a distinct broken
+screen** — it reuses the exact same AIR rendering path (`mode="air"`
+camera, `SymbolManager` markers) for now, since real routing/turn-by-
+turn doesn't exist anywhere in this native project yet (car side or
+phone side) and a fake "Hybrid" screen that's really just AIR-with-a-
+different-label would be worse than an honest reuse. `switchMode()`'s
+own doc comment flags exactly this and how to find the fallback
+(`currentMode` still tracks "hybrid" distinctly for the toggle's own
+highlight, even though rendering is identical to AIR right now) —
+building the real thing (real nav camera state machine already ported
+and working on the car side; real map-based routing/turn-by-turn does
+not exist anywhere yet) is next, per the project owner's own stated
+priority order (RAW first, Hybrid last).
+
+### Real B612/B612 Mono fonts, real palette
+
+`VcasFonts.kt`/`VcasPalette.kt` (new) — the actual B612/B612 Mono `.ttf`
+files (downloaded directly from `fonts.gstatic.com`, the same CDN the
+PWA's own Google Fonts `<link>` ultimately resolves to — confirmed
+reachable from this sandbox and downloaded for real, not assumed) are
+bundled in `res/font/` and loaded via `ResourcesCompat.getFont()`
+(back-fills to this project's real `minSdk` 23, unlike the plain
+framework `Resources.getFont()` which is API 26+) — not Android's
+Downloadable Fonts API, which depends on Google Play Services being
+present, an extra runtime dependency this project has otherwise
+consistently avoided. Only 400/700 weights for B612 and 400 for B612
+Mono are bundled, matching the PWA's own `family=B612:wght@400;700`
+and B612 Mono's real absence of a published bold face (synthesized via
+`Typeface.create(base, Typeface.BOLD)`, same fallback behaviour the
+PWA's own CSS comment already documents for the browser). `VcasPalette.kt`
+carries the real Night-theme hex values from `VCAS.css`'s `:root` block
+as Kotlin constants, plus RAW's own forced-dark values (pixel-sampled
+from a real ND reference photo per the PWA's own history, not
+re-sampled here — the same hex values already in `VCAS.css`).
+
+### Honest scope, stated plainly
+
+**Not built this pass, and explicitly not implied by it**: HYBRID's real
+navigation experience (routing, turn-by-turn, a genuine nav-state-machine
+camera distinct from AIR's flat one); RAW's real popup card (`#popup`,
+with its own log/suppress buttons) — aircraft taps currently show a
+plain `Toast` instead; the PWA's own "tap to cycle to the next page" of
+plot icons when more aircraft are relevant than fit (this pass always
+shows the top-priority page via the same viewport-tiered cap, `Indicators.
+capForViewportWidth()`, but never advances past it); Day/Night theming
+anywhere in the native app (always-dark, matching RAW's own "no day mode
+for a cockpit instrument" precedent, extended app-wide since there's no
+settings screen yet to host a toggle). Each is real, separately-scoped
+follow-up work — the project owner's own stated priority order (RAW,
+then Hybrid, AIR already done) is what's being followed, not a plan
+invented here.
+
+**Honest status, same caveat as every other Android-integration file in
+this project**: never compiled — no Android SDK in this sandbox.
+`RawPlotView.kt`/`RawAircraftListView.kt`/the `MainActivity.kt`
+restructuring all reuse the already-verified `Indicators`/`Geo`/
+`Visibility`/`Relevance` Kotlin logic (143+ tests passing via the
+standalone `kotlinc`+JUnit4 toolchain) for their math, but the
+Canvas-drawing/View/touch-handling code itself is new and unverified
+against a real compiler — cross-checked against real Android SDK API
+signatures (`Paint`/`Canvas`/`RectF`/`GradientDrawable`/
+`ResourcesCompat` method shapes) where non-obvious, not guessed. The
+real check is still opening this in Android Studio and building it.
