@@ -338,6 +338,18 @@ somewhere" is reworded from the PWA's own copy (no 📍 button here — the
 HYBRID guidance card shows its search box directly). See CLAUDE.md's
 dated entry.
 
+## Native phone screen: RAW popup card + real aircraft suppression (2026-08-27, same day)
+
+RAW's aircraft-tap detail is a real popup card now (`showRawPopup()`),
+not a `Toast` — callsign/type/distance/altitude/bearing/updated/vis
+badge, plus a real Suppress button. `Indicators.build()`'s
+`suppressedHexes` parameter (ported and tested from day one, but never
+actually fed a real value until now) is wired to a genuine 180-second
+suppression map, gated to the same 5mph distraction threshold the LOG
+button already uses elsewhere. AIR/HYBRID's marker tap stays a `Toast`
+deliberately — neither mode runs `Indicators`/`Relevance`, so there's
+nothing to suppress from there. See CLAUDE.md's dated entry.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
@@ -346,9 +358,9 @@ CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
 suite). Real GPS drives the camera, real ADS-B polling is live, real
 HYBRID-mode routing/guidance/reroute is live, adsb.fi attribution is
 shown, destination search is wired, a real settings screen with traffic
-filtering exists, and first-launch onboarding is shown (see above). Not
-yet done: Day/Night theming, RAW's real popup card, the device-compass
-heading fallback, swapping the demo/MapTiler-streets map style for
-VCAS's real hand-tuned Hybrid look, and the foreground-service/
-background-execution work. See CLAUDE.md for the full phase list and
-current status.
+filtering exists, first-launch onboarding is shown, and RAW has a real
+popup card with aircraft suppression (see above). Not yet done: Day/
+Night theming, the device-compass heading fallback, swapping the demo/
+MapTiler-streets map style for VCAS's real hand-tuned Hybrid look, and
+the foreground-service/background-execution work. See CLAUDE.md for the
+full phase list and current status.

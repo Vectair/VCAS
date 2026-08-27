@@ -117,6 +117,20 @@ import kotlin.math.roundToInt
  * ported and which are deliberately not (Theme, AIR range rings, Data &
  * Logging) and why.
  *
+ * **RAW's aircraft-tap detail is now a real popup card** (2026-08-27,
+ * see the "RAW popup card" section below), not a plain `Toast` — read-
+ * only info + a real Suppress button (wired into `Indicators.build()`'s
+ * own `suppressedHexes` parameter). AIR/HYBRID's marker tap is still a
+ * plain `Toast`, since neither runs `Indicators`/`Relevance` at all (see
+ * this class's own doc comment on why AIR/HYBRID call `Visibility`/`Geo`
+ * directly) — there's nothing to suppress FROM there, so the popup
+ * card's Suppress button has no equivalent meaning on that screen. The
+ * PWA's own ground-truth log-outcome buttons are NOT included in either
+ * popup — that needs `ObservationLogger`/the central-log system, which
+ * hasn't been ported to this native app at all, same reasoning
+ * `buildSettingsScreen()`'s own doc comment gives for excluding "Data &
+ * Logging" from the settings screen.
+ *
  * **Known, deliberately-scoped simplifications, not silently-left
  * gaps**: no own-position marker in AIR/HYBRID (the camera already
  * centres on the true GPS fix); AIR/HYBRID symbols are cleared/rebuilt
@@ -125,16 +139,14 @@ import kotlin.math.roundToInt
  * is always-dark, matching RAW's own "no day mode for a cockpit
  * instrument" precedent — genuinely deferred now because `VcasPalette.kt`
  * has no day-variant colours to switch to, NOT because there's nowhere
- * to put a toggle now that a real settings screen exists); RAW mode's
- * aircraft-tap detail is a plain `Toast`, not the PWA's real popup card
- * (`#popup`) with its own log/suppress buttons; HYBRID's route line is
- * one plain `LineLayer`, not the PWA's own 3-layer glow/line/highlight
- * polyline; no destination pin/marker on the map for either the tap-map
- * or search-box picking method; `TURN_APPROACH`'s `DECOUPLED_MANEUVER`
- * bearing mode is computed by `NavigationCameraEvaluator` but not yet
- * consumed — the camera bearing always follows the raw GPS fix bearing,
- * same as AIR. Each is real, separately-scoped follow-up work, not
- * silently skipped.
+ * to put a toggle now that a real settings screen exists); HYBRID's
+ * route line is one plain `LineLayer`, not the PWA's own 3-layer glow/
+ * line/highlight polyline; no destination pin/marker on the map for
+ * either the tap-map or search-box picking method; `TURN_APPROACH`'s
+ * `DECOUPLED_MANEUVER` bearing mode is computed by
+ * `NavigationCameraEvaluator` but not yet consumed — the camera bearing
+ * always follows the raw GPS fix bearing, same as AIR. Each is real,
+ * separately-scoped follow-up work, not silently skipped.
  */
 class MainActivity : Activity() {
 
@@ -165,12 +177,29 @@ class MainActivity : Activity() {
     private var rawSortMode = "priority"
     private var selectedHex: String? = null
 
+    // Manually-suppressed aircraft (via the popup's Suppress button) —
+    // mirrors app.js's own `suppressedUntil` Map<hex, expiryMs> exactly.
+    private val suppressedUntilMs = mutableMapOf<String, Long>()
+
     private var topBarView: View? = null
     private var modeToggleBar: View? = null
     private var mapContentView: View? = null
     private lateinit var rawPlotView: RawPlotView
     private lateinit var rawListView: RawAircraftListView
     private val modeButtons = mutableMapOf<String, TextView>()
+
+    // ---- RAW popup card state (2026-08-27) ----
+    private var rawPopupView: View? = null
+    private var rawPopupCallsignText: TextView? = null
+    private var rawPopupTypeText: TextView? = null
+    private var rawPopupDistanceText: TextView? = null
+    private var rawPopupAltitudeText: TextView? = null
+    private var rawPopupBearingText: TextView? = null
+    private var rawPopupUpdatedText: TextView? = null
+    private var rawPopupBadgeText: TextView? = null
+    private var rawPopupSuppressBtn: TextView? = null
+    private var rawPopupCurrentHex: String? = null
+    private var rawPopupDismissRunnable: Runnable? = null
 
     // ---- Settings screen state (2026-08-27) ----
     private var settingsScreenView: View? = null
@@ -222,7 +251,7 @@ class MainActivity : Activity() {
         rawPlotView = RawPlotView(this).apply {
             onAircraftTap = { item -> onRawAircraftTap(item) }
             onRangeButtonTap = { onRawRangeCycle() }
-            onEmptyTap = { selectedHex = null }
+            onEmptyTap = { selectedHex = null; hideRawPopup() }
         }
         root.addView(rawPlotView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
@@ -231,6 +260,10 @@ class MainActivity : Activity() {
             onRowClick = { item -> selectedHex = item.aircraft.hex; onRawAircraftTap(item) }
         }
         root.addView(rawListView, FrameLayout.LayoutParams(0, 0)) // sized/positioned per-frame in refreshRawMode()
+
+        val rawPopup = buildRawPopupCard()
+        rawPopupView = rawPopup
+        root.addView(rawPopup, FrameLayout.LayoutParams(0, 0)) // sized/positioned per-tap in showRawPopup()
 
         // Top bar + HYBRID's guidance card stacked in one vertical group so
         // the card sits directly below the bar rather than both fighting
@@ -1577,6 +1610,12 @@ class MainActivity : Activity() {
         val location = lastKnownLocation ?: return
         if (rawPlotView.width <= 0 || rawPlotView.height <= 0) return // not laid out yet
 
+        // Keeps an already-open popup's Suppress button live-updated as
+        // speed changes, rather than only at the moment it was opened —
+        // matches ui.js's own setSpeedMph() being called from every GPS
+        // tick's speed-override convergence point.
+        updateRawPopupInteractivity()
+
         val vw = rawPlotView.width.toDouble()
         val vh = rawPlotView.height.toDouble()
         val speedMph = if (location.hasSpeed()) location.speed * MPS_TO_MPH else 0.0
@@ -1611,7 +1650,14 @@ class MainActivity : Activity() {
             plotBandsNm = activeBandsNm
         )
 
-        val allRelevant = Indicators.build(latestAircraft, userState, STALE_THRESHOLD_SECONDS, null)
+        // Expire manually-suppressed aircraft (via the popup's Suppress
+        // button) — mirrors app.js's own suppressedUntil-pruning loop
+        // in refreshIndicators() exactly, run every call rather than on
+        // a separate timer.
+        val now = System.currentTimeMillis()
+        suppressedUntilMs.entries.removeAll { it.value <= now }
+
+        val allRelevant = Indicators.build(latestAircraft, userState, STALE_THRESHOLD_SECONDS, suppressedUntilMs.keys)
             .filter { it.x != null }
 
         val withinRange = allRelevant.filter { it.vis.slantRangeNm <= selectedRangeNm }
@@ -1689,12 +1735,224 @@ class MainActivity : Activity() {
         refreshRawMode()
     }
 
+    // ---- RAW popup card (2026-08-27) — a structural port of ui.js's
+    // showPopup()/hidePopup(), replacing the plain Toast this class used
+    // for RAW's aircraft-tap detail until now. Read-only info (distance/
+    // altitude/bearing/updated/vis badge) + a real Suppress button (wired
+    // to Indicators.build()'s own suppressedHexes parameter, previously
+    // always passed null — this is the first time this native app has
+    // ever actually suppressed an aircraft). Deliberately does NOT include
+    // the PWA's own ground-truth log-outcome buttons — those need
+    // ObservationLogger/the central-log system, which hasn't been ported
+    // to this native app at all (same reasoning already established for
+    // excluding "Data & Logging" from the settings screen, see
+    // buildSettingsScreen()'s own doc comment) — `showPopup(ind,
+    // onSuppressClick, onLogOutcome)` itself already supports omitting
+    // the log buttons entirely when `onLogOutcome` isn't passed, so this
+    // is a real, already-designed-for variant of the PWA's own popup, not
+    // a half-finished one. ----
+
+    private fun buildRawPopupCard(): View {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 20, 24, 20)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(VcasPalette.parse(VcasPalette.BG_PANEL))
+                cornerRadius = 8f
+                setStroke(2, VcasPalette.parse(VcasPalette.BORDER))
+            }
+            visibility = View.GONE
+        }
+
+        val callsign = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 16f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        }
+        rawPopupCallsignText = callsign
+        val type = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(0, 2, 0, 10)
+        }
+        rawPopupTypeText = type
+        card.addView(callsign)
+        card.addView(type)
+
+        card.addView(buildRawPopupRow("Distance") { rawPopupDistanceText = it })
+        card.addView(buildRawPopupRow("Altitude") { rawPopupAltitudeText = it })
+        card.addView(buildRawPopupRow("Bearing") { rawPopupBearingText = it })
+        card.addView(buildRawPopupRow("Updated") { rawPopupUpdatedText = it })
+
+        val badge = TextView(this).apply {
+            setTextColor(Color.BLACK)
+            textSize = 11f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(16, 6, 16, 6)
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 4f }
+        }
+        rawPopupBadgeText = badge
+        card.addView(
+            badge,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 10 }
+        )
+
+        val suppress = TextView(this).apply {
+            text = "Suppress"
+            gravity = Gravity.CENTER
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 16, 0, 16)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(VcasPalette.parse(VcasPalette.BTN_BG))
+                cornerRadius = 6f
+            }
+            setOnClickListener { onRawPopupSuppressClick() }
+        }
+        rawPopupSuppressBtn = suppress
+        card.addView(
+            suppress,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 14 }
+        )
+
+        return card
+    }
+
+    private fun buildRawPopupRow(label: String, storeValueView: (TextView) -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 3, 0, 3)
+        }
+        row.addView(
+            TextView(this).apply {
+                text = label
+                setTextColor(VcasPalette.parse(VcasPalette.TEXT_MUTED))
+                textSize = 12f
+                typeface = VcasFonts.display(this@MainActivity)
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        val value = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 12f
+            typeface = VcasFonts.mono(this@MainActivity)
+        }
+        storeValueView(value)
+        row.addView(value)
+        return row
+    }
+
+    /**
+     * A structural port of `showPopup()` — positioned near the aircraft's
+     * true plotted point (`item.x`/`item.y`, the same coordinates
+     * `RawPlotView` draws its icon at), clamped to stay on screen. Uses a
+     * fixed estimated card size rather than actually measuring the real
+     * view before it's laid out, matching `showPopup()`'s own
+     * `popW`/`popH` estimate — an honest simplification, not a hidden gap
+     * (this app's popup shape is fixed — no log-button row to make the
+     * real height variable the way the PWA's own estimate has to account
+     * for).
+     */
+    private fun showRawPopup(item: Indicators.IndicatorItem) {
+        val card = rawPopupView ?: return
+        val a = item.aircraft
+
+        rawPopupCurrentHex = a.hex
+        rawPopupCallsignText?.text = a.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: a.hex
+        rawPopupTypeText?.text = a.type ?: "Unknown"
+        rawPopupDistanceText?.text = "%.1f NM".format(item.distanceNm)
+        rawPopupAltitudeText?.text = a.altitudeFt?.let { "%,d ft".format(it.roundToInt()) } ?: "Unknown"
+        rawPopupBearingText?.text = rawBearingLabel(item.relativeBearing, item.vis.isOverhead)
+        rawPopupUpdatedText?.text = "${a.lastSeenSeconds.roundToInt()}s ago"
+
+        rawPopupBadgeText?.text = item.vis.label
+        val colorblind = VcasSettings.isColorblindSafeEnabled()
+        val badgeColorHex = if (colorblind) item.vis.colorblindSafe.ifBlank { item.vis.color } else item.vis.colorRaw.ifBlank { item.vis.color }
+        val badgeColor = try { VcasPalette.parse(badgeColorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
+        (rawPopupBadgeText?.background as? android.graphics.drawable.GradientDrawable)?.setColor(badgeColor)
+
+        updateRawPopupInteractivity()
+
+        val density = resources.displayMetrics.density
+        val popW = (220 * density).toInt()
+        val popH = (215 * density).toInt() // matches showPopup()'s own 180 + 35 (Suppress row, no log buttons) estimate
+        val vw = rawPlotView.width
+        val vh = rawPlotView.height
+        val x = item.x ?: (vw / 2)
+        val y = item.y ?: (vh / 2)
+        val margin = (8 * density).toInt()
+        val gap = (14 * density).toInt()
+        val left = (x - popW / 2).coerceIn(margin, (vw - popW - margin).coerceAtLeast(margin))
+        val top = (y - popH - gap).coerceIn(margin, (vh - popH - margin).coerceAtLeast(margin))
+
+        val lp = card.layoutParams as FrameLayout.LayoutParams
+        lp.width = popW
+        lp.leftMargin = left
+        lp.topMargin = top
+        card.layoutParams = lp
+        card.visibility = View.VISIBLE
+
+        rawPopupDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        val dismissRunnable = Runnable { hideRawPopup() }
+        rawPopupDismissRunnable = dismissRunnable
+        mainHandler.postDelayed(dismissRunnable, RAW_POPUP_DISMISS_MS)
+    }
+
+    private fun hideRawPopup() {
+        rawPopupView?.visibility = View.GONE
+        rawPopupCurrentHex = null
+        rawPopupDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        rawPopupDismissRunnable = null
+    }
+
+    /**
+     * Same distraction/safety gate ui.js's own `_actionsInteractive()`
+     * establishes for the PWA's popup — reading a card and tapping a
+     * specific action is real, sustained screen attention this app
+     * shouldn't invite while actually driving. Called both when the
+     * popup is first shown (`showRawPopup()`) and from `refreshRawMode()`
+     * itself — which every GPS fix and ADS-B poll already re-runs while
+     * in RAW mode — so an already-open popup's Suppress button disables
+     * live the moment effective speed crosses the threshold, not just on
+     * the next tap, matching `setSpeedMph()`'s own "update an already-
+     * open popup live" behaviour without needing a second, separately-
+     * triggered call site.
+     */
+    private fun updateRawPopupInteractivity() {
+        val interactive = currentSpeedMph() <= GPS_HEADING_MIN_SPEED_MPH
+        rawPopupSuppressBtn?.alpha = if (interactive) 1f else 0.45f
+    }
+
+    private fun onRawPopupSuppressClick() {
+        if (currentSpeedMph() > GPS_HEADING_MIN_SPEED_MPH) return
+        val hex = rawPopupCurrentHex ?: return
+        suppressedUntilMs[hex] = System.currentTimeMillis() + SUPPRESS_DURATION_SECONDS * 1000L
+        hideRawPopup()
+        refreshRawMode()
+    }
+
+    private fun currentSpeedMph(): Double {
+        val location = lastKnownLocation ?: return 0.0
+        return if (location.hasSpeed()) location.speed * MPS_TO_MPH else 0.0
+    }
+
+    /** A structural port of ui.js's own `_bearingLabel()`, verbatim. */
+    private fun rawBearingLabel(relativeBearing: Double, isOverhead: Boolean): String {
+        if (isOverhead) return "overhead"
+        val abs = kotlin.math.abs(relativeBearing)
+        if (abs <= 20) return "ahead"
+        if (abs >= 160) return "behind"
+        val side = if (relativeBearing > 0) "right" else "left"
+        if (abs <= 60) return "$side-front"
+        if (abs <= 120) return side
+        return "$side-rear"
+    }
+
     private fun onRawAircraftTap(item: Indicators.IndicatorItem) {
         selectedHex = item.aircraft.hex
-        val a = item.aircraft
-        val altText = a.altitudeFt?.let { "${it.roundToInt()} ft" } ?: "alt n/a"
-        val title = (a.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: a.hex) + " · " + (a.type ?: "?")
-        Toast.makeText(this, "$title\n${item.vis.label} · $altText · ${"%.1f".format(item.distanceNm)} nm", Toast.LENGTH_LONG).show()
+        showRawPopup(item)
         refreshRawMode()
     }
 
@@ -1733,5 +1991,11 @@ class MainActivity : Activity() {
 
         // Matches CONFIG.REMOVE_THRESHOLD_SECONDS (src/config.js) exactly.
         private const val REMOVE_THRESHOLD_SECONDS = 30.0
+
+        // RAW popup card constants — matches CONFIG.GPS_HEADING_MIN_SPEED_MPH/
+        // CONFIG.SUPPRESS_DURATION_SECONDS/ui.js's own POPUP_DISMISS_MS exactly.
+        private const val GPS_HEADING_MIN_SPEED_MPH = 5.0
+        private const val SUPPRESS_DURATION_SECONDS = 180
+        private const val RAW_POPUP_DISMISS_MS = 4000L
     }
 }

@@ -5242,3 +5242,89 @@ API surface), so the only genuinely new platform code here is the
 Verified by careful manual re-reads of the diff plus a brace/paren
 balance check, not a real compiler pass. The real check is still
 opening this in Android Studio and building it.
+
+## Native phone screen: RAW popup card + real aircraft suppression (2026-08-27, same day)
+
+The last item off the original gap list this session worked through:
+RAW's aircraft-tap detail was a plain `Toast` (`onRawAircraftTap()`),
+not the PWA's real popup card. Replaced with a structural port of
+`ui.js`'s `showPopup()`/`hidePopup()`.
+
+**Read-only info, matching the PWA's own field set and formatting**:
+callsign (falls back to hex), type, distance (`%.1f NM`), altitude
+(thousands-grouped, `"%,d ft"`, matching `toLocaleString()`), bearing
+(a straight port of `_bearingLabel()` — ahead/behind/left-front/right-
+rear/etc., or "overhead"), last-updated seconds, and the visibility-tier
+badge — same colour-selection priority the RAW plot icons already use
+(colourblind-safe first, then RAW's own `colorRaw`, then plain `color`).
+
+**A real Suppress button — the first time this native app has ever
+actually suppressed an aircraft.** `Indicators.build()`'s Kotlin port
+has carried a `suppressedHexes: Set<String>?` parameter since it was
+first ported, faithfully mirroring the JS original — but every native
+call site had always passed `null`. `MainActivity.kt` gained
+`suppressedUntilMs: MutableMap<String, Long>`, a direct port of
+`app.js`'s own `suppressedUntil` Map, pruned every `refreshRawMode()`
+call (mirroring the JS original's own prune loop) and fed as the live
+key set. Tapping Suppress sets a 180-second expiry
+(`CONFIG.SUPPRESS_DURATION_SECONDS`, matched exactly) and immediately
+re-renders, so the aircraft actually disappears from the plot/list
+right away rather than waiting for the next poll.
+
+**The same 5mph distraction gate this project has applied everywhere
+else this kind of interaction exists** (the LOG button, the PWA's own
+popup buttons) — `updateRawPopupInteractivity()` dims the Suppress
+button whenever effective speed exceeds `CONFIG.
+GPS_HEADING_MIN_SPEED_MPH` (5), checked both when the popup is first
+shown AND on every subsequent `refreshRawMode()` call (which every GPS
+fix and ADS-B poll already re-runs in RAW mode) — so an already-open
+popup's button disables live the moment speed crosses the threshold,
+matching `setSpeedMph()`'s own "update an already-open popup" behaviour,
+without needing a second, separately-wired call site the way the PWA's
+`applySpeedOverrideIfActive()` convergence point provides. The click
+handler itself also re-checks speed before acting, the same double-
+guard (`_actionsInteractive()` checked both at render time and at click
+time) the PWA's own `_wireLogButtons()`/Suppress handler use.
+
+**Deliberately excludes the PWA's ground-truth log-outcome buttons** —
+`showPopup(ind, onSuppressClick, onLogOutcome)` itself already supports
+omitting them when `onLogOutcome` isn't passed (used for exactly this
+reason wherever the PWA doesn't have a log-observation context), so the
+native popup is a real, already-designed-for variant of the PWA's own
+popup, not a half-finished one. They'd need `ObservationLogger`/the
+central-log system, which hasn't been ported to this native app at all
+— same reasoning `buildSettingsScreen()`'s own doc comment already gives
+for excluding "Data & Logging" from the settings screen.
+
+**Positioned near the aircraft's true plotted point** (`item.x`/
+`item.y` — the exact coordinates `RawPlotView` draws the icon at),
+clamped to stay on screen, using a fixed estimated card size rather than
+truly measuring the real view before layout — matching `showPopup()`'s
+own `popW`/`popH` estimate (an honest simplification the PWA's own
+implementation already makes, not a native-specific shortcut). Auto-
+dismisses after 4 seconds (`POPUP_DISMISS_MS`, matched exactly) via the
+same `mainHandler`/token-free `Runnable` pattern already established
+elsewhere in this class; tapping empty plot space (`onEmptyTap`) also
+hides it immediately, alongside clearing `selectedHex`.
+
+**AIR/HYBRID's marker tap stays a plain `Toast`, deliberately, not an
+oversight** — neither mode runs `Indicators`/`Relevance` at all (see
+this class's own top-level doc comment on why AIR/HYBRID call
+`Visibility`/`Geo` directly instead of the `Indicators` pipeline), so
+there's nothing for a Suppress button to suppress FROM on that screen —
+porting the popup card there would mean building a button with no real
+target, the same "half-finished control" this project's conventions
+already reject elsewhere (see the settings screen's own AIR-range-rings-
+toggle exclusion).
+
+**Honest status, same caveat as every other native UI file in this
+project**: never compiled — no Android SDK in this sandbox.
+`GradientDrawable`/`Handler.postDelayed` are long-stable, basic
+framework APIs already used elsewhere in this file, not newly cross-
+checked against a cloned SDK source. `Indicators.build()`'s
+`suppressedHexes` parameter itself IS genuinely, fully verified — real
+`kotlinc`+JUnit4 execution as part of `IndicatorsTest.kt`'s existing
+suite (this pass didn't change that file, only finally passed it a real
+value from the platform side). Verified by careful manual re-reads of
+the diff plus a brace/paren balance check, not a real compiler pass. The
+real check is still opening this in Android Studio and building it.
