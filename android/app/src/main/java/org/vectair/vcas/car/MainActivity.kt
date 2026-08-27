@@ -2,13 +2,18 @@ package org.vectair.vcas.car
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Location
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.UnderlineSpan
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -281,9 +286,10 @@ class MainActivity : Activity() {
      * Two-line top bar (title + live status) styled with VCAS's real
      * cockpit-panel palette — see `VcasPalette.kt`'s own doc comment.
      * Deliberately NOT the PWA's full top bar (ADS-B status pill,
-     * settings gear, adsb.fi credit line) — `#adsb-credit` in particular
-     * is still owed here before this screen could ever ship beyond
-     * personal use, see CLAUDE.md's Pre-V1 checklist entry.
+     * settings gear) — no settings screen exists natively yet. The
+     * adsb.fi credit line IS included now (2026-08-27 follow-up) — see
+     * `buildAdsbCreditLine()`'s own doc comment for why this one specific
+     * piece couldn't stay deferred the way the rest of the top bar could.
      */
     private fun buildTopBar(): View {
         val bar = LinearLayout(this).apply {
@@ -307,12 +313,56 @@ class MainActivity : Activity() {
         statusText = status
         bar.addView(title)
         bar.addView(status)
+        bar.addView(buildAdsbCreditLine())
 
         val accentRule = View(this).apply { setBackgroundColor(VcasPalette.parse(VcasPalette.ACCENT)) }
         val wrapper = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         wrapper.addView(bar)
         wrapper.addView(accentRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 3))
         return wrapper
+    }
+
+    /**
+     * adsb.fi attribution (2026-08-27) — same real requirement CLAUDE.md's
+     * Pre-V1 checklist and "How VCAS is actually installed" sections
+     * already document at length for the PWA: adsb.fi's usage terms
+     * require an ONGOING citation with a link to their homepage for as
+     * long as their data is displayed, not a one-time acknowledgment —
+     * this is why the PWA places it in its persistent top bar
+     * (`#adsb-credit`, `index.html`) rather than a splash screen shown
+     * once. Every other piece of the PWA's top bar (ADS-B status pill,
+     * settings gear) was fair to defer since this app has no settings
+     * screen yet to gate them behind — this one piece couldn't wait,
+     * since this screen has been polling and displaying adsb.fi's data
+     * since the very first phase-1 pass with no citation anywhere.
+     *
+     * Exact wording matches the PWA's own real markup
+     * (`index.html`: `Data: <a href="https://adsb.fi">adsb.fi</a>`), not
+     * a paraphrase — only the "adsb.fi" substring is underlined/tappable,
+     * mirroring the PWA's own anchor-only-around-the-name link, opened via
+     * a plain `ACTION_VIEW` intent to their real homepage.
+     */
+    private fun buildAdsbCreditLine(): View {
+        val full = "Data: adsb.fi"
+        val linkStart = full.indexOf("adsb.fi")
+        val spannable = SpannableString(full).apply {
+            setSpan(UnderlineSpan(), linkStart, full.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return TextView(this).apply {
+            text = spannable
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 11f
+            setPadding(0, 4, 0, 0)
+            typeface = VcasFonts.display(this@MainActivity)
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://adsb.fi")))
+                } catch (e: Exception) {
+                    // No browser available to handle the intent — not fatal,
+                    // the credit text itself is still visibly present either way.
+                }
+            }
+        }
     }
 
     /**

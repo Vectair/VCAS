@@ -292,15 +292,27 @@ for the full port writeup and the honest "not yet done" list (search-box
 UI, a multi-layer route line, `TURN_APPROACH`'s decoupled bearing mode,
 a destination marker).
 
+## Native phone screen: adsb.fi attribution (2026-08-27, same day)
+
+The one PWA top-bar element that couldn't stay deferred — everything
+else there (ADS-B status pill, settings gear) is a design choice with no
+settings screen yet to gate it behind, but adsb.fi's usage terms require
+an ongoing, visible citation for as long as their data is shown, and
+this screen had none. A small persistent "Data: adsb.fi" line (tappable,
+opens their real homepage) now sits in the top bar, matching the PWA's
+own `#adsb-credit` wording and placement. See CLAUDE.md's dated entry.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
 navigationCameraEvaluator/routeGeometry logic to Kotlin is DONE (see
 CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
-suite). Real GPS drives the camera, real ADS-B polling is live, and real
-HYBRID-mode routing/guidance/reroute is live (see above). Not yet done:
-the destination search-box UI (`OrsGeocoder.kt` is ready for it), RAW's
-real popup card, the device-compass heading fallback, swapping the demo/
-MapTiler-streets map style for VCAS's real hand-tuned Hybrid look, and
-the foreground-service/background-execution work. See CLAUDE.md for the
-full phase list and current status.
+suite). Real GPS drives the camera, real ADS-B polling is live, real
+HYBRID-mode routing/guidance/reroute is live, and adsb.fi attribution is
+now shown (see above). Not yet done: the destination search-box UI
+(`OrsGeocoder.kt` is ready for it), a settings screen, an onboarding
+screen, Day/Night theming, RAW's real popup card, the device-compass
+heading fallback, swapping the demo/MapTiler-streets map style for
+VCAS's real hand-tuned Hybrid look, and the foreground-service/
+background-execution work. See CLAUDE.md for the full phase list and
+current status.

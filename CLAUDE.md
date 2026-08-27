@@ -4986,3 +4986,40 @@ passes: pure logic gets real test execution in this sandbox, platform/
 UI code gets source cross-referencing instead, and the real remaining
 check for the latter is still opening this in Android Studio and
 building it.
+
+## Native phone screen: adsb.fi attribution (2026-08-27, same day)
+
+Direct follow-up to a status question ("have we reached the starting
+point yet?") — flagged as the one gap that's a hard requirement, not
+polish: this screen had been polling and displaying adsb.fi's data since
+the very first phase-1 pass with zero citation anywhere, unlike the PWA,
+which has satisfied its "cite adsb.fi with a link to their homepage, for
+as long as their data is displayed" obligation since 2026-08-23 (see the
+Pre-V1 checklist and "How VCAS is actually installed" sections above).
+
+`MainActivity.kt`'s `buildAdsbCreditLine()` adds a small, persistent line
+to the top bar — visible for the app's entire open duration, not gated
+behind a settings screen or a one-time splash, same reasoning the PWA's
+own `#adsb-credit` placement is built on (an ongoing citation obligation
+can't be satisfied by something dismissed once). Exact wording matches
+the PWA's real markup (`Data: adsb.fi`, only the name itself underlined/
+tappable), opened via a plain `ACTION_VIEW` intent to `https://adsb.fi`
+rather than a paraphrase or a different link target.
+
+Deliberately narrow in scope — this is the ONE piece of the PWA's top
+bar (ADS-B status pill, settings gear, this credit line) pulled forward
+on its own, not a first step toward porting the rest of the top bar.
+The status pill and settings gear stay correctly deferred (there's no
+settings screen to gate a settings gear behind yet); this one specific
+piece couldn't wait because it's the only one that's a hard external
+requirement rather than a design choice.
+
+**Honest status, same caveat as every other native UI file in this
+project**: never compiled — no Android SDK in this sandbox.
+`SpannableString`/`UnderlineSpan`/`Intent(ACTION_VIEW)` are long-stable,
+basic framework APIs, not cross-checked against a cloned SDK source the
+way the MapLibre-specific calls elsewhere in this project are — same
+"ordinary Android SDK usage doesn't need the same level of external
+verification as a third-party library's API surface" judgment already
+applied to `LocationManager`/`requestPermissions()` elsewhere in
+`MainActivity.kt`.
