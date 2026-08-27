@@ -11,11 +11,16 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.TextWatcher
 import android.text.style.UnderlineSpan
 import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -34,6 +39,7 @@ import org.vectair.vcas.car.logic.Geo
 import org.vectair.vcas.car.logic.Indicators
 import org.vectair.vcas.car.logic.ManeuverTracker
 import org.vectair.vcas.car.logic.NavigationCameraEvaluator
+import org.vectair.vcas.car.logic.OrsGeocoder
 import org.vectair.vcas.car.logic.OrsProvider
 import org.vectair.vcas.car.logic.RouteGeometry
 import org.vectair.vcas.car.logic.Visibility
@@ -108,11 +114,14 @@ import kotlin.math.roundToInt
  * instrument" precedent, extended app-wide since there's no settings
  * screen yet to host a toggle); RAW mode's aircraft-tap detail is a
  * plain `Toast`, not the PWA's real popup card (`#popup`) with its own
- * log/suppress buttons; HYBRID's destination picking is tap-the-map
- * only, not the PWA's full debounced name/address search UI
- * (`OrsGeocoder.kt` is ported and tested, just not wired to a search box
- * yet); HYBRID's route line is one plain `LineLayer`, not the PWA's own
- * 3-layer glow/line/highlight polyline; `TURN_APPROACH`'s
+ * log/suppress buttons; HYBRID's destination picking supports both tap-
+ * the-map AND a debounced name/address search box (`OrsGeocoder.kt`,
+ * 2026-08-27 follow-up) but is not gated behind a settings/preferences
+ * screen the way the PWA's own destination picker toggle is (there's no
+ * settings screen natively yet at all); HYBRID's route line is one plain
+ * `LineLayer`, not the PWA's own 3-layer glow/line/highlight polyline;
+ * no destination pin/marker on the map for either picking method;
+ * `TURN_APPROACH`'s
  * `DECOUPLED_MANEUVER` bearing mode is computed by
  * `NavigationCameraEvaluator` but not yet consumed — the camera bearing
  * always follows the raw GPS fix bearing, same as AIR. Each is real,
@@ -158,7 +167,7 @@ class MainActivity : Activity() {
     private var guidanceCardView: View? = null
     private var guidanceText: TextView? = null
     private var etaText: TextView? = null
-    private var cancelRouteButton: View? = null
+    private var activeRouteGroupView: View? = null
 
     private var activeRoute: OrsProvider.Route? = null
     private var routeDestLat: Double? = null
@@ -166,6 +175,18 @@ class MainActivity : Activity() {
     private var rerouteInFlight = false
     private var routeRequestToken = 0
     private var offRouteSinceMs: Long? = null
+
+    // Destination search (2026-08-27 follow-up) — OrsGeocoder.kt, ported
+    // and tested alongside OrsProvider.kt/ManeuverTracker.kt, was left
+    // unwired to any UI in the first HYBRID-navigation pass; this is that
+    // follow-up. See buildGuidanceCard()/scheduleDestSearch()'s own doc
+    // comments for the full port writeup.
+    private var destSearchGroupView: View? = null
+    private var destSearchInput: EditText? = null
+    private var destSearchStatusText: TextView? = null
+    private var destSearchResultsContainer: LinearLayout? = null
+    private var destSearchToken = 0
+    private var pendingSearchRunnable: Runnable? = null
 
     private val routeExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -235,10 +256,18 @@ class MainActivity : Activity() {
      * HYBRID's guidance/ETA card — a Kotlin-chrome equivalent of the PWA's
      * `#guidance-card`+`#route-card` (`app.js`'s `_updateGuidanceCard()`/
      * `_updateRouteCard()`), collapsed into one card rather than two
-     * separate DOM elements: a top row (next-maneuver instruction or a
-     * "tap the map" hint, + a ✕ cancel button) and a mono-font ETA/
-     * distance line below it. Hidden outside HYBRID mode entirely — see
-     * `updateGuidanceCard()`.
+     * separate DOM elements. Two mutually-exclusive groups, toggled by
+     * `updateGuidanceCard()` based on whether a route is active — a
+     * structural mirror of the PWA's own destination-picker-vs-active-
+     * route split (`#dpb-search-input` vs `#guidance-card`/`#route-card`):
+     * - **No route**: `destSearchGroupView` — a debounced search box
+     *   (`OrsGeocoder.kt`, see `scheduleDestSearch()`'s own doc comment)
+     *   plus a results list, alongside the still-available tap-the-map
+     *   option (`onMapTapped()`).
+     * - **Active route**: `activeRouteGroupView` — a top row (next-
+     *   maneuver instruction, + a ✕ cancel button) and a mono-font ETA/
+     *   distance line below it.
+     * Hidden outside HYBRID mode entirely — see `updateGuidanceCard()`.
      */
     private fun buildGuidanceCard(): View {
         val card = LinearLayout(this).apply {
@@ -247,6 +276,53 @@ class MainActivity : Activity() {
             setPadding(28, 14, 28, 14)
             visibility = View.GONE
         }
+
+        // ---- No-route group: search box + results ----
+        val searchGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val search = EditText(this).apply {
+            hint = "Search destination or tap the map"
+            setHintTextColor(VcasPalette.parse(VcasPalette.TEXT_MUTED))
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 14f
+            typeface = VcasFonts.display(this@MainActivity)
+            setSingleLine(true)
+            setBackgroundColor(Color.TRANSPARENT)
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            setPadding(0, 0, 0, 4)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    scheduleDestSearch(s?.toString() ?: "")
+                }
+            })
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                    pendingSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+                    performDestSearch(text.toString())
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        destSearchInput = search
+        val status = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+            visibility = View.GONE
+        }
+        destSearchStatusText = status
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        destSearchResultsContainer = results
+        searchGroup.addView(search)
+        searchGroup.addView(status)
+        searchGroup.addView(results)
+        destSearchGroupView = searchGroup
+
+        // ---- Active-route group: guidance row + ETA ----
+        val activeGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -262,10 +338,8 @@ class MainActivity : Activity() {
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
             textSize = 18f
             setPadding(24, 0, 0, 0)
-            visibility = View.GONE
             setOnClickListener { clearActiveRoute() }
         }
-        cancelRouteButton = cancel
         row.addView(guidance, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         row.addView(cancel)
 
@@ -277,9 +351,85 @@ class MainActivity : Activity() {
         }
         etaText = eta
 
-        card.addView(row)
-        card.addView(eta)
+        activeGroup.addView(row)
+        activeGroup.addView(eta)
+        activeRouteGroupView = activeGroup
+
+        card.addView(searchGroup)
+        card.addView(activeGroup)
         return card
+    }
+
+    /**
+     * Debounced as-you-type search — a structural port of `app.js`'s
+     * `_searchDestination()` (350ms debounce, `MIN_CHARS`(3) short-
+     * circuit, a monotonic token discarding a slow response to an
+     * earlier keystroke that would otherwise clobber a faster response
+     * to a later one — the exact same `_destSearchToken` pattern
+     * `_routeRequestToken`/this class's own `routeRequestToken` already
+     * use). `Handler.postDelayed`/`removeCallbacks` stands in for the
+     * PWA's `setTimeout`/`clearTimeout`, same mechanism `AdsbFiClient.kt`
+     * already established for its own poll scheduling.
+     */
+    private fun scheduleDestSearch(query: String) {
+        pendingSearchRunnable?.let { mainHandler.removeCallbacks(it) }
+        if (query.trim().length < OrsGeocoder.MIN_CHARS) {
+            clearDestSearchResults()
+            return
+        }
+        val runnable = Runnable { performDestSearch(query) }
+        pendingSearchRunnable = runnable
+        mainHandler.postDelayed(runnable, DEST_SEARCH_DEBOUNCE_MS)
+    }
+
+    private fun performDestSearch(query: String) {
+        val text = query.trim()
+        if (text.length < OrsGeocoder.MIN_CHARS) {
+            clearDestSearchResults()
+            return
+        }
+        val token = ++destSearchToken
+        val location = lastKnownLocation
+        val focusLat = location?.latitude
+        val focusLon = location?.longitude
+        routeExecutor.execute {
+            val results = OrsGeocoder.search(ORS_API_KEY, text, focusLat, focusLon)
+            mainHandler.post {
+                if (token != destSearchToken) return@post // superseded by a newer search
+                renderDestSearchResults(results)
+            }
+        }
+    }
+
+    private fun clearDestSearchResults() {
+        destSearchToken++ // discards any in-flight search response
+        destSearchResultsContainer?.removeAllViews()
+    }
+
+    private fun renderDestSearchResults(results: List<OrsGeocoder.Result>) {
+        val container = destSearchResultsContainer ?: return
+        container.removeAllViews()
+        results.take(MAX_DEST_SEARCH_RESULTS).forEach { result ->
+            val row = TextView(this).apply {
+                text = result.label
+                setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+                textSize = 13f
+                typeface = VcasFonts.display(this@MainActivity)
+                setPadding(0, 16, 0, 16)
+                setOnClickListener { onDestSearchResultSelected(result) }
+            }
+            container.addView(row)
+        }
+    }
+
+    private fun onDestSearchResultSelected(result: OrsGeocoder.Result) {
+        destSearchInput?.let { input ->
+            input.text?.clear()
+            val imm = getSystemService(InputMethodManager::class.java)
+            imm?.hideSoftInputFromWindow(input.windowToken, 0)
+        }
+        clearDestSearchResults()
+        requestRouteTo(result.lat, result.lon)
     }
 
     /**
@@ -677,11 +827,10 @@ class MainActivity : Activity() {
      * Tap-to-set-destination — HYBRID mode only, and only before a route
      * exists (cancel the active one via the guidance card's ✕ first, same
      * "one destination at a time" shape the PWA's own `requestRouteTo()`
-     * has). Deliberately does NOT offer the PWA's full debounced name/
-     * address search UI in this pass — `OrsGeocoder.kt` is ported and
-     * tested, just not wired to a search box yet, a real, separately-
-     * scoped follow-up (see this class's own "Known simplifications" doc
-     * comment).
+     * has). The alternative, faster path — searching by name/address —
+     * is `buildGuidanceCard()`'s own debounced search box
+     * (`scheduleDestSearch()`, 2026-08-27 follow-up); both paths converge
+     * on this same `requestRouteTo()` call.
      */
     private fun onMapTapped(point: LatLng): Boolean {
         if (currentMode != "hybrid" || activeRoute != null) return false
@@ -771,6 +920,8 @@ class MainActivity : Activity() {
         rerouteInFlight = false
         offRouteSinceMs = null
         mapContainer.updateRouteLine(null)
+        destSearchInput?.text?.clear()
+        clearDestSearchResults()
         updateGuidanceCard()
     }
 
@@ -826,13 +977,19 @@ class MainActivity : Activity() {
         card.visibility = View.VISIBLE
 
         val route = activeRoute
+        destSearchGroupView?.visibility = if (route == null) View.VISIBLE else View.GONE
+        activeRouteGroupView?.visibility = if (route == null) View.GONE else View.VISIBLE
         if (route == null) {
-            guidanceText?.text = if (rerouteInFlight) "Finding route…" else "Tap the map to set a destination"
-            etaText?.text = ""
-            cancelRouteButton?.visibility = View.GONE
+            destSearchStatusText?.apply {
+                if (rerouteInFlight) {
+                    text = "Finding route…"
+                    visibility = View.VISIBLE
+                } else {
+                    visibility = View.GONE
+                }
+            }
             return
         }
-        cancelRouteButton?.visibility = View.VISIBLE
 
         val location = lastKnownLocation
         guidanceText?.text = when {
@@ -1033,5 +1190,9 @@ class MainActivity : Activity() {
         // established for PhoneMapContainer's MAPTILER_KEY. Keep in sync
         // by hand if the key ever rotates.
         private const val ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0="
+
+        // Matches app.js's own destination-search debounce (350ms).
+        private const val DEST_SEARCH_DEBOUNCE_MS = 350L
+        private const val MAX_DEST_SEARCH_RESULTS = 6
     }
 }

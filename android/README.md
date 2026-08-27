@@ -302,17 +302,25 @@ this screen had none. A small persistent "Data: adsb.fi" line (tappable,
 opens their real homepage) now sits in the top bar, matching the PWA's
 own `#adsb-credit` wording and placement. See CLAUDE.md's dated entry.
 
+## Native phone screen: destination search box (2026-08-27, same day)
+
+HYBRID's destination picking is no longer tap-the-map only.
+`buildGuidanceCard()` now shows a debounced search box (`OrsGeocoder.kt`,
+already ported+tested, now actually wired) when no route is active,
+with results tappable to route there — same 350ms debounce/staleness-
+token pattern as `app.js`'s own `_searchDestination()`. Tap-the-map still
+works alongside it. See CLAUDE.md's dated entry.
+
 ## What's next (not started)
 
 Porting the geo/visibility/relevance/indicators/aircraftExtrapolation/
 navigationCameraEvaluator/routeGeometry logic to Kotlin is DONE (see
 CLAUDE.md — each with its own real `kotlinc`+JUnit4-verified test
 suite). Real GPS drives the camera, real ADS-B polling is live, real
-HYBRID-mode routing/guidance/reroute is live, and adsb.fi attribution is
-now shown (see above). Not yet done: the destination search-box UI
-(`OrsGeocoder.kt` is ready for it), a settings screen, an onboarding
-screen, Day/Night theming, RAW's real popup card, the device-compass
-heading fallback, swapping the demo/MapTiler-streets map style for
-VCAS's real hand-tuned Hybrid look, and the foreground-service/
-background-execution work. See CLAUDE.md for the full phase list and
-current status.
+HYBRID-mode routing/guidance/reroute is live, adsb.fi attribution is
+shown, and destination search is wired (see above). Not yet done: a
+settings screen, an onboarding screen, Day/Night theming, RAW's real
+popup card, the device-compass heading fallback, swapping the demo/
+MapTiler-streets map style for VCAS's real hand-tuned Hybrid look, and
+the foreground-service/background-execution work. See CLAUDE.md for the
+full phase list and current status.

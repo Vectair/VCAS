@@ -5023,3 +5023,63 @@ way the MapLibre-specific calls elsewhere in this project are — same
 verification as a third-party library's API surface" judgment already
 applied to `LocationManager`/`requestPermissions()` elsewhere in
 `MainActivity.kt`.
+
+## Native phone screen: destination search box (2026-08-27, same day)
+
+The other real gap from the "have we reached the starting point yet?"
+status check: HYBRID's destination picking was tap-the-map only —
+`OrsGeocoder.kt` was ported and fully tested in the same pass that built
+real HYBRID navigation, but never wired to a search UI. That follow-up
+now, structurally porting `app.js`'s `_searchDestination()`.
+
+**`buildGuidanceCard()` now has two mutually-exclusive groups**, toggled
+by `updateGuidanceCard()` on whether a route is active — a structural
+mirror of the PWA's own destination-picker-vs-active-route split
+(`#dpb-search-input` vs `#guidance-card`/`#route-card`): a search box +
+results list when there's no route, the existing guidance/ETA row once
+one exists. Tap-the-map (`onMapTapped()`) still works alongside the
+search box, unchanged — both converge on the same `requestRouteTo()`.
+
+**Debounce/staleness handling matches the PWA's own exactly, not a
+simplified version**: `scheduleDestSearch()` uses `Handler.postDelayed`/
+`removeCallbacks` as the direct equivalent of `app.js`'s `setTimeout`/
+`clearTimeout` (same mechanism `AdsbFiClient.kt`'s poll scheduling
+already established), at the same 350ms delay and `OrsGeocoder.
+MIN_CHARS`(3) short-circuit. `destSearchToken` is the same monotonic-
+token pattern this class's own `routeRequestToken` already uses (and
+`app.js`'s `_destSearchToken` itself mirrors) — a slow response to an
+earlier keystroke can't clobber a faster response to a later one. The
+IME's own search action (`EditorInfo.IME_ACTION_SEARCH`) forces an
+immediate lookup, cancelling any pending debounced one first, matching
+the PWA's own Enter-key behaviour (`destSearchInput`'s `keydown`
+handler in `app.js`).
+
+**A small addition beyond a literal port**: a `destSearchStatusText`
+line shows "Finding route…" while a route request from a selected
+search result is in flight — the PWA's own `_searchDestination()`/
+`_onDestSearchResultSelected()` don't have an equivalent status text at
+this exact spot (their loading state lives on the route-request button
+itself, `#btn-test-route`, which nothing in the native card structure
+maps to 1:1) — added because leaving the search UI showing nothing at
+all while an actual network request is in flight would read as
+unresponsive, not because the PWA has a matching element to mirror.
+
+Selecting a result (`onDestSearchResultSelected()`) clears the input
+text and search results, dismisses the soft keyboard
+(`InputMethodManager.hideSoftInputFromWindow`), and calls the same
+`requestRouteTo()` the tap-to-map path already uses. `clearActiveRoute()`
+now also clears any leftover search text/results, so cancelling a route
+returns to a genuinely fresh search box rather than one still showing a
+stale prior query.
+
+**Honest status, same caveat as the rest of this native project**: never
+compiled — this sandbox has no Android SDK at all (not even for basic
+framework classes like `EditText`/`TextWatcher`/`InputMethodManager`,
+unlike the pure-`logic/` package files this project can genuinely
+compile+test standalone). Verified by careful manual re-reads of the
+diff plus a brace/paren balance check, not a real compiler pass —
+`EditText`/`TextWatcher`/`InputMethodManager`/`EditorInfo` are long-
+stable, basic framework APIs, not cross-checked against a cloned SDK
+source the way the MapLibre-specific calls in this project are (same
+judgment already applied to the adsb.fi attribution line above). The
+real check is still opening this in Android Studio and building it.
