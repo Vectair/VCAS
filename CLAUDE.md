@@ -5328,3 +5328,71 @@ suite (this pass didn't change that file, only finally passed it a real
 value from the platform side). Verified by careful manual re-reads of
 the diff plus a brace/paren balance check, not a real compiler pass. The
 real check is still opening this in Android Studio and building it.
+
+## PWA: split "not visible" ground-truth log outcome into obstruction/weather/no-reason (2026-08-27)
+
+Direct instruction: the LOG panel/popup's `not_visible_missed` outcome
+was conflating three genuinely different reasons for not seeing an
+aircraft — a physical obstruction (building, trees), weather (aircraft
+above an overcast layer, or obscured by cloud/precipitation), and "no
+identifiable reason at all." Stated motivation: recording the weather
+case specifically will build a real, correlatable dataset against METAR
+conditions at observation time, which is exactly the kind of evidence
+`README.md`'s own "Ground-Truth Log Panel" section already describes
+this tool as existing to collect ("this panel is how that gap gets
+measured before it gets modelled") — but the old two-way split couldn't
+distinguish "the METAR-driven visibility model was wrong about this
+specific cloud/precipitation case" from "the underlying angular-size
+model was wrong for some other, unidentified reason," which is a much
+weaker signal for calibrating the METAR adjustment specifically.
+
+**`ObservationLogger.OUTCOMES`** (`src/dev/observationLogger.js`) is the
+single source both the LOG panel (`logPanel.js`'s `_buildRow()`) and the
+NAV/AIR popup's log buttons (`ui.js`'s `_logButtonsHtml()`) already build
+their button rows from dynamically — adding `not_visible_weather` here
+was the only code change needed; neither consumer hardcodes a button
+count. Verified both are genuinely dynamic by reading them directly
+(`ObservationLogger.OUTCOMES.forEach(...)`/`.map(...)`) rather than
+assumed. Also relabelled `not_visible_missed`'s title from "just not
+seen" to "no other reason" — same code, but the old wording read as a
+catch-all that could still include a weather-caused miss; the new
+wording matches the exact framing the split exists to make true ("if I
+can't see it but there is no other reason").
+
+**Layout checked, not just hoped fine**: both consumers already handle a
+variable-length outcome list without a fixed-width assumption — the
+popup's `.pop-log-actions` uses `display:flex` with `flex:1` per button
+(evenly redistributes width regardless of count), and the LOG panel's
+`.lp-actions`/`.lp-row` already combine `flex-shrink:0` on the button
+group with `min-width:0` + ellipsis truncation on the row's info text
+(`.lp-meta`), which was clearly already designed to absorb a variable-
+width sibling. Read both stylesheet rules directly (`src/styles/
+VCAS.css`) before concluding a 5th fixed-24px `.lp-btn` wouldn't break
+the LOG panel's row layout, rather than assuming a flex row is
+automatically fine.
+
+`☁` was chosen for the new button (matching the existing glyph-only
+button convention — ✈/〜/▨/✕ — and README's own icon-table format) over
+a symbol that could be confused with either ▨ (obstruction) or the
+existing aircraft-shape legend glyphs elsewhere in the app.
+
+**Not done, and deliberately out of scope for this instruction**: the
+observation payload itself (`buildObservation()`) still doesn't snapshot
+the actual METAR conditions in effect at the time of the sighting — only
+`item.vis`'s already-computed label/score/angularSizeDeg/elevationDeg/
+slantRangeNm. Recording the outcome category is what was asked for;
+actually correlating it against METAR data (either by snapshotting METAR
+state into each observation, or joining against station data
+after-the-fact using the observation's timestamp/lat/lon) is a real,
+separate follow-up for whenever this dataset is actually analysed, not
+assumed as an implied part of this change.
+
+**Honest status**: not verified against a live render this pass (no
+Playwright run) — this is a small, mechanically-verified addition to an
+existing, already-dynamic button-building pattern in both consumers,
+not new rendering logic. `README.md`'s own outcome table was updated to
+match. The server-side mirror (`log.php`, not in this repo — see
+"Central observation log" above) is a generic JSON passthrough as far as
+this session could determine from its own description; it has no known
+outcome-code allowlist to update, but wasn't independently re-verified
+this pass since it isn't part of this repo.

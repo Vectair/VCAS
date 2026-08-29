@@ -22,12 +22,27 @@ const ObservationLogger = (() => {
   const LOCAL_STORAGE_KEY = "vcas-observation-log-fallback";
 
   // Shared outcome vocabulary — used by the LOG panel's per-row buttons and
-  // by the same four buttons embedded directly in the NAV/AIR popups.
+  // by the same buttons embedded directly in the NAV/AIR popups.
+  //
+  // not_visible_weather (2026-08-27) splits "not visible" into a third
+  // reason, distinct from both obstruction (a physical object in the way)
+  // and missed (no identifiable reason) — cloud cover between the observer
+  // and the aircraft, or the aircraft being above an overcast layer, or
+  // precipitation heavy enough to obscure it. Direct instruction: this is
+  // specifically to build a real dataset correlating logged outcomes
+  // against METAR conditions at the time, since Visibility.estimate()'s
+  // METAR cloud/visibility adjustment (see README's "Visibility Categories"
+  // section) has never been calibrated against real sightings — a
+  // not_visible_weather observation is real evidence the model's METAR
+  // handling was right (or wrong) for that case, which a not_visible_missed
+  // entry (no identifiable reason at all) can't provide, and which an
+  // obstruction entry would wrongly attribute to terrain/buildings instead.
   const OUTCOMES = [
     { code: "visible_airframe",        label: "✈",  title: "Visible — airframe" },
     { code: "visible_contrail",        label: "〜", title: "Visible — contrail only" },
     { code: "not_visible_obstruction", label: "▨",  title: "Not visible — obstruction" },
-    { code: "not_visible_missed",      label: "✕",  title: "Not visible — just not seen" },
+    { code: "not_visible_weather",     label: "☁",  title: "Not visible — weather/cloud" },
+    { code: "not_visible_missed",      label: "✕",  title: "Not visible — no other reason" },
   ];
 
   /**

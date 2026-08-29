@@ -277,14 +277,17 @@ Neither is on the primary screen or in the real Settings screen (see below) — 
 
 ## Ground-Truth Log Panel
 
-The **LOG** button (bottom-left, always visible) opens a list of *every* currently-tracked aircraft — not just the ones NAV is showing, including ones the relevance filter excluded, since logging "the algorithm was wrong to hide this" is exactly the point. Each row has four outcome buttons:
+The **LOG** button (bottom-left, always visible) opens a list of *every* currently-tracked aircraft — not just the ones NAV is showing, including ones the relevance filter excluded, since logging "the algorithm was wrong to hide this" is exactly the point. Each row has these outcome buttons:
 
 | Button | Meaning |
 |--------|---------|
 | ✈ | Visible — airframe |
 | 〜 | Visible — contrail only |
 | ▨ | Not visible — obstruction (building/terrain in the way) |
-| ✕ | Not visible — just not seen |
+| ☁ | Not visible — weather/cloud (aircraft above an overcast layer, or obscured by cloud/precipitation) |
+| ✕ | Not visible — no other reason |
+
+The obstruction/weather/no-reason split (2026-08-27) is deliberate, not just a finer label: `not_visible_weather` specifically builds a real dataset of METAR-correlatable "couldn't see it because of cloud/precipitation" observations, distinct from a physical obstruction (buildings/terrain — the model has no way to predict that at all) and distinct from "no identifiable reason" (which is the actual signal that the *angular-size* model itself under- or over-predicted). Logging weather-caused misses under the old single `not_visible_missed` code was mixing those three very different failure modes together, which is exactly what made calibrating the METAR cloud/visibility adjustment (see "Visibility Categories" below) against real sightings hard to do with any confidence.
 
 Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in a JSON Lines log (one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later).
 

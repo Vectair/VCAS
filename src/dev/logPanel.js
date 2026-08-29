@@ -2,9 +2,11 @@
  * LogPanel — ground-truth observation tool, on the primary screen.
  *
  * Lists every currently-tracked aircraft (not just the ones NAV is
- * currently showing — see Indicators.buildAll()) with four outcome
- * buttons, so "the algorithm excluded this and that was right/wrong" is
- * loggable too, not just "the algorithm showed this and it was right."
+ * currently showing — see Indicators.buildAll()) with a row of outcome
+ * buttons (see ObservationLogger.OUTCOMES — the single source for the
+ * button set, not duplicated here), so "the algorithm excluded this and
+ * that was right/wrong" is loggable too, not just "the algorithm showed
+ * this and it was right."
  *
  * "Export buffered observations" used to live in this panel's own menu but
  * moved to the settings screen — everything else here stays on the primary
