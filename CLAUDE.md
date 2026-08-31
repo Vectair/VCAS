@@ -5396,3 +5396,42 @@ match. The server-side mirror (`log.php`, not in this repo — see
 this session could determine from its own description; it has no known
 outcome-code allowlist to update, but wasn't independently re-verified
 this pass since it isn't part of this repo.
+
+## PWA: add a "visible — lights only" ground-truth log outcome (2026-08-27, same day)
+
+Direct instruction, same session as the not_visible_weather split above:
+add a "Lights" outcome, useful at night or in inclement weather —
+i.e. the aircraft's nav/strobe/beacon lights were what was actually
+spotted, not the airframe itself. Added `visible_lights` (`✦`) to
+`ObservationLogger.OUTCOMES`, positioned alongside `visible_airframe`/
+`visible_contrail` in the "visible" group rather than after them,
+matching the button order the LOG panel/popup render in (array order =
+render order, both consumers iterate it directly).
+
+**Same underlying reasoning as `visible_contrail`, not a new pattern**:
+`Visibility.estimate()`'s own doc comment states its assumptions include
+"daylight" — this model has no night/lights-based visibility concept at
+all today. A lights-only sighting logged under the old plain
+`visible_airframe` code would silently overstate how visible the
+*airframe's shape* actually was after dark; recording it as its own
+outcome is what would let a real future night/lights-aware adjustment be
+built on genuine evidence, the same way `not_visible_weather` now can be
+for the METAR adjustment. `✦` (Black Four Pointed Star) was chosen to
+read as "a point of light in the dark" at a glance, distinct from the
+existing ✈/〜/▨/☁/✕ glyph set.
+
+Both dynamic consumers (`logPanel.js`'s `_buildRow()`, `ui.js`'s
+`_logButtonsHtml()`) needed no changes — same as the weather-split entry
+above, this was purely an `OUTCOMES` array addition. `README.md`'s
+outcome table was updated to match, including a note on the same
+"informs a not-yet-built model adjustment" framing already established
+for the weather split, so a future reader doesn't have to re-derive why
+these two additions exist from two separately-worded rationales.
+
+**Honest status**: same as the weather-split entry immediately above —
+not verified against a live render this pass, mechanically confirmed via
+a direct `require()`/`OUTCOMES` dump rather than a Playwright screenshot,
+since this is the same already-dynamic button-building pattern already
+verified to handle a variable outcome count. `log.php`'s own passthrough
+behaviour (not in this repo) is assumed unaffected for the same reason
+already given for the weather split, not independently re-checked.

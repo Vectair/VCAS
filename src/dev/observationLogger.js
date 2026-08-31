@@ -37,9 +37,26 @@ const ObservationLogger = (() => {
   // handling was right (or wrong) for that case, which a not_visible_missed
   // entry (no identifiable reason at all) can't provide, and which an
   // obstruction entry would wrongly attribute to terrain/buildings instead.
+  //
+  // visible_lights (2026-08-27, same day) — a third "visible" reason,
+  // alongside airframe and contrail: the aircraft itself (or its shape)
+  // isn't what was actually spotted, its nav/strobe/beacon lights are —
+  // specifically a night or low-visibility-weather sighting, per direct
+  // instruction. This is the same "distinct sighting mechanism, not just a
+  // finer visible/not-visible label" reasoning visible_contrail was already
+  // built on: Visibility.estimate()'s own doc comment states its model
+  // assumes "daylight" — night-time visibility (where a light source, not
+  // angular size/shape, is what's actually being resolved) isn't modelled
+  // at all today. Logging a lights-only sighting under the old plain
+  // visible_airframe code would have silently overstated how visible the
+  // *airframe* itself was in the dark; recording it separately is what
+  // would let a future night/lights-aware adjustment be built on real
+  // evidence, the same way not_visible_weather now can be for the METAR
+  // adjustment.
   const OUTCOMES = [
     { code: "visible_airframe",        label: "✈",  title: "Visible — airframe" },
     { code: "visible_contrail",        label: "〜", title: "Visible — contrail only" },
+    { code: "visible_lights",          label: "✦",  title: "Visible — lights only (night/low visibility)" },
     { code: "not_visible_obstruction", label: "▨",  title: "Not visible — obstruction" },
     { code: "not_visible_weather",     label: "☁",  title: "Not visible — weather/cloud" },
     { code: "not_visible_missed",      label: "✕",  title: "Not visible — no other reason" },
