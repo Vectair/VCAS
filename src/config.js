@@ -47,6 +47,16 @@ const CONFIG = {
   ADSB_RELAY_URL: "https://vectair.org/adsb-relay/relay.php",
   ADSB_RELAY_KEY: "D5ed4yHUumftDFscQpLb2xN5H8v-Ylnb5jud5o61scs",
 
+  // Same CORS-relay pattern as ADSB_RELAY_URL above, for aviationweather.gov
+  // (src/logic/metarProvider.js) — that API sends no CORS header either, so
+  // a direct browser fetch() silently fails, meaning the visibility model's
+  // METAR-based weather adjustment has likely never actually fired in the
+  // deployed app (confirmed via real ground-truth log data, 2026-09-01 —
+  // see CLAUDE.md). Leave both blank to fall back to calling
+  // aviationweather.gov directly, same fallback behaviour as ADSB_RELAY_URL.
+  METAR_RELAY_URL: "https://vectair.org/metar-relay/relay.php",
+  METAR_RELAY_KEY: "yLzDuqVXmYesxciEnjbwVZsPTj6xfGiy4EsKg4BcIDs",
+
   // ---- Telemetry & Refresh Intervals ----
   // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
   // leaves generous headroom below that ceiling for a single client while

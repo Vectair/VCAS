@@ -5646,3 +5646,128 @@ after the edit. Not verified: an actual live deploy-and-reload cycle
 (this sandbox can't reach `vectair.github.io` or run GitHub Actions) —
 the real check is the project owner's next deploy actually resolving the
 issue without needing a manual service-worker unregister.
+
+## Visibility model calibration pass #1: METAR fetching was very likely completely broken (2026-09-01)
+
+Direct instruction: "Lets work on improving the model" → "Calibrate
+against real log data." Pulled the full `Vectair/vcas-logs` mirror
+(grown from 26 files at the last pull to 80 — 73 real observations, 7
+crash/watchdog reports) and grouped by outcome vs. what `Visibility.
+estimate()` actually predicted for each:
+
+| Outcome | n | Predicted |
+|---|---|---|
+| visible_contrail | 39 | Possibly visible (38/39) — contrail floor working as designed |
+| visible_airframe | 17 | mostly Likely visible (12/17) — reasonable |
+| not_visible_missed | 8 | Possibly (5) / Likely visible (3) |
+| not_visible_obstruction | 5 | Likely (4) / Possibly (1) — expected, no building/terrain data |
+| **not_visible_weather** | **4** | **Likely visible (3) / Certainly visible (1) — every single one** |
+
+That last row is the finding: **4 for 4**, the model was at high-to-
+maximum confidence and the METAR-based weather cap (`_applyMetarAdjustment()`
+in `visibility.js`) never once brought it down. `metarProvider.js`'s own
+header comment had already flagged this as unverified ("built in a
+sandbox with no network path to aviationweather.gov... worth confirming
+against a real fetch once deployed") — and a web search confirmed the
+suspicion directly: **aviationweather.gov's `/api/data/metar` endpoint
+sends no `Access-Control-Allow-Origin` header**, so a browser `fetch()`
+can't read the response — the exact same failure class already hit and
+fixed for adsb.fi (see "ADS-B data source" above). `_fetchNearest()`'s
+own try/catch means this fails completely silently: `MetarProvider.
+getCached()` almost certainly has never returned real data in the
+deployed app, `Visibility.estimate()`'s `metar` parameter has always been
+null, and the entire weather-adjustment branch has likely never executed
+once in production. Four independent real-world misses, one clean
+mechanical explanation — not treated as proven beyond doubt (no direct
+server log access to confirm), but strong enough to act on.
+
+A secondary, much weaker signal from the same pull: 3 of the 8
+`not_visible_missed` cases were high-altitude/moderate-range aircraft
+(34,650ft/8.7nm, 39,625ft/13.2nm, 13,400ft/2.8nm) scored "Likely visible"
+by angular size alone with no contrail reported — possibly angular size
+alone overrating non-contrailing high-altitude traffic, but n=3 is too
+thin to retune anything from; logged here as a watch-item only, not
+acted on.
+
+### Fix: METAR CORS relay, same pattern as the ADS-B relay
+
+Confirmed with the project owner before building (this is a real,
+deployable piece of infrastructure, not a quick code tweak — asked via
+`AskUserQuestion` rather than assumed). Built `relay.php` — same shape
+as `adsb-relay/relay.php`: shared-secret `X-VCAS-Key` header auth (new,
+separately-generated secret — never reuses the ADS-B relay's own key),
+strict `bbox` input validation (exactly 4 sane-range floats via regex —
+matters here specifically because the value is forwarded into a
+server-side outbound URL, a real SSRF surface if not validated tightly),
+a file-locked global rate gate (`reserve_upstream_slot()`, ported
+directly from the proven ADS-B relay implementation) and a short-lived
+per-area response cache (bbox rounded to 1 decimal place — ~11km — for
+the cache key, both for locality across nearby testers and so a small
+amount of rounding doesn't meaningfully change which stations a query
+returns), with a bounded give-up path serving stale cache or a `429`
+rather than hanging.
+
+**Deliberately lighter throttling posture than the ADS-B relay**, stated
+explicitly in the file's own comment: aviationweather.gov has no
+documented hard 1req/s-style ceiling the way adsb.fi does, METARs
+themselves only update roughly hourly, and `MetarProvider` itself only
+refreshes every 15 minutes client-side regardless — so
+`MIN_UPSTREAM_INTERVAL_S` (1.0s) and `CACHE_TTL_S` (300s) exist mainly to
+be a considerate API citizen under concurrent testers hitting overlapping
+areas, not to satisfy a hard external limit.
+
+**Tested locally against a mocked upstream** (this sandbox can't reach
+aviationweather.gov either), same discipline as the ADS-B relay and
+`log.php` before it: `php -l` syntax check, then a live `php -S` server
+exercising — missing/wrong auth key (401 both), malformed and
+out-of-range `bbox` (400 both), a valid request round-tripping the mock's
+real JSON body, an immediate repeat hitting cache (confirmed via the
+mock's own call log staying at 1), cache expiry correctly triggering a
+second upstream call, and — the one piece worth a dedicated concurrency
+check rather than just trusting the reused pattern — 3 simultaneous
+requests to 3 distinct areas correctly serialized to the configured
+interval (0.003s/0.303s/0.603s spacing against a test-tuned 0.3s
+interval, i.e. exactly on schedule). All passed against the actual
+shipped file.
+
+**App-side wiring**: `metarProvider.js`'s `_fetchNearest()` now routes
+through `CONFIG.METAR_RELAY_URL`/`METAR_RELAY_KEY` when set (mirroring
+`adsbExchangeClient.js`'s own `ADSB_RELAY_URL` pattern exactly — same
+"leave blank to fall back to calling the real API directly, which still
+works outside a browser" fallback), falling back to the direct
+aviationweather.gov call otherwise. `config.js` has both values filled in
+now, pointing at `https://vectair.org/metar-relay/relay.php` with a
+freshly generated shared secret.
+
+**Also added while investigating**: `observationLogger.js`'s
+`buildObservation()` now snapshots `MetarProvider.getCached()` into every
+observation's `computed.metar` field — a real, previously-flagged gap
+(see the "not_visible_weather" split entry above: "the observation
+payload itself still doesn't snapshot the actual METAR conditions in
+effect at the time of the sighting"). Without this, the 4 real
+not_visible_weather cases pulled during this investigation couldn't be
+definitively diagnosed (unavailable METAR vs. present-but-insufficient
+METAR) — this closes that gap for every observation logged from here on,
+regardless of which theory was actually correct in the deployed app at
+any given moment.
+
+**Not committed to this repo**: `relay.php` + `cache/.htaccess` +
+`DEPLOY_INSTRUCTIONS.md`, same handoff pattern as the ADS-B relay and
+`log.php` — sent to the project owner via `SendUserFile`, needs manual
+Bluehost deployment (`public_html/metar-relay/`) before it does anything;
+`config.js` already points at the URL this deploy will bring live.
+`DEPLOY_INSTRUCTIONS.md` explicitly calls out the same cPanel
+leading-dot-stripping `.htaccess` gotcha hit during the original ADS-B
+relay deploy, so it isn't rediscovered a second time.
+
+**Honest status**: the CORS-missing-header diagnosis is strongly
+supported (real log data pattern + independent web confirmation) but not
+100% certain without direct access to aviationweather.gov's response
+headers from a real browser session, which this sandbox can't produce.
+If METAR still isn't visibly affecting scores after this relay is
+deployed, the next thing to check is whether `_parseVisibilitySm`/
+`_parseClouds`'s assumed response shape actually matches
+aviationweather.gov's real JSON (same never-verified-against-a-live-
+fetch caveat the file's own header comment already carries) — the relay
+fixes the CORS transport problem specifically, not any possible parsing
+mismatch underneath it.

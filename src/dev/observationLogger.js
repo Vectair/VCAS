@@ -95,6 +95,20 @@ const ObservationLogger = (() => {
           slantRangeNm: item.vis.slantRangeNm,
         },
         relevance: item.relevance,
+        // Snapshot of whatever METAR context (if any) was actually applied
+        // to this observation's own visibility score — added 2026-09-01
+        // after real not_visible_weather log entries turned out impossible
+        // to diagnose without this: every one of them showed the model at
+        // high/full confidence with no way to tell, after the fact,
+        // whether that was because METAR data was unavailable at that
+        // moment (fetch failure, no nearby station) or because the METAR
+        // that WAS available genuinely didn't report occluding conditions
+        // (e.g. isolated cloud a station-based report can't see). Read via
+        // MetarProvider.getCached() — a synchronous snapshot of whatever's
+        // currently cached, same data _applyMetarAdjustment() itself would
+        // have used for this exact observation. Null when no METAR is
+        // cached at all (fetch never succeeded, or none nearby).
+        metar: (typeof MetarProvider !== "undefined") ? MetarProvider.getCached() : null,
       },
       outcome: outcomeCode,
     };

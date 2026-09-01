@@ -92,12 +92,29 @@ const MetarProvider = (() => {
       (lon + SEARCH_RADIUS_DEG).toFixed(4),
     ].join(",");
 
-    const url = `${BASE_URL}?bbox=${bbox}&format=json`;
+    // aviationweather.gov's API sends no Access-Control-Allow-Origin
+    // header, so a browser fetch() can't read the response — the exact
+    // same failure class already hit and fixed for adsb.fi (see
+    // adsbExchangeClient.js / CLAUDE.md's "ADS-B data source" section).
+    // Confirmed via real ground-truth log data (2026-09-01): every single
+    // real "not_visible_weather" observation showed this module's
+    // adjustment never having fired. Routes through CONFIG.METAR_RELAY_URL
+    // when set — same shared-secret-header pattern as ADSB_RELAY_URL —
+    // falling back to calling aviationweather.gov directly when it isn't
+    // (works outside a browser, e.g. curl/Node, but not in the deployed
+    // app until the relay is configured).
+    const relayUrl = (typeof CONFIG !== "undefined" && CONFIG.METAR_RELAY_URL) ? CONFIG.METAR_RELAY_URL : "";
+    const relayKey = (typeof CONFIG !== "undefined" && CONFIG.METAR_RELAY_KEY) ? CONFIG.METAR_RELAY_KEY : "";
+    const url = relayUrl
+      ? `${relayUrl}?bbox=${bbox}`
+      : `${BASE_URL}?bbox=${bbox}&format=json`;
+    const headers = relayUrl ? { "X-VCAS-Key": relayKey } : {};
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, { headers, signal: controller.signal });
       clearTimeout(timer);
       if (!res.ok) return null;
 
