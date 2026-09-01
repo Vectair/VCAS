@@ -5771,3 +5771,44 @@ aviationweather.gov's real JSON (same never-verified-against-a-live-
 fetch caveat the file's own header comment already carries) — the relay
 fixes the CORS transport problem specifically, not any possible parsing
 mismatch underneath it.
+
+### Deploy follow-up: relay went live, two real snags along the way (2026-09-01, same day)
+
+Neither was a bug in `relay.php` itself — both were deploy-mechanics
+gotchas, worth recording since they cost real back-and-forth to diagnose
+and neither was visible from the code:
+
+1. **Folder name mismatch**: the project owner created the folder as
+   `metar_relay` (underscore) in cPanel File Manager, but `config.js`
+   (and every instruction/URL) says `metar-relay` (hyphen) — matching
+   `adsb-relay`'s own naming. Apache correctly 404'd (the account's own
+   themed 404 page, confirming it was really reaching the vhost, just
+   the wrong path) since no folder by that exact name existed. Fixed by
+   renaming the folder in File Manager — contents moved with it
+   automatically. **Lesson for next time a folder-based deploy happens
+   here**: state the exact folder name with its exact punctuation
+   up front, not just "create a folder for this," since cPanel won't
+   warn about a hyphen/underscore mismatch and the resulting 404 gives
+   no hint which one was expected.
+2. **A red herring, not a real bug**: after the rename, testing the
+   *bare* folder URL (`vectair.org/metar-relay/`, no filename) 403'd —
+   this looked alarming but is actually correct, expected Apache
+   behaviour (no `index.php`, directory listing disabled, so a bare
+   folder request is properly refused). It has nothing to do with
+   whether `relay.php` itself works. Worth remembering as a diagnostic
+   pitfall: a bare-directory 403 is a *good* sign (the folder is
+   correctly locked down), not a symptom to chase — the only URL that
+   actually matters is the one hitting `relay.php` directly.
+
+**Confirmed live**: `https://vectair.org/metar-relay/relay.php?bbox=51,-1,52,0`
+now returns the correct `{"ok":false,"error":"unauthorized"}` response
+for an unkeyed request — PHP is executing, the shared-secret check is
+working, and the app's already-pushed `config.js`/`metarProvider.js`
+wiring means the very next real GPS fix in the deployed app should start
+actually feeding METAR data into `Visibility.estimate()` for the first
+time. Worth watching the ground-truth log data over the next
+week or two — a `not_visible_weather` observation with a genuinely
+lower/capped predicted label (instead of the 4-for-4 "high confidence,
+no adjustment applied" pattern that prompted this whole investigation)
+would be the real confirmation the fix is working end-to-end, not just
+that the relay itself responds correctly.
