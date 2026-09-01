@@ -5573,3 +5573,76 @@ account has any CDN/caching layer (e.g. a Cloudflare integration)
 enabled in front of it — neither of which this sandbox has any way to
 check itself, since `relay.php` isn't in this repo and the live domain
 isn't reachable from here.
+
+### Follow-up: the real root cause of "hard refresh doesn't fix it" — the service worker's OWN registration URL never actually changed between deploys (2026-09-01, same day)
+
+Reported directly: "I've done a ctrl shift r and it's not fixed. but in
+incognito it is working correctly." That single fact is a clean,
+decisive signal, worth recording as a diagnostic technique on its own —
+incognito starts with zero pre-existing Service Worker registration or
+Cache Storage for the site, so if the bug is gone there but persists in
+a normal profile even after a hard reload, the cause has to be
+something specific to an ALREADY-INSTALLED service worker refusing to
+hand over control — not the CDN/proxy-in-front-of-relay.php theory
+flagged as the remaining open possibility in the entry above (that would
+still reproduce identically in incognito, since it's entirely
+server-side and has nothing to do with per-browser-profile storage).
+This ruled that theory out and pointed squarely back at the service
+worker itself.
+
+**The actual bug, found by re-reading `deploy-pages.yml`'s own cache-
+busting step rather than the service worker code again**: every local
+asset gets a `?v=<commit-sha>` query string stamped in at deploy time via
+`sed -i "s/__BUILD_ID__/${GITHUB_SHA}/g" index.html manifest.json` — but
+`app.js`'s own `_registerServiceWorker()` ALSO contains a
+`sw.js?v=__BUILD_ID__` placeholder (needed so each deploy registers a
+genuinely different service-worker scriptURL, the same reason every
+other asset gets this treatment) — and `src/app.js` was never in that
+sed command's file list. This means the placeholder there has been
+silently un-substituted since the service worker was first added
+(2026-08-23) — every single deploy has registered the exact same,
+byte-for-byte-identical literal string `"sw.js?v=__BUILD_ID__"`, forever.
+
+**Why this explains "hard refresh doesn't fix it" precisely**: a normal
+user-triggered hard reload (Ctrl+Shift+R) bypasses the browser's plain
+HTTP disk cache for that navigation — it does NOT force an
+already-controlling service worker to be replaced. Since the
+registration's scriptURL genuinely never changes between deploys, the
+browser has no strong signal that anything is different and falls back
+entirely on its own background update-check cadence for that
+registration — which is real, but can leave a stale, already-active
+worker (running whatever buggy caching logic was in place when it was
+first installed) in control for a long, unpredictable time regardless of
+how many times the page itself is reloaded. A fresh incognito context has
+no prior registration to contend with at all, so it always installs
+whatever the CURRENTLY deployed `sw.js` actually is — explaining exactly
+why incognito worked immediately while the normal profile didn't, even
+after the two service-worker-side fixes above had already shipped and
+were entirely correct on their own terms.
+
+**Fix, two parts**:
+1. `deploy-pages.yml`'s sed step now also covers `src/app.js` — every
+   deploy from here on registers a genuinely new `sw.js?v=<sha>`
+   scriptURL, the same reliable cache-busting every other asset already
+   gets, closing the actual gap rather than working around it.
+2. `_registerServiceWorker()` (`app.js`) now also listens for
+   `controllerchange` and reloads the page exactly once the moment a new
+   worker actually takes control — belt-and-suspenders alongside fix #1:
+   even with a guaranteed-fresh scriptURL forcing a real install/activate
+   cycle, an already-open tab from before that finishes has no reason to
+   start USING the new worker without some kind of reload; this makes
+   that handoff automatic rather than relying on the tester noticing and
+   manually reloading again. A `_reloadedForSw` guard prevents a reload
+   loop if `controllerchange` were ever to fire more than once in one page
+   lifetime.
+
+**Verified**: `grep` confirms the string `__BUILD_ID__` appears exactly
+once in `app.js` now (the intended placeholder itself — a second
+occurrence briefly existed in this fix's own explanatory comment during
+drafting, which would have been silently rewritten by the same sed step
+it was describing; reworded to avoid that before finishing), and
+`node --check src/app.js` confirms the file is still syntactically valid
+after the edit. Not verified: an actual live deploy-and-reload cycle
+(this sandbox can't reach `vectair.github.io` or run GitHub Actions) —
+the real check is the project owner's next deploy actually resolving the
+issue without needing a manual service-worker unregister.

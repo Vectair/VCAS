@@ -160,6 +160,30 @@
     navigator.serviceWorker
       .register("sw.js?v=__BUILD_ID__", { updateViaCache: "none" })
       .catch(() => {});
+
+    // Auto-reload once a NEW worker actually takes control of this page
+    // (2026-09-01, added alongside a deploy-pages.yml fix for the
+    // build-id placeholder above — the sed substitution previously never
+    // reached this file, so it registered the exact same, never-changing
+    // scriptURL on every deploy; see that fix's own comment. Deliberately
+    // not spelling out the placeholder's literal token in this comment, so
+    // it isn't itself rewritten by that same sed step). Belt-and-suspenders:
+    // that fix means each deploy now registers a genuinely new scriptURL,
+    // so the browser reliably fetches/installs/activates the new worker —
+    // but an already-open tab from BEFORE that install completes has no
+    // reason to start using it without a reload. `controllerchange` fires
+    // exactly once the new worker (already skipWaiting()'d +
+    // clients.claim()'d in sw.js) takes over — reloading right then means a
+    // tester never has to notice or manually intervene. `_reloadedForSw`
+    // guards against a reload loop (controllerchange can in principle fire
+    // more than once in one page lifetime — this must only ever act on the
+    // first).
+    let _reloadedForSw = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (_reloadedForSw) return;
+      _reloadedForSw = true;
+      window.location.reload();
+    });
   }
 
   // Plain-language one-liners for the onboarding legend, keyed by the same

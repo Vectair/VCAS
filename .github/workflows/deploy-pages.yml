@@ -33,8 +33,24 @@ jobs:
         # keep serving yesterday's code indefinitely. Substituting the real
         # commit SHA here means every deploy is a genuinely new URL for
         # every asset, so it can't come from a stale cache.
+        #
+        # src/app.js is in this list too (2026-09-01 fix, found from a real
+        # reported bug): its own _registerServiceWorker() calls
+        # navigator.serviceWorker.register("sw.js?v=__BUILD_ID__", ...) —
+        # that placeholder was never getting substituted (this step only
+        # covered index.html/manifest.json), so EVERY deploy registered the
+        # exact same literal, never-changing scriptURL for the service
+        # worker. A real service worker fix could ship, but browsers had no
+        # forced signal that anything changed — the tab just kept running
+        # whatever worker was already installed, sometimes indefinitely,
+        # regardless of how many times the page itself was hard-refreshed
+        # (a hard refresh bypasses the plain HTTP cache, it does NOT force
+        # an already-controlling service worker to be replaced). Now that
+        # app.js's own copy of the placeholder gets a real commit SHA too,
+        # each deploy registers a genuinely different sw.js scriptURL, the
+        # same reliable cache-busting every other asset already gets.
         run: |
-          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/g" index.html manifest.json
+          sed -i "s/__BUILD_ID__/${GITHUB_SHA}/g" index.html manifest.json src/app.js
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
