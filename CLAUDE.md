@@ -5435,3 +5435,84 @@ since this is the same already-dynamic button-building pattern already
 verified to handle a variable outcome count. `log.php`'s own passthrough
 behaviour (not in this repo) is assumed unaffected for the same reason
 already given for the weather split, not independently re-checked.
+
+## PWA: real bug — the app-shell service worker was silently serving stale ADS-B data (2026-09-01)
+
+Reported directly: "the plots are stuck in a loop where they show 4ish
+refreshes then revert back to the first of those 4. then occasionally
+they plot back to a state from 5/10 minutes ago." A real, confirmed bug
+in `sw.js`, not the relay, not the client-side render/diffing logic —
+found by reading `sw.js`'s own fetch handler rather than starting from
+`adsbExchangeClient.js`/`ui.js`/`map.js` (all read first and confirmed
+clean: round-robin/fallback logic, extrapolation's `maxElapsedSeconds`
+clamp, and the hex-diffing render code in both `ui.js` and `map.js` all
+behave as documented, nothing there could produce a multi-minute revert).
+
+**Root cause**: `sw.js`'s fetch handler (added 2026-08-23, see
+"App-shell service worker" above) routed EVERY cross-origin GET request
+through `staleWhileRevalidate()` — written and verified against its
+intended target (MapLibre's jsdelivr JS/CSS, Google Fonts), but the
+condition itself (`url.origin !== self.location.origin`) doesn't
+distinguish "a static CDN asset" from "a live-data API call." The ADS-B
+relay (`https://vectair.org/adsb-relay/relay.php?lat=...&lon=...
+&dist=...`) is ALSO cross-origin relative to `vectair.github.io`, so it
+was silently caught by the same rule. `staleWhileRevalidate()` returns
+whatever's already in Cache Storage for that EXACT URL **instantly**,
+with no expiry of its own — so whenever the GPS fix repeated (parked/
+slow-moving, or just `watchPosition`'s own `maximumAge: 3000` reusing a
+fix — see the geolocation options in `app.js`), the relay URL repeated
+too, and the service worker handed back a stale aircraft snapshot from
+whenever that exact lat/lon/dist combination was first seen, instead of
+hitting the network. This is NOT the relay's own server-side cache
+(`CACHE_TTL_S = 3s`, see "Follow-up: server-side throttling for Beta"
+above) — that's far too short to explain minutes of staleness; it's the
+browser-side Cache Storage entry, which had no TTL at all and could sit
+there indefinitely until evicted or overwritten.
+
+**Fix**: replaced the "any cross-origin request" condition with an
+explicit `STATIC_CDN_HOSTS` allowlist (`cdn.jsdelivr.net`,
+`fonts.googleapis.com`, `fonts.gstatic.com` — matching `index.html`'s
+actual third-party `<script>`/`<link>` hosts exactly, re-confirmed by
+grepping it, not assumed from memory). Everything else cross-origin —
+the ADS-B relay, OpenRouteService routing/geocoding, MapTiler tiles,
+adsb.fi's own direct fallback — now falls through with no
+`event.respondWith()` call at all, so the browser handles those requests
+exactly as if this service worker didn't exist, live every time. Same
+"keep this list in sync by hand" caveat this file already carries for
+`LOG_ENDPOINT`/`MAPTILER_KEY` and the other intentionally-duplicated
+config values — flagged directly in `sw.js`'s own updated file-level
+comment, not left implicit.
+
+**Verified with a real Node/`vm` harness against the actual shipped
+`sw.js` source** (not a retyped copy) — mocked `self`/`caches`/`fetch`,
+dispatched synthetic `fetch` events for 9 URLs and asserted whether
+`event.respondWith()` was called: the ADS-B relay, the log endpoint,
+ORS routing, MapTiler tiles, and adsb.fi's direct fallback all correctly
+did NOT get intercepted (5/5); MapLibre's jsdelivr JS, both Google Fonts
+hosts, and a same-origin `?v=`-stamped local asset all correctly DID
+(4/4) — 9/9 passed. Not verified: an actual before/after Playwright
+repro reproducing the reported symptom end-to-end (stationary GPS +
+mocked relay + real Cache Storage) — the routing-logic test above is
+what actually proves the fix, and this bug's own mechanism (Cache
+Storage entries persisting across page loads) makes a full live repro
+significantly more setup than the routing check already covers.
+
+**Not done, and worth flagging rather than assuming this alone fully
+resolves what was reported**: this fixes the mechanism going forward —
+once a tester's browser picks up the new service worker (automatic on
+next load, `updateViaCache: "none"` already means `sw.js` itself is
+always fetched fresh), no NEW stale relay responses will ever be cached.
+It does NOT proactively clear any relay responses already sitting in a
+tester's Cache Storage from before this fix — those entries simply
+become unreachable dead weight (the fetch handler no longer reads them
+for that URL), not something that could still be served, so no cleanup
+step is actually needed; noting this only so a future session doesn't
+wonder whether stale entries could somehow still surface. If the
+reported symptom persists after this deploys, the next things to check,
+in order: (a) whether the relay itself (`relay.php`, not in this repo)
+has its own bug independent of this one — its documented `MAX_WAIT_S=6s`
+give-up path and `CACHE_TTL_S=3s` cache could theoretically compound
+with a genuinely bad connection, though neither explains a 5-10 minute
+gap on their own; (b) a real device's OS-level network stack or carrier
+proxy caching the relay's GET responses, outside anything VCAS's own
+code controls.

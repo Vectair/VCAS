@@ -18,10 +18,38 @@
  *    (every local <script>/<link>, stamped by deploy-pages.yml's sed step)
  *    are safe to cache forever: a new deploy is a new URL, automatically a
  *    cache miss. Cache-first.
- *  - Third-party CDN assets (MapLibre, Google Fonts) aren't versioned by
- *    URL at all — stale-while-revalidate: serve instantly from cache if
- *    present, but always refresh the cache in the background so a copy
- *    never gets pinned forever.
+ *  - A SPECIFIC, NAMED allowlist of third-party static-asset CDN hosts
+ *    (MapLibre's jsdelivr JS/CSS, Google Fonts) aren't versioned by URL at
+ *    all — stale-while-revalidate: serve instantly from cache if present,
+ *    but always refresh the cache in the background so a copy never gets
+ *    pinned forever.
+ *
+ * Everything else (any other cross-origin request — the ADS-B relay,
+ * OpenRouteService routing/geocoding, MapTiler tiles, adsb.fi's own direct
+ * fallback) is deliberately left completely unhandled — no
+ * event.respondWith() call at all, so the browser serves it normally.
+ *
+ * 2026-09-01 bug fix, found from a real reported symptom ("aircraft plots
+ * stuck in a loop of ~4 states, occasionally reverting to one from 5-10
+ * minutes ago"): this used to be "any cross-origin request" gets
+ * stale-while-revalidate, which is correct for the two static CDN assets
+ * but was ALSO silently catching the live ADS-B relay call
+ * (https://vectair.org/adsb-relay/relay.php?lat=...&lon=...&dist=...) —
+ * also cross-origin relative to vectair.github.io. staleWhileRevalidate()
+ * returns whatever's already cached for that EXACT URL instantly, with no
+ * expiry — so whenever the GPS fix repeated (stationary/slow-moving, or
+ * just watchPosition's own maximumAge reusing a fix), the relay URL
+ * repeated too, and the service worker handed back a stale aircraft
+ * snapshot from Cache Storage instead of live data, sometimes many minutes
+ * old. This has nothing to do with relay.php's own short-lived (3s)
+ * server-side cache — that's far too brief to explain minutes of
+ * staleness; this was purely the browser-side service worker cache having
+ * no expiry policy at all for a live-data endpoint it was never meant to
+ * touch. Fixed by matching the static-CDN branch against an explicit host
+ * allowlist instead of "not this origin" — keep this allowlist in sync
+ * with index.html's actual <script>/<link> CDN hosts by hand if either
+ * ever changes, same caveat this project already carries for its other
+ * intentionally-duplicated config (LOG_ENDPOINT/LOG_ENDPOINT_KEY, etc.).
  *
  * No precache/install-time manifest on purpose — that would need this file
  * regenerated per deploy with an exact file list, real complexity for a
@@ -30,6 +58,15 @@
  */
 
 const CACHE_NAME = "vcas-shell-v1";
+
+// Keep in sync with index.html's actual third-party <script>/<link> hosts —
+// see the file-level comment above for why this must be a specific
+// allowlist, not "any cross-origin request."
+const STATIC_CDN_HOSTS = new Set([
+  "cdn.jsdelivr.net",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+]);
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -55,10 +92,15 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.origin !== self.location.origin) {
+  if (STATIC_CDN_HOSTS.has(url.hostname)) {
     event.respondWith(staleWhileRevalidate(req));
     return;
   }
+
+  // Anything else — the ADS-B relay, ORS routing/geocoding, MapTiler
+  // tiles, adsb.fi's own direct fallback — is intentionally left alone:
+  // no event.respondWith() call, so the browser handles it as if this
+  // service worker didn't exist. See the file-level comment above for why.
 });
 
 async function networkFirst(req) {
