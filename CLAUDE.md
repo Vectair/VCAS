@@ -5516,3 +5516,60 @@ with a genuinely bad connection, though neither explains a 5-10 minute
 gap on their own; (b) a real device's OS-level network stack or carrier
 proxy caching the relay's GET responses, outside anything VCAS's own
 code controls.
+
+### Follow-up: still happening after the service worker fix — added a cache-busting nonce (2026-09-01, same day)
+
+Reported directly: "it's still doing it" after the `sw.js` fix above
+deployed. Two real, independent explanations for why that fix alone
+might not be enough, neither ruled out and both addressed together
+rather than picking one to chase first:
+
+1. **The new service worker may not have taken over yet.** `skipWaiting()`/
+   `clients.claim()` mean a newly-activated worker takes control of
+   already-open pages immediately, but the BROWSER still only checks
+   `sw.js` itself for changes on navigation/periodically — an already-open
+   tab/PWA session from before this deployed could still be running the
+   OLD worker (with the old, buggy "any cross-origin request" rule) until
+   the app is actually closed and reopened, not just left running.
+2. **A second, independent URL-keyed cache may exist outside anything
+   this repo controls.** `relay.php` (not in this repo) sends no known
+   explicit `Cache-Control: no-store` — if the plain browser HTTP cache
+   (honoring whatever headers, or lack of them, `relay.php` actually
+   sends) or a CDN/proxy sitting in front of the Bluehost hosting is
+   caching GET responses by exact URL, that would reproduce the identical
+   symptom completely independent of the service worker fix, since it
+   doesn't go through Cache Storage at all.
+
+**Fix, in `adsbExchangeClient.js`'s `_fetchFromProvider()`**: two additions,
+both defensive rather than targeted at one specific layer, since neither
+of the two explanations above could be confirmed from this repo alone:
+- `cache: "no-store"` added to the `fetch()` call itself — bypasses the
+  plain browser HTTP cache regardless of what `relay.php` does or doesn't
+  send, independent of the service worker entirely.
+- A cache-busting `_=<Date.now()>` query param appended to EVERY provider's
+  URL (relay, direct adsb.fi fallback, adsb_lol, adsb_exchange — all four,
+  not just the relay path, since all four are live polls) — this is the
+  one fix that would defeat literally any URL-keyed caching layer, known
+  or not (a CDN in front of the relay being the leading remaining
+  suspect), since a unique URL every request can never hit a stale cache
+  entry regardless of who's holding it or why. Deliberately does NOT
+  affect `relay.php`'s own intentional short-lived (3s) per-location
+  server-side cache — that's keyed off the PARSED `lat`/`lon`/`dist`
+  values server-side, not the raw query string, so an extra unrecognised
+  `_` param has no effect on it.
+
+Verified the URL construction itself (not the network behavior, which
+this sandbox can't exercise against the real relay) via a real Node
+check building all four providers' URLs through the actual nonce-append
+logic and parsing each with `new URL()` — all four are well-formed
+(correctly using `&` vs `?` depending on whether the provider's own
+`buildUrl()` already included a query string).
+
+**If this still doesn't resolve it**, the next real diagnostic step is
+confirming which of the two explanations above was actually the cause —
+concretely, checking (from a real device) whether `relay.php`'s response
+headers include any caching directive at all, and whether the Bluehost
+account has any CDN/caching layer (e.g. a Cloudflare integration)
+enabled in front of it — neither of which this sandbox has any way to
+check itself, since `relay.php` isn't in this repo and the live domain
+isn't reachable from here.

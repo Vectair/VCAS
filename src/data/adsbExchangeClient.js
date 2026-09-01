@@ -98,13 +98,35 @@ const AdsbExchangeClient = (() => {
 
   async function _fetchFromProvider(id, lat, lon, rangeNm) {
     const p = PROVIDERS[id];
-    const url = p.buildUrl(lat, lon, rangeNm, _config);
+    const baseUrl = p.buildUrl(lat, lon, rangeNm, _config);
     const headers = p.headers(_config);
+
+    // Cache-busting nonce (2026-09-01) — a real, reported bug: aircraft
+    // plots got stuck replaying a handful of stale states, traced first to
+    // sw.js's own service worker treating this cross-origin call like a
+    // cacheable static CDN asset (see CLAUDE.md's "app-shell service
+    // worker was silently serving stale ADS-B data" entry — fixed there),
+    // but the symptom persisted for at least one tester afterward, meaning
+    // some OTHER URL-keyed cache (the plain browser HTTP cache honoring
+    // whatever/no Cache-Control relay.php sends, or a CDN/proxy sitting in
+    // front of vectair.org's Bluehost hosting — neither controllable from
+    // this repo) is very likely also caching responses by exact URL. Since
+    // lat/lon repeat easily (a near-stationary phone, or watchPosition's
+    // own maximumAge reusing a fix), the URL itself repeats too, and any
+    // such cache would serve its old body regardless of headers or SW
+    // logic on this end. Appending a per-request nonce makes the URL
+    // itself always unique, which defeats any cache keyed on URL — the one
+    // thing every caching layer, known or not, has in common. Does NOT
+    // affect relay.php's own intentional short-lived (3s) per-location
+    // cache, since that's keyed server-side off the parsed lat/lon/dist
+    // values, not the raw query string.
+    const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "_=" + Date.now();
 
     try {
       const response = await fetch(url, {
         headers: { "Accept": "application/json", ...headers },
         signal: AbortSignal.timeout(8000),
+        cache: "no-store",
       });
 
       if (!response.ok) {
