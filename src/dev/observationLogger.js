@@ -109,6 +109,18 @@ const ObservationLogger = (() => {
         // have used for this exact observation. Null when no METAR is
         // cached at all (fetch never succeeded, or none nearby).
         metar: (typeof MetarProvider !== "undefined") ? MetarProvider.getCached() : null,
+        // Same reasoning as the metar snapshot above, added 2026-09-02
+        // alongside the local-obstruction feature itself: without this,
+        // a not_visible_obstruction/visible_airframe entry can't be
+        // checked against the actual density data that was (or wasn't)
+        // applied to it, only the final tier. Deliberately just the raw
+        // LocalObstruction.getCached() snapshot, no separately-computed
+        // "did the adjustment actually fire" boolean — same pattern the
+        // metar field above already established (raw context, not a
+        // derived flag); whether it fired is reconstructable from this
+        // plus the logged elevationDeg above and visibility.js's own
+        // LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG/DENSE_THRESHOLD constants.
+        localObstruction: (typeof LocalObstruction !== "undefined") ? LocalObstruction.getCached() : null,
       },
       outcome: outcomeCode,
     };

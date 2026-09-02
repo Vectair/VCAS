@@ -5917,3 +5917,250 @@ speculative complexity this calibration pass has otherwise been pushing
 back on. Left as a named, documented gap (this comment, plus
 `_applyMetarAdjustment()`'s own inline comment) rather than a silent one,
 for whenever the upper-air provider work actually happens.
+
+## Local obstruction (buildings + wooded landcover) signal (2026-09-02)
+
+Direct follow-up: "What can you tell me about factoring location vis a
+vis infrastructure and vegetation into this?" A true line-of-sight model
+(ray-casting against a real surface model) was scoped and explicitly
+rejected as disproportionate infrastructure for VCAS today — no free
+global high-resolution building+vegetation elevation data, and no GIS
+backend to do the ray-cast even if there were. Per-user ground-truth log
+data was also ruled out as a basis for this specifically (the project
+owner's own words: logging is opportunistic, from only 1-2 people, too
+sparse to be "substantially informative").
+
+Instead: VCAS already loads real building-footprint and landcover
+(including wooded/forest) vector-tile data for its Hybrid map style
+(MapTiler/OpenMapTiles, `src/map/navStyle.js`) — reusing that instead of
+sourcing anything new. The result is a coarse, **non-directional** prior:
+when the observer is in a densely built or wooded area, low-elevation
+aircraft score lower, matching the real, previously-undocumented
+systematic gap between "aircraft A at 5° elevation over an open field"
+and "aircraft B at the same 5° elevation in dense buildings/woodland" —
+angular size alone can't distinguish these, but the aggregate probability
+of spotting B is plainly lower.
+
+This design was cross-checked against an independent proposal (a second
+LLM's own design document, reviewed in full) covering the same feature —
+strong convergence on the core approach (reuse MapLibre's loaded tile
+data, no new dependency), plus several genuine improvements folded in:
+the overlap-safe combined-density formula, movement-triggered refresh
+over a flat timer, and — the one interaction neither this session's own
+first pass nor most reviews would think to check — exempting the
+existing `<1nm && <500ft` "very close" override from this cap, so a
+coarse non-directional prior can't undermine an already-high-confidence,
+effectively-directional rule.
+
+### Two real constraints found during research, not assumed
+
+1. **No bundler, no npm, no package.json anywhere in this repo.**
+   Everything loads via plain `<script src="...">` tags in `index.html`,
+   cache-busted with `?v=__BUILD_ID__`, deployed as a static site. This
+   ruled out fetching raw vector tiles directly and decoding them with
+   `pbf`/`@mapbox/vector-tile` (real npm packages, but no mechanical way
+   to consume them here without a bundler) — reusing MapLibre's own
+   already-loaded source via `querySourceFeatures()` was the only real
+   option, not just the simplest one.
+2. **RAW mode's style had zero tile sources by design** (`navStyle.js`)
+   — a single persistent `maplibregl.Map` instance swaps styles via
+   `setStyle(style, {diff:true})`, and since RAW's style declared no
+   sources, switching into RAW actively dropped any building/landcover
+   tile data Hybrid had loaded. RAW is the app's default mode and the
+   primary target for this feature.
+
+### The open technical question, resolved by real testing — and the answer was NOT what was assumed going in
+
+The design going in assumed a layer with `layout: {visibility: "none"}`
+would be the right way to give RAW an invisible-but-queryable source
+(present in the style, painting nothing). **Built a real
+`maplibre-gl@4` + Playwright harness (this project's established
+convention) and confirmed the opposite**: `visibility: "none"` suppresses
+tile *loading* entirely, not just rendering — 0 network requests, 0
+features ever returned by `querySourceFeatures()`, even with a real,
+valid MVT tile available at the exact URL the map would request. A
+genuinely rendered but **zero-opacity** layer (`paint: {"fill-opacity":
+0}`) is what actually works — 1 real tile request fired, and
+`querySourceFeatures()` correctly returned the real feature geometry.
+Proven two ways: first with an empty mock tile response (request-count
+only), then with a real MVT tile generated via `geojson-vt`/`vt-pbf`
+containing an actual test polygon, confirming both that the request
+fires AND that the returned feature data is genuine and correctly
+parsed. This is exactly the kind of non-obvious MapLibre behavior this
+project has been burned by skipping before (see "Camera anchor math"
+and the RAW-glyphs investigation above) — glad this one was checked
+before shipping, not after.
+
+`navStyle.js`'s RAW branch (`getStyle()`/`_layers()`) now declares the
+same MapTiler vector source Hybrid uses, plus two real (zero-opacity)
+layers: `raw-obstruction-building` (source-layer `building`) and
+`raw-obstruction-landcover-forest` (source-layer `landcover`, filtered
+to `["wood", "forest"]` — the exact class values already proven against
+this tile source by the real, visible `landcover-forest` layer in the
+day/night styles, read directly rather than assumed from generic
+OpenMapTiles docs). Confirmed **zero visual change** to RAW two ways:
+against an unreachable-tiles harness (nothing loads, still solid black)
+and — the stronger, more conclusive check — against a harness serving a
+real building+forest tile with real feature data flowing through both
+layers, still solid black. `NavStyle.SOURCE_ID` is now exported from its
+public API specifically so `map.js` never needs a second hardcoded
+`"omvt"` string that could drift from the real one.
+
+### `EosMap.queryLocalDensity(lat, lon, radiusM)` (`src/map.js`)
+
+Queries both layers via `querySourceFeatures()` (confirmed to return real
+geographic lon/lat coordinates, not tile-local units — checked directly
+rather than assumed, since that's a real, well-known category of
+MapLibre/Mapbox gotcha), then for each returned polygon: computes its
+centroid (plain vertex average — a coarse "is this polygon within the
+search radius" inclusion test, not a true area-weighted centroid), keeps
+it only if the centroid is within `radiusM` of the observer, and sums
+its area via the shoelace formula on a flat equirectangular projection
+centred on the observer (a deliberate simplification — spherical error
+is negligible at this 250-750m scale). Returns building/vegetation
+densities separately plus a combined figure using the overlap-safe
+formula `1 - (1-buildingDensity)(1-vegetationDensity)` (not a naive sum,
+which could exceed 1 where a wooded area contains buildings) — folded in
+from the independent review, a real gap in this session's own first
+design pass.
+
+**v1 deliberately skips true circle-clipping of polygons** — a
+centroid-in-radius test gives one clean in/out decision per polygon
+rather than exact geometric intersection with the sampling circle. The
+actual requirement is a *stable relative* density that behaves sensibly
+across reference locations, not geometrically exact covered square
+metres — matches the independent review's own conclusion on this point.
+
+**Verified end-to-end against a real, generated MVT tile** (via
+`geojson-vt`/`vt-pbf`, not a mock): a known 80×80m building polygon and a
+known 150×100m forest polygon, both placed within a 300m query radius of
+a known centre point. Computed `buildingDensity` came out 0.0226 vs. an
+independently hand-computed expected 0.0226 (0.2% off), `vegetationDensity`
+0.0530 vs. expected 0.0531 (0.1% off) — this is the real `map.js`/
+`navStyle.js` code, run through a real MapLibre instance with real served
+tile data, not a synthetic stand-in for either.
+
+### `src/logic/localObstruction.js` — new module, mirrors `MetarProvider`'s shape
+
+`refresh(map, lat, lon)` + synchronous `getCached()`. Unlike
+`MetarProvider` (a pure network fetch, no DOM dependency), this needs the
+live `EosMap` instance, so it's passed in rather than imported.
+
+**Movement-triggered refresh, not timer-driven** (folded in from the
+independent review — cleaner than this session's own first-pass flat
+interval): re-queries once the observer has moved >150m from the last
+query point, or the cached result is >60s old (a fallback guarding a
+stuck/error state, not the primary trigger) — local building/vegetation
+density doesn't change meaningfully while stationary or crawling, so
+there's no reason to re-query on a clock the way METAR's own real
+weather data needs to.
+
+**A failed/unavailable query must resolve to "no data," never to a
+default density value** — silently reading a failure as "confirmed open
+terrain" would make traffic look *easier* to see exactly when the module
+knows the least, which is backwards. Implemented simply: a failed
+`refresh()` call just leaves `_cached` untouched (still `null` if nothing
+has ever succeeded, or still the last known-good value if one exists) —
+no separate "available" flag needed, the existing `null`-means-no-data
+convention (already established by `MetarProvider.getCached()`) already
+encodes this correctly. Verified with 10 checks against the real module,
+including specifically confirming a throwing `queryLocalDensity()` never
+overwrites a valid cache with a default/null value, and that a
+never-succeeded module correctly stays `null` (not some fallback) after
+a failed query.
+
+### Wired into `Visibility.estimate()` — 5th parameter, same shape as `metar`
+
+New constants next to the existing contrail constants (this file's own
+established precedent for its own field-tuned numbers, not `CONFIG.js`):
+`LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG` (12°) and
+`LOCAL_OBSTRUCTION_DENSE_THRESHOLD` (0.45) — both genuine field-tuned
+guesses, same honesty-about-provenance as the contrail numbers, pending
+real calibration once real density data accumulates across known
+reference locations.
+
+`_applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction,
+veryClose)` — gated on BOTH conditions together, not either alone (dense
+surroundings shouldn't penalize a high aircraft; a low aircraft over
+open terrain shouldn't be penalized just because the elevation is low).
+Binary and downward-only for v1, same `_capAtPossiblyVisible` discipline
+already established for the METAR stage, runs immediately after it.
+**`veryClose` is explicitly exempted** — a coarse, non-directional prior
+shouldn't override the existing high-confidence close-range rule.
+
+A second, independent proposal (reviewed but not adopted in this
+session — see the weather-calibration entries above) separately wants to
+rearchitect `Visibility.estimate()`'s own signature into a named options
+object. Deliberately not coordinating with that here: kept the plain 5th
+positional parameter, matching what that proposal's own document already
+recommended as the compatible interim shape — any signature refactor is
+a separate follow-up gated on whether that proposal is actually adopted,
+not a prerequisite for this feature.
+
+Verified with 8 Node checks against the real `estimate()`: null
+obstruction is a no-op; high density + high elevation is unchanged
+(elevation gate blocks it); low density + low elevation is unchanged
+(density gate blocks it); high density + low elevation correctly caps at
+"Possibly visible"; an already-"Very unlikely" result stays there (cap
+never raises); "Possibly visible" is idempotent under the cap; and the
+`veryClose` override stays "Certainly visible" even under dense
+obstruction, confirming the exemption actually works.
+
+### Wiring: `indicators.js` / `app.js` / `index.html`
+
+`indicators.js`'s `_computeAll()` destructures `localObstruction` from
+`userState` and passes it through, mirroring `metar` exactly.
+`app.js`'s two `userState` object literals (`refreshIndicators`,
+`refreshAirMode`) both add `localObstruction: LocalObstruction.getCached()`.
+The actual `LocalObstruction.refresh(EosMap, userLat, userLon)` call
+lives in `fetchAircraft()`, right alongside the existing
+`MetarProvider.refresh()` call — same "safe to call every tick,
+internally self-throttles" contract. `index.html` loads
+`src/logic/localObstruction.js` right after `metarProvider.js` (both are
+environmental-scoring-input providers consumed by `visibility.js`, a
+more natural pairing than "after map.js" despite this module needing an
+`EosMap` reference at call time — it has no dependency on `map.js` at
+parse time, only `Geo`, already loaded earlier).
+
+`observationLogger.js`'s `buildObservation()` now also snapshots
+`LocalObstruction.getCached()` verbatim into every logged observation
+(same "raw context, not a derived flag" pattern already established for
+the `metar` snapshot) — so future `not_visible_obstruction`/
+`visible_airframe` entries can be checked against real density data, not
+just the final tier.
+
+### Runtime cost — measured as a hard acceptance criterion, not assumed
+
+Per the plan, this was treated as something to actually verify, not
+just claim: profiled `queryLocalDensity()` against a synthetic
+dense-urban scene (1024 small buildings in a tight ~22m grid pitch,
+comfortably denser than a real city block within a 300m radius) —
+`querySourceFeatures()` itself: 2.8ms; the full call including both
+layers' queries and all centroid/area math: 10.9ms. Comfortably within
+a single frame budget even at a strict 30fps threshold (~33ms), and this
+only ever runs on the movement-throttled cadence `LocalObstruction`
+already provides (not every render tick), so there's real headroom
+beyond even that. Density math sanity-checked at this scale too: 0.302
+computed density against an independently-derived expected ~0.30 from
+the grid geometry.
+
+### Explicit v1 scope
+
+Non-directional (matches exactly what was asked — not "a building blocks
+this bearing," but "this area is generally hostile to spotting low
+aircraft"). No terrain elevation, no individual building/tree heights,
+no true polygon clipping, no continuous (non-binary) response curve, no
+separate building-vs-vegetation thresholds, no interaction term with the
+weather adjustment. None of these should get silently added later
+without a real, separate decision to do so.
+
+**Honest status**: every piece above was verified with real execution —
+real MapLibre+Playwright for the MapLibre-specific behavior (tile
+loading, style validity, visual fidelity, density math against real
+served tiles), real Node execution for the pure-logic pieces
+(`LocalObstruction`'s throttling, `_applyLocalObstructionAdjustment`'s
+gating). What's genuinely NOT yet verified: real-world density numbers
+across actual known locations (open airfield vs. suburb vs. city centre
+vs. woodland) — that needs a real device with a real MapTiler key this
+sandbox can't provide, and is exactly the input `LOCAL_OBSTRUCTION_DENSE_THRESHOLD`
+needs before it can move past "reasonable starting guess."

@@ -131,6 +131,16 @@ const Visibility = (() => {
   const CONTRAIL_MIN_ALTITUDE_FT = 26000;
   const CONTRAIL_MAX_RANGE_NM = 50;
 
+  // Local obstruction (buildings/wooded landcover, 2026-09-02) — see
+  // _applyLocalObstructionAdjustment()'s own comment for the full
+  // reasoning. Both field-tuned guesses, same honesty-about-provenance as
+  // the contrail constants above: not derived from anything, a starting
+  // point pending real-world calibration once LocalObstruction has
+  // accumulated real density data across known open/suburban/urban/
+  // wooded reference locations (see CLAUDE.md).
+  const LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG = 12;
+  const LOCAL_OBSTRUCTION_DENSE_THRESHOLD = 0.45;
+
   function _sizeForType(typeCode) {
     if (!typeCode) return FALLBACK_SIZES.UNKNOWN;
     const key = typeCode.toUpperCase().trim();
@@ -261,15 +271,58 @@ const Visibility = (() => {
   }
 
   /**
+   * Adjusts for the observer's immediate physical surroundings — a coarse,
+   * non-directional prior from LocalObstruction.getCached() (see that
+   * module and EosMap.queryLocalDensity(), src/map.js): the fraction of
+   * building/wooded-landcover area within a fixed radius of the observer.
+   *
+   * This deliberately does NOT claim "a specific building blocks this
+   * specific bearing" — it answers a narrower, honest question: "is the
+   * observer's immediate area generally hostile to spotting low-angle
+   * traffic?" Gated on TWO conditions together, not either alone — dense
+   * surroundings shouldn't penalize a high aircraft (nothing at ground
+   * level is between you and it), and a low aircraft over open terrain
+   * shouldn't be penalized just because the elevation happens to be low:
+   *
+   *   local density × low elevation angle, not either alone.
+   *
+   * Same downward-only, cap-not-raise discipline as _applyMetarAdjustment
+   * — reuses _capAtPossiblyVisible. Binary for v1 (dense-enough or not),
+   * not a continuous response curve — the density threshold itself is a
+   * genuine field-tuned guess (see LOCAL_OBSTRUCTION_DENSE_THRESHOLD's own
+   * comment), not something to refine here without real calibration data.
+   *
+   * `veryClose` (the existing <1nm && <500ft override, which forces
+   * "Certainly visible" upstream in estimate()) is explicitly exempted —
+   * a coarse, non-directional density prior shouldn't be allowed to
+   * override a rule that's already effectively a high-confidence,
+   * close-range claim.
+   *
+   * No-ops entirely when `localObstruction` is null/absent (no map query
+   * has ever succeeded, or the data is genuinely unavailable) — absence
+   * of this data must never itself reduce a score, same discipline
+   * LocalObstruction.refresh() itself already guarantees on its own side.
+   */
+  function _applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction, veryClose) {
+    if (!localObstruction || veryClose) return cat;
+    if (elevationDeg > LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG) return cat;
+    if (localObstruction.combinedDensity < LOCAL_OBSTRUCTION_DENSE_THRESHOLD) return cat;
+    return _capAtPossiblyVisible(cat);
+  }
+
+  /**
    * Estimate visual detectability of an aircraft.
    *
    * @param {object} [metar]  Current METAR context from MetarProvider.getCached()
    *   — { clouds: [{cover, baseFt, baseMslFt}], visibilitySm, elevationFt }.
    *   Omit/null for no adjustment (matches all prior behaviour exactly).
+   * @param {object} [localObstruction]  Current LocalObstruction.getCached()
+   *   snapshot — { buildingDensity, vegetationDensity, combinedDensity,
+   *   radiusM }. Omit/null for no adjustment.
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
-  function estimate(userLat, userLon, aircraft, metar) {
+  function estimate(userLat, userLon, aircraft, metar, localObstruction) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
 
     const horizNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
@@ -326,6 +379,7 @@ const Visibility = (() => {
     }
 
     cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
+    cat = _applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction, veryClose);
 
     return {
       label: cat.label,

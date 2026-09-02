@@ -1034,6 +1034,12 @@
     // very next refreshIndicators()/refreshAirMode() call just reads
     // whatever's cached (possibly still null on the first few ticks).
     MetarProvider.refresh(userLat, userLon);
+    // Same "safe to call every tick, internally no-ops" contract —
+    // LocalObstruction only actually re-queries once the user has moved
+    // far enough (or the cached result is stale), and queryLocalDensity()
+    // itself is synchronous (reads already-loaded map tile data, no
+    // network call), so this is cheap even on ticks where nothing happens.
+    LocalObstruction.refresh(EosMap, userLat, userLon);
 
     // setInterval fires on a fixed clock regardless of whether the previous
     // call finished — on a slow connection a single fetch (up to the 8s
@@ -1180,6 +1186,7 @@
       // fully excluded from the square's own bounds by that point.
       safeInset: insets.bottomInset,
       metar: MetarProvider.getCached(),
+      localObstruction: LocalObstruction.getCached(),
     };
 
     const camConfig = CameraController.getLastEvaluated();
@@ -1448,6 +1455,7 @@
       heading: userHeading, speedMph: userSpeedMph,
       viewportWidth: vw, viewportHeight: vh,
       metar: MetarProvider.getCached(),
+      localObstruction: LocalObstruction.getCached(),
     };
 
     // AIR mode stays unfiltered (buildAll, not build) — everything in range

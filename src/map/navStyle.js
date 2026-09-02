@@ -161,12 +161,38 @@ const NavStyle = (() => {
     const p   = P[theme];
     const src = SOURCE_ID;
 
-    // raw: deliberately nothing but a plain background — no vector
-    // source is even declared for this theme (see getStyle()), matching a
-    // real TCAS/ND's total absence of road/building/label detail.
+    // raw: visually nothing but a plain background — matching a real
+    // TCAS/ND's total absence of road/building/label detail — but (as of
+    // 2026-09-02) two genuinely rendered, zero-opacity layers are added
+    // purely so their tile data gets loaded for LocalObstruction's own
+    // querySourceFeatures() calls (src/logic/localObstruction.js). This
+    // does NOT visually change RAW at all — confirmed with a real
+    // MapLibre+Playwright harness before writing this: a layer with
+    // `layout: {visibility: "none"}` does NOT cause its tiles to load at
+    // all (0 network requests, querySourceFeatures always empty, even
+    // with a real tile available) — only a genuinely rendered layer
+    // (opacity 0, not hidden via visibility) actually triggers tile
+    // loading. `fill-opacity: 0` was the one confirmed-working option;
+    // don't "simplify" this back to `visibility: "none"` without
+    // re-verifying — it looks equivalent and isn't.
     if (theme === "raw") {
       return [
         { id: "background", type: "background", paint: { "background-color": p.background } },
+        {
+          id: "raw-obstruction-building", type: "fill",
+          source: src, "source-layer": "building",
+          paint: { "fill-color": "#000000", "fill-opacity": 0 },
+        },
+        {
+          id: "raw-obstruction-landcover-forest", type: "fill",
+          source: src, "source-layer": "landcover",
+          // Same wood/forest class filter as the real "landcover-forest"
+          // layer above (day/night styles) — proven against this exact
+          // tile source already, not re-guessed from generic OpenMapTiles
+          // docs.
+          filter: ["in", ["get", "class"], ["literal", ["wood", "forest"]]],
+          paint: { "fill-color": "#000000", "fill-opacity": 0 },
+        },
       ];
     }
 
@@ -545,19 +571,31 @@ const NavStyle = (() => {
   function getStyle(theme) {
     const t = (theme === "day") ? "day" : (theme === "raw") ? "raw" : "night";
 
-    // raw has nothing to render from the vector tile source at all, so
-    // it isn't even declared here — one fewer network fetch, and it keeps
-    // the intent explicit: this theme genuinely draws nothing but a flat
-    // background colour. glyphs IS still needed despite that: MapLibre
-    // requires a style-level `glyphs` URL for ANY symbol layer using
-    // `text-field` to validate at all, regardless of whether the style has
-    // a tile source — without it, EosMap's dynamically-added range-ring nm
-    // labels (added via addLayer(), not declared in this style's own
-    // layers) fail validation entirely and never render. Confirmed directly
-    // against a real MapLibre instance: the exact "requires a style
-    // glyphs property" error this omission produces (2026-08-21).
+    // raw visually draws nothing but a flat background colour (see
+    // _layers()'s own comment for why the source below is declared here
+    // anyway, as of 2026-09-02: LocalObstruction's queries need it, even
+    // though nothing from it is ever actually painted). glyphs IS still
+    // needed regardless: MapLibre requires a style-level `glyphs` URL for
+    // ANY symbol layer using `text-field` to validate at all, regardless
+    // of whether the style has a tile source — without it, EosMap's
+    // dynamically-added range-ring nm labels (added via addLayer(), not
+    // declared in this style's own layers) fail validation entirely and
+    // never render. Confirmed directly against a real MapLibre instance:
+    // the exact "requires a style glyphs property" error this omission
+    // produces (2026-08-21).
     if (t === "raw") {
-      return { version: 8, glyphs: _glyphsUrl(), sources: {}, layers: _layers(t) };
+      return {
+        version: 8,
+        glyphs: _glyphsUrl(),
+        sources: {
+          [SOURCE_ID]: {
+            type:        "vector",
+            url:         _sourceUrl(),
+            attribution: ATTR,
+          },
+        },
+        layers: _layers(t),
+      };
     }
 
     return {
@@ -581,7 +619,11 @@ const NavStyle = (() => {
     return P.night.sky;
   }
 
-  return { getStyle, skyColor };
+  // Exposed so map.js's queryLocalDensity() (src/logic local-obstruction
+  // feature, 2026-09-02) can reference the exact same source id its
+  // querySourceFeatures() calls need — one source of truth, not a second
+  // hardcoded "omvt" string that could drift from this one.
+  return { getStyle, skyColor, SOURCE_ID };
 })();
 
 if (typeof module !== "undefined") module.exports = NavStyle;

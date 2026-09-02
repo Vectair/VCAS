@@ -543,6 +543,128 @@ const EosMap = (() => {
     if (_map) _map.easeTo({ center: [lon, lat], zoom, duration: 800 });
   }
 
+  // ---- Local obstruction density (2026-09-02) ----
+
+  // Wooded/forest landcover class filter — same exact classes as the real
+  // "landcover-forest" layer in navStyle.js, already proven against this
+  // tile source, not re-guessed from generic OpenMapTiles docs. Kept as
+  // its own constant here rather than importing navStyle's internals,
+  // since navStyle.js exposes no public accessor for it — if that filter
+  // ever changes there, this needs updating by hand (flagged so it isn't
+  // missed).
+  const WOODED_LANDCOVER_CLASSES = ["wood", "forest"];
+
+  /**
+   * Planar polygon area in square metres, via the shoelace formula on a
+   * simple flat equirectangular projection centred on `originLat` — a
+   * deliberate simplification, not spherical geometry: at the ~250-750m
+   * radius this is used for, the flat-earth approximation error is
+   * negligible, and this project's own convention (see geo.js) already
+   * reserves real spherical math for genuinely long-range calculations.
+   * Handles a single ring (no holes) — MultiPolygon/Polygon-with-holes
+   * geometry types are summed/reduced to their outer ring(s) by the caller.
+   */
+  function _ringAreaM2(ring, originLat, originLon) {
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
+    const pts = ring.map(([lon, lat]) => [
+      (lon - originLon) * metersPerDegLon,
+      (lat - originLat) * metersPerDegLat,
+    ]);
+    let sum = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[(i + 1) % pts.length];
+      sum += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(sum) / 2;
+  }
+
+  /** Centroid of a polygon's outer ring, plain average of its vertices —
+   * sufficient for the coarse "is this polygon within the search radius"
+   * inclusion test this is used for, not meant to be a true area-weighted
+   * centroid. */
+  function _ringCentroid(ring) {
+    let lonSum = 0, latSum = 0;
+    for (const [lon, lat] of ring) { lonSum += lon; latSum += lat; }
+    return [lonSum / ring.length, latSum / ring.length];
+  }
+
+  /**
+   * Sums the area (m²) of every polygon in `features` whose centroid falls
+   * within `radiusM` of (lat, lon) — v1 deliberately skips true circle-
+   * clipping (see CLAUDE.md/the design plan this was built from): a
+   * centroid-in-radius test gives one clean in/out decision per polygon,
+   * which is enough for a *relative* density signal, not a claim about
+   * exact covered square metres.
+   */
+  function _sumAreaWithinRadius(features, lat, lon, radiusM) {
+    let total = 0;
+    for (const f of features) {
+      const geom = f.geometry;
+      if (!geom) continue;
+      const polygons = geom.type === "Polygon" ? [geom.coordinates]
+        : geom.type === "MultiPolygon" ? geom.coordinates
+        : null;
+      if (!polygons) continue;
+      for (const rings of polygons) {
+        const outer = rings[0]; // ignore holes — coarse signal, not exact coverage
+        if (!outer || outer.length < 3) continue;
+        const [cLon, cLat] = _ringCentroid(outer);
+        if (Geo.calculateDistanceMeters(lat, lon, cLat, cLon) > radiusM) continue;
+        total += _ringAreaM2(outer, lat, lon);
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Queries the RAW-style's own invisible building+landcover-forest
+   * layers (added in navStyle.js specifically so their tiles get loaded —
+   * see that file's own comment on why `fill-opacity: 0`, not
+   * `visibility: "none"`, was required, confirmed via a real MapLibre
+   * harness) for a coarse local-obstruction density around (lat, lon).
+   *
+   * Returns `null` if the map/source isn't ready — callers (LocalObstruction)
+   * must treat that as "no data," never as "confirmed open terrain."
+   *
+   * @returns {{buildingDensity:number, vegetationDensity:number, combinedDensity:number, radiusM:number, buildingFeatureCount:number, vegetationFeatureCount:number}|null}
+   */
+  function queryLocalDensity(lat, lon, radiusM) {
+    if (!_map || !_mapLoaded) return null;
+
+    let buildingFeatures, vegetationFeatures;
+    try {
+      buildingFeatures = _map.querySourceFeatures(NavStyle.SOURCE_ID, { sourceLayer: "building" });
+      vegetationFeatures = _map.querySourceFeatures(NavStyle.SOURCE_ID, {
+        sourceLayer: "landcover",
+        filter: ["in", ["get", "class"], ["literal", WOODED_LANDCOVER_CLASSES]],
+      });
+    } catch (e) {
+      return null; // source not registered yet, style mid-transition, etc.
+    }
+    if (!buildingFeatures || !vegetationFeatures) return null;
+
+    const sampleAreaM2 = Math.PI * radiusM * radiusM;
+    const buildingAreaM2 = _sumAreaWithinRadius(buildingFeatures, lat, lon, radiusM);
+    const vegetationAreaM2 = _sumAreaWithinRadius(vegetationFeatures, lat, lon, radiusM);
+
+    const buildingDensity = Math.min(1, buildingAreaM2 / sampleAreaM2);
+    const vegetationDensity = Math.min(1, vegetationAreaM2 / sampleAreaM2);
+    // Overlap-safe combine — a naive sum could exceed 1 where a wooded
+    // area contains buildings (or vice versa).
+    const combinedDensity = 1 - (1 - buildingDensity) * (1 - vegetationDensity);
+
+    return {
+      buildingDensity,
+      vegetationDensity,
+      combinedDensity,
+      radiusM,
+      buildingFeatureCount: buildingFeatures.length,
+      vegetationFeatureCount: vegetationFeatures.length,
+    };
+  }
+
   return {
     init,
     setTheme,
@@ -559,6 +681,7 @@ const EosMap = (() => {
     clearRoute,
     updateRangeRings,
     clearRangeRings,
+    queryLocalDensity,
   };
 })();
 
