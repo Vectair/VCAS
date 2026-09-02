@@ -27,8 +27,9 @@ const MetarProvider = (() => {
   const SEARCH_RADIUS_DEG = 0.75; // ~45nm bbox half-width at mid-latitudes — a generous catchment for "nearest station"
   const TIMEOUT_MS = 10000;
   const OCCLUDING_COVERS = ["BKN", "OVC", "VV"];
+  const M_TO_FT = 3.28084;
 
-  let _cached = null; // { stationId, visibilitySm, clouds, obsTime, distanceNm }
+  let _cached = null; // { stationId, visibilitySm, clouds, obsTime, distanceNm, elevationFt }
   let _lastFetchAt = 0;
   let _inFlight = null;
 
@@ -72,15 +73,32 @@ const MetarProvider = (() => {
    * Keeps only the layer types that can meaningfully occlude — CLR/SKC
    * (no layer) and FEW/SCT (mostly-clear, per the visibility-model design
    * discussion) are dropped here rather than carried around unused.
+   *
+   * 2026-09-02: also computes baseMslFt alongside the original baseFt
+   * (kept, AGL, for backward compatibility) — METAR cloud bases are
+   * reported AGL relative to the REPORTING STATION, not MSL, but aircraft
+   * ADS-B altitude is MSL-referenced. Comparing them directly (what
+   * visibility.js used to do) can misjudge whether a layer is actually
+   * below the aircraft, especially at an elevated station. Confirmed via
+   * a real documented METAR JSON example (KORD/O'Hare): `elev: 202`
+   * (matches O'Hare's real ~205m/672ft elevation — 202ft would be wrong
+   * for that airport, so the field is metres) and `clouds[].base: 11000`
+   * matching the raw METAR text's own `BKN110` (11,000ft AGL). When
+   * `elevationFt` isn't available, baseMslFt just falls back to the raw
+   * AGL value — degrades gracefully rather than dropping the whole layer.
    */
-  function _parseClouds(raw) {
+  function _parseClouds(raw, elevationFt) {
     if (!Array.isArray(raw)) return [];
     return raw
       .filter(l => l && typeof l.cover === "string")
-      .map(l => ({
-        cover: l.cover.toUpperCase(),
-        baseFt: typeof l.base === "number" && Number.isFinite(l.base) ? l.base : null,
-      }))
+      .map(l => {
+        const baseFt = typeof l.base === "number" && Number.isFinite(l.base) ? l.base : null;
+        return {
+          cover: l.cover.toUpperCase(),
+          baseFt,
+          baseMslFt: baseFt == null ? null : baseFt + (elevationFt != null ? elevationFt : 0),
+        };
+      })
       .filter(l => OCCLUDING_COVERS.includes(l.cover) && l.baseFt != null);
   }
 
@@ -129,12 +147,19 @@ const MetarProvider = (() => {
       }
       if (!best) return null;
 
+      // aviationweather.gov reports station elevation in METRES (confirmed
+      // via a real documented example — see _parseClouds's own comment).
+      const elevationFt = typeof best.elev === "number" && Number.isFinite(best.elev)
+        ? best.elev * M_TO_FT
+        : null;
+
       return {
         stationId: best.icaoId || null,
         visibilitySm: _parseVisibilitySm(best.visib),
-        clouds: _parseClouds(best.clouds),
+        clouds: _parseClouds(best.clouds, elevationFt),
         obsTime: best.obsTime || null,
         distanceNm: bestDistNm,
+        elevationFt,
       };
     } catch (err) {
       clearTimeout(timer);

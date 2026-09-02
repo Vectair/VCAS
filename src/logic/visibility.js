@@ -158,13 +158,26 @@ const Visibility = (() => {
    * once line of sight hits a broken/overcast/obscured layer, whatever's
    * above it is moot regardless of how many more layers are reported
    * higher up.
+   *
+   * Compares against `layer.baseMslFt` (2026-09-02 fix), not the raw
+   * `baseFt` — METAR cloud bases are reported AGL relative to the
+   * reporting STATION, while `altitudeFt` (ADS-B) is MSL-referenced.
+   * Comparing the two directly (the original bug) could misjudge whether
+   * a layer is actually below the aircraft, especially at an elevated
+   * station. `baseMslFt` is computed once in metarProvider.js, where
+   * station elevation is known; see that file's own comment for the real
+   * example that confirmed this. Falls back to `baseFt` if `baseMslFt`
+   * somehow isn't set (defensive only — metarProvider.js always sets it
+   * once baseFt itself is non-null).
    */
   function _lowestOccludingLayer(clouds, altitudeFt) {
     if (!Array.isArray(clouds) || altitudeFt == null) return null;
     let lowest = null;
+    let lowestBase = null;
     for (const layer of clouds) {
-      if (layer.baseFt == null || layer.baseFt >= altitudeFt) continue;
-      if (!lowest || layer.baseFt < lowest.baseFt) lowest = layer;
+      const base = layer.baseMslFt != null ? layer.baseMslFt : layer.baseFt;
+      if (base == null || base >= altitudeFt) continue;
+      if (!lowest || base < lowestBase) { lowest = layer; lowestBase = base; }
     }
     return lowest;
   }
@@ -192,17 +205,38 @@ const Visibility = (() => {
    *     wall — dropping straight to the bottom tier regardless of how
    *     large/close the aircraft would otherwise read. BKN (broken, real
    *     gaps but contested LOS) gets a partial cap instead of a full drop.
-   *  2. Reported prevailing visibility (horizontal/slant haze): replaces
-   *     the generic, always-on 40NM cap in the base estimate with the
-   *     day's actual reported figure, but only when it's meaningfully
-   *     below "good" (<10SM) — many stations cap their reportable value at
+   *  2. Reported prevailing visibility (horizontal haze): replaces the
+   *     generic, always-on 40NM cap in the base estimate with the day's
+   *     actual reported figure, but only when it's meaningfully below
+   *     "good" (<10SM) — many stations cap their reportable value at
    *     10SM even on much clearer days, so treating that as a real limit
    *     would make ordinary good-visibility days needlessly pessimistic.
+   *     Compared against `horizNm` (2026-09-02 fix), not slant range —
+   *     prevailing/surface visibility is a horizontal atmospheric-path
+   *     measurement, not a spherical radius around the station. Using
+   *     slant range (the original bug) could wrongly penalize a high,
+   *     near-overhead aircraft purely for its vertical distance, which
+   *     the METAR gives no actual basis for judging.
    *
    * No-ops entirely (returns `cat` unchanged) when `metar` is null/absent,
    * so this is fully opt-in from the caller's side.
+   *
+   * KNOWN GAP, not fixed here (2026-09-02): when no BKN/OVC/VV layer is
+   * reported at all, `_lowestOccludingLayer` returns null and this
+   * function's cloud check silently no-ops — but METAR/CAVOK only
+   * actually characterizes the surface-to-~5,000ft column and prevailing
+   * visibility; it says nothing about an unreported mid/upper-level layer
+   * (e.g. a jet at FL320 could be sitting above a real but unreported
+   * OVC deck at FL180-230). "No cloud reported" is being read as
+   * "confirmed clear to the aircraft's altitude," which isn't actually
+   * what METAR promises. Fixing this properly needs an upper-air data
+   * source METAR itself can't provide (a global model like ECMWF/GFS —
+   * scoped separately, not built yet) — deliberately NOT patching this
+   * with an interim confidence cap here, since without real upper-air
+   * data any such cap would be an uncalibrated guess that risks fighting
+   * the contrail-rescue logic above. See CLAUDE.md for the full writeup.
    */
-  function _applyMetarAdjustment(cat, altitudeFt, slantNm, metar) {
+  function _applyMetarAdjustment(cat, altitudeFt, horizNm, metar) {
     if (!metar) return cat;
 
     const occluding = _lowestOccludingLayer(metar.clouds, altitudeFt);
@@ -214,10 +248,11 @@ const Visibility = (() => {
         cat = _capAtPossiblyVisible(cat);
       }
     }
+    // else: no occluding layer reported — see the KNOWN GAP note above.
 
     if (metar.visibilitySm != null && metar.visibilitySm < 10) {
       const visNm = metar.visibilitySm * NM_PER_SM;
-      if (slantNm > visNm) {
+      if (horizNm > visNm) {
         cat = _capAtPossiblyVisible(cat);
       }
     }
@@ -229,8 +264,8 @@ const Visibility = (() => {
    * Estimate visual detectability of an aircraft.
    *
    * @param {object} [metar]  Current METAR context from MetarProvider.getCached()
-   *   — { clouds: [{cover, baseFt}], visibilitySm }. Omit/null for no adjustment
-   *   (matches all prior behaviour exactly).
+   *   — { clouds: [{cover, baseFt, baseMslFt}], visibilitySm, elevationFt }.
+   *   Omit/null for no adjustment (matches all prior behaviour exactly).
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
@@ -290,7 +325,7 @@ const Visibility = (() => {
       cat = CATEGORIES[Math.min(idx + 1, CATEGORIES.length - 1)];
     }
 
-    cat = _applyMetarAdjustment(cat, altitudeFt, slantNm, metar);
+    cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
 
     return {
       label: cat.label,

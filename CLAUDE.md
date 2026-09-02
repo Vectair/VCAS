@@ -5812,3 +5812,108 @@ lower/capped predicted label (instead of the 4-for-4 "high confidence,
 no adjustment applied" pattern that prompted this whole investigation)
 would be the real confirmation the fix is working end-to-end, not just
 that the relay itself responds correctly.
+
+## Visibility model calibration pass #2: two real METAR correctness bugs, plus a documented gap (2026-09-02)
+
+Direct instruction: "Lets work on improving the model" continued into a
+second round, this time reviewing two independent design proposals from
+a different LLM (a full weather-subsystem rearchitecture, and a
+local-obstruction feature) submitted for cross-review. Full details of
+that review process — including why the larger multi-station/confidence
+weather rearchitecture was deliberately NOT adopted (too many new tuned
+constants for how sparse this project's ground-truth log data actually
+is) — live in this session's own transcript; this entry covers what
+actually shipped: two narrow, verified correctness fixes to the
+*existing* METAR adjustment, plus one gap documented but deliberately
+left unfixed.
+
+### Fix A — AGL/MSL cloud-base datum mismatch
+
+`_lowestOccludingLayer()` (`visibility.js`) used to compare a METAR cloud
+layer's reported base directly against the aircraft's ADS-B altitude —
+but METAR cloud bases are reported AGL, relative to the REPORTING
+STATION, while ADS-B altitude is MSL-referenced. At an elevated station
+this could misjudge whether a layer was actually below the aircraft.
+
+Confirmed real via a third-party-documented live METAR JSON example
+(KORD/O'Hare) before fixing it — this sandbox can't reach
+aviationweather.gov directly:
+```json
+{ "icaoId": "KORD", "elev": 202, "clouds": [{ "cover": "BKN", "base": 11000 }] }
+```
+`elev: 202` only makes sense as **metres** (O'Hare's real elevation is
+~672ft/205m — 202ft would be wrong for that airport); `clouds[].base:
+11000` matches the raw METAR text's own `BKN110` (11,000ft AGL),
+confirming both the field's existence/unit and that `base` really is
+AGL, not MSL.
+
+Fixed: `metarProvider.js` now parses `best.elev` (metres → feet,
+`elevationFt`) and `_parseClouds()` computes `baseMslFt = elevationFt +
+baseAglFt` alongside the original `baseFt` (kept, for backward
+compatibility). `visibility.js`'s `_lowestOccludingLayer()` now compares
+against `baseMslFt`, falling back to raw `baseFt` if elevation was ever
+unavailable — degrades gracefully rather than dropping the whole check.
+
+### Fix B — horizontal vs. slant range for prevailing visibility
+
+`_applyMetarAdjustment()` used to compare the aircraft's **slant range**
+against reported prevailing visibility — a horizontal/surface
+measurement, not a spherical radius around the station. This could
+wrongly penalize a high, near-overhead aircraft purely for its vertical
+distance, which the METAR gives no actual basis for judging.
+
+Fixed: `_applyMetarAdjustment(cat, altitudeFt, horizNm, metar)` now takes
+horizontal distance (already computed in `estimate()`, just not
+previously threaded through this call) instead of slant range for the
+reported-visibility check. The cloud-occlusion check is unaffected — it's
+altitude-based, not distance-based.
+
+**Both verified with real Node execution against the actual shipped
+code, not just reasoning through it**: a synthetic elevated-station case
+(cloud AGL base 4000ft, station elevation 3000ft, aircraft at 6000ft MSL)
+confirmed the old AGL-only comparison would have wrongly occluded the
+aircraft (4000 < 6000) while the fixed MSL comparison correctly does not
+(7000 ≥ 6000); a horizontal-vs-slant case confirmed a near-overhead
+aircraft (small horizontal offset, large slant range from altitude) is no
+longer wrongly capped by reported visibility, while a genuinely
+horizontally-distant aircraft in the same low-visibility METAR still
+correctly gets capped (Likely visible → Possibly visible only when
+`horizNm`, not slant, actually exceeds the reported figure); and
+`metarProvider.js`'s own parsing was directly tested against a mocked
+fetch returning the real KORD example — `elevationFt`/`baseMslFt` come
+out numerically exact.
+
+**Logging**: `observationLogger.js`'s `computed.metar` snapshot (added in
+calibration pass #1) already captures the *entire* `MetarProvider.
+getCached()` object verbatim — `elevationFt`/`baseMslFt` now flow through
+automatically into every future logged observation with zero additional
+logging code, so future `not_visible_weather` entries can be checked
+against real MSL-corrected cloud data, not just the final tier.
+
+### A related, real gap — documented, not fixed
+
+A third weather-review note correctly identified that "no METAR cloud
+reported" (including CAVOK) was being read by `_applyMetarAdjustment()`
+as "confirmed clear all the way to the aircraft's altitude" — but METAR
+only actually characterizes the surface-to-~5,000ft column and prevailing
+visibility; it says nothing about an unreported mid/upper-level layer
+(e.g. a jet at FL320 could be sitting above a real but unreported OVC
+deck at FL180-230). Confirmed this really is what the current code does:
+`_lowestOccludingLayer()` returns `null` when no BKN/OVC/VV is reported,
+and the cloud check silently no-ops in that case.
+
+**Deliberately not patched here.** Unlike Fixes A/B, there's no single
+unambiguous correct fix without an actual upper-air data source (a
+separate, reviewed-but-not-adopted proposal recommends Open-Meteo/ECMWF
+IFS for this — genuinely global, no key, and — per a web search this
+sandbox can't verify directly against the live API — reportedly sends
+`Access-Control-Allow-Origin: *`, meaning it might be the first weather
+source in this project that doesn't need a relay built for it, if it's
+ever actually implemented). An interim confidence cap without real
+upper-air data would be an uncalibrated guess risking a fight with the
+existing contrail-rescue logic (which specifically exists to give
+high-altitude aircraft *more* confidence, not less) — exactly the kind of
+speculative complexity this calibration pass has otherwise been pushing
+back on. Left as a named, documented gap (this comment, plus
+`_applyMetarAdjustment()`'s own inline comment) rather than a silent one,
+for whenever the upper-air provider work actually happens.
