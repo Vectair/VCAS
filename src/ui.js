@@ -900,12 +900,6 @@ const UI = (() => {
 
   // ---- RAW mode aircraft list panel (Stage 3) ----
 
-  const RAW_LIST_SORT_MODES = [
-    { key: "priority", label: "PRI" },
-    { key: "range",    label: "RNG" },
-    { key: "altitude", label: "ALT" },
-    { key: "type",     label: "TYP" },
-  ];
   // Below these dimensions there isn't room to show callsign+type+altitude+
   // range legibly (or even a header + a single row) — the panel hides
   // entirely rather than render an unreadably-cramped sliver.
@@ -914,7 +908,7 @@ const UI = (() => {
   const PANEL_MARGIN_PX = 8;
 
   /**
-   * Sortable aircraft-list panel, RAW mode only — fills the rectangle
+   * Aircraft-list panel, RAW mode only — fills the rectangle
    * complementary to the 1:1 square plot (Geo.computeSquarePlotLayout's
    * `rows`): below the square on portrait screens (square = full width),
    * to its right on landscape screens (square = full height). Direct
@@ -925,15 +919,16 @@ const UI = (() => {
    * Hidden entirely — not just empty — when that region is too small to
    * be legible; see MIN_PANEL_WIDTH_PX/MIN_PANEL_HEIGHT_PX.
    *
-   * @param {Array} items       Same shape as Indicators.build()'s output —
-   *   already sorted by the caller according to `sortMode`; this function
-   *   only renders in the order given, it doesn't sort.
+   * @param {Array} items       Same shape as Indicators.build()'s output,
+   *   in Indicators.build()'s own priority order (visibility score desc,
+   *   then proximity) — this function renders in the order given and
+   *   doesn't re-sort. Re-sorting was removed 2026-09-06 (direct
+   *   instruction): "less interaction" is the right default for an
+   *   Android-Auto-bound list, so the panel is always most-visible-first
+   *   now, matching the plot's own icon-priority order exactly rather than
+   *   letting the two diverge.
    * @param {object} rowsRect   { left, top, width, height } — the exact
    *   region to fill, straight from Geo.computeSquarePlotLayout(...).rows.
-   * @param {string} sortMode    One of "priority"|"range"|"altitude"|"type" —
-   *   only used to mark which sort button reads as active; the caller
-   *   already did the actual sorting (see app.js's _sortForRawList).
-   * @param {function} onSortClick  Called with the clicked sort mode string.
    * @param {function} onRowClick   Called with the indicator item (same
    *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
    * @param {Set<string>} [beyondRangeHexes]  Hex codes currently beyond the
@@ -943,7 +938,7 @@ const UI = (() => {
    *   of their own right now, just an edge dot (or nothing, if outside the
    *   FOV entirely).
    */
-  function renderAircraftList(items, rowsRect, sortMode, onSortClick, onRowClick, beyondRangeHexes) {
+  function renderAircraftList(items, rowsRect, onRowClick, beyondRangeHexes) {
     const panel = document.getElementById("raw-aircraft-list");
     if (!panel) return;
 
@@ -957,10 +952,6 @@ const UI = (() => {
     panel.style.top    = (rowsRect.top + PANEL_MARGIN_PX) + "px";
     panel.style.width  = (rowsRect.width - PANEL_MARGIN_PX * 2) + "px";
     panel.style.height = (rowsRect.height - PANEL_MARGIN_PX * 2) + "px";
-
-    const header = RAW_LIST_SORT_MODES.map(m =>
-      `<button type="button" class="raw-list-sort-btn${m.key === sortMode ? " active" : ""}" data-sort="${m.key}">${m.label}</button>`
-    ).join("");
 
     const rows = items.length === 0
       ? `<div class="raw-list-empty">No traffic</div>`
@@ -983,13 +974,8 @@ const UI = (() => {
             </div>`;
         }).join("");
 
-    panel.innerHTML = `
-      <div class="raw-list-header">${header}</div>
-      <div class="raw-list-body">${rows}</div>`;
+    panel.innerHTML = `<div class="raw-list-body">${rows}</div>`;
 
-    panel.querySelectorAll(".raw-list-sort-btn").forEach(btn => {
-      btn.addEventListener("click", () => onSortClick(btn.dataset.sort));
-    });
     panel.querySelectorAll(".raw-list-row[data-hex]").forEach(rowEl => {
       const hex = rowEl.dataset.hex;
       const ind = items.find(it => it.aircraft.hex === hex);

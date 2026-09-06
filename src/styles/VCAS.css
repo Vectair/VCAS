@@ -206,16 +206,20 @@ html, body {
    colorRaw already does for traffic symbols. Colour is pure yellow
    (255,255,0), pixel-sampled directly from a real ND reference photo's own
    ownship symbol (measured peak (254,254,18)) — not the olive/yellow-green
-   this used to be. */
+   this used to be. Sets `color` (not a `path`-specific fill rule) because
+   the car-icon body+wheels (map.js's _createUserMarker) are drawn with
+   fill="currentColor" across a mix of <rect>/<path> elements — overriding
+   the cascade point once here covers all of them, and keeps working
+   unchanged if the icon shape/element mix ever changes again (e.g. a future
+   bike/pedestrian vehicle icon). The windshield keeps its own explicit dark
+   fill either way, so it still reads as glass against the yellow body. */
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
   background: rgba(255,255,0,.14);
   border-color: rgba(255,255,0,.3);
 }
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   filter: drop-shadow(0 0 6px rgba(255,255,0,.75));
-}
-body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav path {
-  fill: #ffff00;
+  color: #ffff00;
 }
 
 .user-marker-nav {
@@ -1036,28 +1040,6 @@ body[data-theme="day"] .air-label-box {
   overflow: hidden;
 }
 #raw-aircraft-list.hidden { display: none; }
-
-.raw-list-header {
-  display: flex;
-  flex-shrink: 0;
-  border-bottom: 1px solid rgba(240,240,240,.18);
-}
-
-.raw-list-sort-btn {
-  flex: 1;
-  padding: 6px 2px;
-  border: none;
-  border-right: 1px solid rgba(240,240,240,.12);
-  background: transparent;
-  color: rgba(240,240,240,.55);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  cursor: pointer;
-  -webkit-appearance: none;
-}
-.raw-list-sort-btn:last-child { border-right: none; }
-.raw-list-sort-btn.active { background: rgba(240,240,240,.16); color: #f0f0f0; }
 
 .raw-list-body {
   flex: 1;

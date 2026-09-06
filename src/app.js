@@ -61,11 +61,6 @@
   // Manually-suppressed aircraft (via the popup's Suppress button): hex -> expiry timestamp (ms).
   let suppressedUntil = new Map();
 
-  // Stage 3 aircraft-list panel (RAW only) — which field it's currently
-  // sorted by. In-memory only, like indicatorPage above; not a persisted
-  // setting, just live display state for the current session.
-  let rawListSortMode = "priority";
-
   // ND-style range selector (RAW only) — index into Indicators.RING_BANDS_NM,
   // matching a real EFIS control panel's physical range knob. Defaults to
   // 10nm (2026-08-24, direct instruction) — computed via indexOf rather than
@@ -1367,7 +1362,7 @@
       UI.clearCompassRing();
     }
 
-    // Stage 3: sortable aircraft-list panel — Raw only, filling the exact
+    // Stage 3: aircraft-list panel — Raw only, filling the exact
     // rectangle complementary to the square (Geo.computeSquarePlotLayout's
     // own `rows`) — below the square in portrait, to its right in
     // landscape. Deliberately built from allRelevant (the FULL relevant
@@ -1379,9 +1374,14 @@
     // computed, if unrendered, plot position); it doesn't auto-advance the
     // page to bring the icon into view.
     if (isRawView) {
-      const listItems = _sortForRawList(allRelevant, rawListSortMode);
+      // allRelevant already arrives sorted by Indicators.build()'s own
+      // priority order (visibility score desc, then proximity) — the same
+      // order that governs plot icon selection/pagination, so the list is
+      // rendered straight from it with no re-sort. Resorting was removed
+      // 2026-09-06 (direct instruction): Android-Auto-bound, so less
+      // interaction is the right default — always most-visible-first.
       const beyondRangeHexes = new Set(beyondRange.map(it => it.aircraft.hex));
-      UI.renderAircraftList(listItems, square.rows, rawListSortMode, onRawListSortClick, onIndicatorClick, beyondRangeHexes);
+      UI.renderAircraftList(allRelevant, square.rows, onIndicatorClick, beyondRangeHexes);
     } else {
       UI.clearAircraftList();
     }
@@ -1389,41 +1389,6 @@
 
   function onRawRangeCycleClick() {
     selectedRangeIndex = (selectedRangeIndex + 1) % Indicators.RING_BANDS_NM.length;
-    refreshIndicators();
-  }
-
-  /**
-   * Re-orders (never re-filters) the Stage 3 list panel's own display
-   * order. "priority" is a no-op — allRelevant already arrives sorted by
-   * visibility score then proximity (Indicators.build()'s own default),
-   * and that's also what governs which aircraft get plot icons/pagination
-   * at all, so it must stay untouched here rather than being re-derived.
-   * The other three modes only affect how the LIST reads; they never
-   * touch the plot's own icon selection/order.
-   */
-  function _sortForRawList(items, mode) {
-    if (mode === "priority") return items;
-    const sorted = items.slice();
-    if (mode === "range") {
-      sorted.sort((a, b) => a.distanceNm - b.distanceNm);
-    } else if (mode === "altitude") {
-      sorted.sort((a, b) => {
-        const aAlt = a.aircraft.altitudeFt, bAlt = b.aircraft.altitudeFt;
-        if (aAlt == null && bAlt == null) return 0;
-        if (aAlt == null) return 1; // unknown altitude sorts last, not first
-        if (bAlt == null) return -1;
-        return aAlt - bAlt;
-      });
-    } else if (mode === "type") {
-      sorted.sort((a, b) =>
-        (a.aircraft.type || a.aircraft.callsign || "").localeCompare(b.aircraft.type || b.aircraft.callsign || "")
-      );
-    }
-    return sorted;
-  }
-
-  function onRawListSortClick(sortMode) {
-    rawListSortMode = sortMode;
     refreshIndicators();
   }
 

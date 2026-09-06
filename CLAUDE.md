@@ -6164,3 +6164,134 @@ across actual known locations (open airfield vs. suburb vs. city centre
 vs. woodland) — that needs a real device with a real MapTiler key this
 sandbox can't provide, and is exactly the input `LOCAL_OBSTRUCTION_DENSE_THRESHOLD`
 needs before it can move past "reasonable starting guess."
+
+## RAW-mode redesign, round 1: car ownship icon + list reverted to priority-only (2026-09-06)
+
+Prompted by a 3-panel comparison image the project owner shared: their own
+hand-drawn RAW-mode design draft, a screenshot of the current deployed web
+app's RAW mode, and a real Microsoft Flight Simulator A320 ND reference
+photo. Their own framing, given directly, matters for how to read the
+whole comparison: **"I haven't thrown out our previous work but taken
+what currently exists and reworked it into a style/theme that I find
+preferable."** i.e. this is a restyling of the existing RAW mode, not a
+replacement design — read every one of the four feedback points below
+against that framing, not as "build a new screen."
+
+Four pieces of feedback came in together; this entry covers the two
+scoped as quick/low-risk and implemented immediately. The other two (a
+route/flight-plan line for RAW+Hybrid nav, and a bottom-bar restyle) are
+real, separate, larger pieces of work — deliberately sequenced after
+this pair per the project owner's own explicit choice ("small ones
+first, then the nav line") and not started yet.
+
+### 1. Ownship symbol switched from a chevron to a car
+
+Direct instruction: "the ownership symbol should be switched to the car
+symbol. Long term this will be switchable between whichever the app is
+being used with. Car, bike or pedestrian." Only "car" was asked for now
+— per this project's own "don't design for hypothetical future
+requirements" convention, no vehicle-type switch/setting was built; the
+long-term plan is noted only as a comment at the change site
+(`_createUserMarker` in `map.js`) naming the natural extension point
+(a `_vehicleIconMarkup(vehicleType)` lookup) for whenever that's actually
+requested.
+
+This marker is the one real `maplibregl.Marker` shared by every mode
+(NAV/RAW/AIR all render the same real map instance/marker under
+different styles/cameras — see "Range rings" above) — replacing its SVG
+in `map.js`'s `_createUserMarker()` therefore changes the icon
+everywhere at once, not just in RAW. The previous shape was a plain
+directional triangle/chevron (`<path d="M10 1 L19 27 L10 21 L1 27 Z">`,
+`fill="var(--accent-user)"`). The new shape is a small top-down car
+silhouette — a rounded body path, four small wheel-bump rects at the
+sides, and a separate dark semi-transparent windshield path — built and
+visually iterated in a real Playwright/Chromium harness (this project's
+established convention) before touching the real file, since a
+hand-authored SVG path is easy to get looking wrong (a first draft
+genuinely looked like a ghost, not a car, and was redrawn).
+
+**A real, non-obvious CSS coupling had to be fixed at the same time, not
+just the shape swapped in-place**: RAW mode force-colours the ownship
+pure yellow (`(255,255,0)`, pixel-sampled from the real ND reference's
+own ownship symbol — see "RAW mode fidelity" above), and the old CSS
+rule did this via `.user-marker-nav path { fill: #ffff00; }` — a
+selector that only ever matched the single `<path>` the old chevron was.
+The new car icon is a mix of `<rect>` (wheels) and `<path>` (body,
+windshield) elements, so that same selector would have left the wheels
+stuck lime-green in RAW mode while the body turned yellow — a real,
+easy-to-miss inconsistency if the CSS had been left as-is. Fixed by
+switching the body+wheels group to `fill="currentColor"` and retargeting
+the RAW override to set `.user-marker-nav { color: #ffff00 }` instead of
+a `path`-specific fill rule — the override now cascades correctly
+regardless of which element types make up the icon, robust to a future
+bike/pedestrian icon swap using a different shape mix. The windshield
+keeps its own explicit dark fill in both cases, so it still reads as
+glass against either body colour.
+
+Verified with a real Playwright/Chromium render of the actual new
+markup against the real `VCAS.css`, across all three states the CSS
+distinguishes: plain NAV/Hybrid (lime-green body, halo glow, as before),
+RAW (`body[data-mode="nav"][data-nav-style="raw"]` — confirmed the whole
+body+wheels group forces to yellow while the windshield stays dark), and
+AIR (same lime-green as Hybrid, confirming the AIR-specific CSS path
+wasn't accidentally affected). All three matched the intended design
+before this was considered done.
+
+### 2. Aircraft-list panel reverted to always-priority order — resorting removed
+
+Direct instruction: "I have decided to revert back to just ordering it
+based on most visible. Because this is for android auto there should
+initially be less interaction and rearranging the list is not
+necessary." This reverses the Stage 3 list panel's own 2026-08-21
+"sortable via PRI/RNG/ALT/TYP header buttons" feature (see "Stage 3:
+sortable aircraft-list panel" above) — not a bug fix, a deliberate
+interaction-surface reduction for the platform this screen is actually
+headed toward (Android Auto's own distraction-minimization posture,
+already the reasoning behind the 5mph interaction gates elsewhere in
+this app).
+
+Removed, not just hidden behind a flag — matching this project's own
+"if you're certain it's unused, delete it, don't leave a disabled shell
+behind" convention: `ui.js`'s `RAW_LIST_SORT_MODES` constant and the
+header-button markup/click-wiring inside `renderAircraftList()`;
+`app.js`'s `rawListSortMode` state, `_sortForRawList()`, and
+`onRawListSortClick()`; the now-dead `.raw-list-header`/
+`.raw-list-sort-btn` CSS rules. `renderAircraftList()`'s signature
+dropped the now-meaningless `sortMode`/`onSortClick` parameters
+entirely rather than keeping them as unused holes. The call site in
+`app.js` now passes `allRelevant` straight through — it was already
+arriving in `Indicators.build()`'s own priority order (visibility score
+descending, then proximity), the exact same order that governs which
+aircraft get plot icons/pagination at all, so "most visible first" was
+already the underlying data order; only the ability to leave it were
+being removed, not any actual sorting logic.
+
+Verified with a real Playwright/Chromium harness driving the actual,
+now-edited `ui.js` against stubbed `ThemeManager`/`ColorblindMode`/
+`NavDisplayStyle` (this project's established pattern for this file):
+confirmed the panel renders with no header row at all, the two test
+aircraft render in the exact order passed in, and the pre-existing
+beyond-range dimming (`.raw-list-row.beyond-range`) still applies
+correctly — that feature is unrelated to sorting and had to keep working
+unchanged.
+
+### Not done in this pass, and not implied by it
+
+The flight-plan/route line for RAW+Hybrid nav (with the turn/junction
+name shown where the ND would show a waypoint name, and the top ND-style
+info strip replaced with car-relevant info) and the bottom-bar Airbus-
+switch-bank restyle are both real, separately-scoped work the project
+owner explicitly deferred to a follow-up pass, not overlooked here.
+Neither has been started.
+
+**Also not touched, and worth flagging rather than letting it go stale
+silently**: the native Android Auto port's own Stage-3-list Kotlin
+port (`RawAircraftListView.kt` — see "Phone screen, real pass 2" above)
+still implements the PRI/RNG/ALT/TYP sort buttons this entry just
+removed from the web app, and `MainActivity.kt`'s comments still
+reference `_sortForRawList()` by name. The native port has always lagged
+the web app and been synced in dedicated passes (per this file's own
+established pattern for that project), not kept in lockstep on every
+change — carrying this forward into the native code is real, separate
+follow-up work for whenever that port's next sync pass happens, not
+something this round of edits silently included.
