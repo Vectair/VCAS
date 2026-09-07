@@ -481,6 +481,41 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 
 .mode-toggle .mode-btn:last-child { border-right: none; }
 
+/* ---- Mode row switch-bank labels + divider (2026-09-07) ----
+   Direct instruction, from the same hand-drawn RAW-mode design draft as
+   the flight-plan-line/nav-status-card work above: group the existing
+   screen-mode toggle and the existing route-pin button under small
+   engraved-style captions ("SCREEN"/"NAV" — shortened from the reference
+   draft's full "NAVIGATION", which crowded #aircraft-count into a 3-line
+   wrap on a narrow 360px phone; confirmed via Playwright), like a real EFIS
+   control panel labels its own switch banks — explicitly "a style choice,
+   not an actual redesign": same buttons, same behaviour, same bevel
+   treatment the 2026-08-22 cockpit-panel rebrand already gave
+   .mode-toggle/.route-btn, just visually grouped and captioned now. */
+.mode-row-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mode-row-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mode-row-divider {
+  align-self: stretch;
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
 #aircraft-count {
   flex: 1;
   text-align: center;

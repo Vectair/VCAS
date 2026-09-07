@@ -6487,3 +6487,77 @@ mismatched with it). The native Android Auto port is untouched — same
 "synced in dedicated passes, not every change" standing note as round 1
 above; its own RAW screen (`RawPlotView.kt`) has no flight-plan-line or
 merged-nav-card equivalent yet.
+
+## RAW-mode redesign, round 3: bottom-bar switch-bank labels (2026-09-07)
+
+The last piece from the original 3-panel-comparison feedback, explicitly
+deferred until rounds 1-2 above shipped. Direct instruction, with an
+important scope-limiting clarification: **"The bottom bar is just a
+redesign of the buttons used already to make them stylistically similar
+to the airbus theme. The division with navigation is again a style
+choice, not an actual redesign. The current version of this is the
+Pin."** — i.e. no new controls, no behaviour change; the existing
+HYBRID/RAW/AIR toggle and the existing route-pin button just needed to
+read as two labelled switch groups on a real EFIS panel, the way the
+project owner's own hand-drawn draft showed them ("SCREEN" over the
+mode toggle, "NAVIGATION" over a nav-related control — which, per their
+own clarification, is just the existing pin button wearing a caption,
+not a new feature).
+
+**Zero behaviour change, confirmed before touching anything**: grepped
+`app.js` for every reference to the bottom-bar buttons —
+`btn-test-route`/`btn-raw`/`btn-air`/`btn-hybrid` are all looked up by
+`getElementById`, nothing relies on `#mode-row`'s direct-child structure
+— so wrapping the existing elements in two new grouping `<div>`s was
+safe with no JS changes needed at all. The buttons themselves already
+carry the cockpit-panel bevel treatment from the 2026-08-22 rebrand
+(`.mode-toggle`'s recessed-housing shadow, individual flush segments,
+`.route-btn` reusing the same `.mode-btn` base) — that work already gave
+this row its "Airbus switch" material; this pass only adds the
+labelling/grouping structure around it.
+
+**`index.html`**: `#mode-row` restructured from a flat
+`[.mode-toggle] [#aircraft-count] [.route-btn]` row into
+`[.mode-row-group: "SCREEN" caption + .mode-toggle] [#aircraft-count]
+[.mode-row-divider] [.mode-row-group: "NAV" caption + .route-btn]` — new
+wrapper `<div class="mode-row-group">`/`<div class="mode-row-label">`
+elements and one `<div class="mode-row-divider">`, no existing element
+removed or given a new id/class that anything else depends on.
+
+**`VCAS.css`**: `.mode-row-group` (column flex, centres a caption over
+its button/toggle), `.mode-row-label` (small, muted, letter-spaced,
+uppercased via CSS rather than hardcoded caps in the markup), `.mode-row-
+divider` (a 1px `var(--border)` line, `align-self:stretch` so it fills
+the row's real height whatever that turns out to be rather than a
+guessed fixed value). Both new rules read `var(--text-muted)`/
+`var(--border)` — already redefined for RAW's forced-dark palette by the
+existing `body[data-mode="nav"][data-nav-style="raw"] { ... }` custom-
+property block (2026-08-22 rebrand) — so they pick up the correct RAW
+colours automatically, no RAW-specific override needed for this pass at
+all.
+
+**The reference draft's exact wording, "NAVIGATION," was shortened to
+"NAV" — a deliberate, verified departure, not a rendering shortcut.** A
+real Playwright render at this project's standard 360px worst-case width
+showed the literal word "NAVIGATION" was wide enough to squeeze
+`#aircraft-count` (already flex:1, already wrapping to 2 lines even in
+the ORIGINAL unmodified bar at this width) into an awkward 3-line wrap —
+confirmed by rendering the true pre-existing bar at the same width for
+comparison, not assumed. "NAV" recovers that width and returns
+`#aircraft-count` to its original 2-line wrap, with no loss of meaning
+in a single-word switch-bank caption.
+
+Verified with a real Playwright/Chromium render of the actual new markup
+against the real `VCAS.css` (this project's established convention):
+Night at both 360px and 412px, Day at 360px, and RAW's forced-dark
+override at 360px — all four show the labelled two-group layout with no
+horizontal overflow (`scrollWidth === clientWidth` checked directly, not
+just eyeballed) and `#aircraft-count` wrapping the same way it always
+did, not worse.
+
+This closes out all four pieces of feedback from the original 3-panel
+comparison — ownship car icon and aircraft-list resort removal (round 1),
+the flight-plan line and merged nav-status card (round 2), and this
+bottom-bar restyle (round 3). Not implied by finishing this list: the
+native Android Auto port's own bottom controls remain unrestyled, same
+"synced in dedicated passes" standing note as rounds 1-2 above.

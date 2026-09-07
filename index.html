@@ -403,15 +403,26 @@
 
         <!-- Bottom bar -->
         <div id="bottom-bar">
-          <!-- Mode row -->
+          <!-- Mode row — same buttons/behaviour as before, restyled
+               (2026-09-07) to read as two labelled switch groups on a real
+               EFIS control panel ("SCREEN" for display mode, "NAV" for the
+               destination pin), per a hand-drawn design draft — a style
+               choice, not a functional change: see CLAUDE.md. -->
           <div id="mode-row">
-            <div class="mode-toggle">
-              <button class="mode-btn active-mode" id="btn-raw">RAW</button>
-              <button class="mode-btn" id="btn-air">AIR</button>
-              <button class="mode-btn" id="btn-hybrid">HYBRID</button>
+            <div class="mode-row-group">
+              <div class="mode-row-label">Screen</div>
+              <div class="mode-toggle">
+                <button class="mode-btn active-mode" id="btn-raw">RAW</button>
+                <button class="mode-btn" id="btn-air">AIR</button>
+                <button class="mode-btn" id="btn-hybrid">HYBRID</button>
+              </div>
             </div>
             <div id="aircraft-count">No aircraft in range</div>
-            <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
+            <div class="mode-row-divider"></div>
+            <div class="mode-row-group">
+              <div class="mode-row-label">Nav</div>
+              <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
+            </div>
           </div>
         </div>
       </div>
