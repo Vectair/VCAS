@@ -29,7 +29,7 @@ const ManeuverTracker = (() => {
    * @param {number} userLon
    * @param {number} userLat
    * @returns {{exists:boolean, instruction?:string, type?:number, name?:string,
-   *            distanceMeters?:number, isArrival?:boolean}}
+   *            distanceMeters?:number, isArrival?:boolean, targetCoordIndex?:number}}
    */
   function nextManeuver(coords, steps, userLon, userLat) {
     if (!coords || coords.length < 2 || !Array.isArray(steps) || steps.length === 0) {
@@ -74,6 +74,12 @@ const ManeuverTracker = (() => {
       name: targetStep.name || "",
       distanceMeters,
       isArrival: targetStepIdx === steps.length - 1,
+      // Coordinate-array index of the maneuver itself (where the current
+      // step ENDS) — already computed above as targetIdx for the distance
+      // calc, just also surfaced here. Lets a caller place something at
+      // the turn's real map position (e.g. RAW's screen-space flight-plan
+      // line labelling where the turn is) without re-deriving it.
+      targetCoordIndex: targetIdx,
     };
   }
 

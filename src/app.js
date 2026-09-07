@@ -506,6 +506,7 @@
         UI.clearRangeRingsOverlay();
         UI.clearAircraftList();
         UI.clearRangeSelector(); // same bug pattern as the two clears above
+        UI.clearRouteLine(); // same bug pattern again — see renderRouteLine's own call site
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -1127,12 +1128,21 @@
   function _rawChromeInsets() {
     const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
+    // RAW (2026-09-06) moves #route-card from its usual bottom-pinned spot
+    // to directly under #nav-guidance-card at the top, so the two read as
+    // one merged nav-status panel matching the ND reference's own layout
+    // (see VCAS.css's RAW override for the actual repositioning) — the
+    // insets below have to agree with wherever it actually is, or the
+    // square plot/compass tape would either overlap it or leave a gap
+    // where it used to be.
+    const routeCard = document.getElementById("route-card");
+    const routeCardAtTop = NavDisplayStyle.isRaw();
+
     // How much room the bottom chrome (ETA card and/or the bottom bar,
     // which can be stacked together when a route is active) actually
     // occupies right now.
     let bottomInset = 0;
-    const routeCard = document.getElementById("route-card");
-    if (routeCard && !routeCard.classList.contains("hidden")) {
+    if (routeCard && !routeCard.classList.contains("hidden") && !routeCardAtTop) {
       bottomInset += routeCard.offsetHeight;
     }
     const bottomBar = document.getElementById("bottom-bar");
@@ -1151,6 +1161,26 @@
     const guidanceCard = document.getElementById("nav-guidance-card");
     if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
       chromeTopInset += guidanceCard.offsetHeight;
+    }
+
+    // #route-card is position:fixed (normally bottom:0, see VCAS.css) — CSS
+    // alone can't attach it directly under #nav-guidance-card, since the
+    // guidance card's own real height depends on #top-bar's real height,
+    // both of which vary by content/viewport. Positioned here, right where
+    // both real heights are already measured for the insets calc below, so
+    // there's one source for "where does RAW's merged nav-status panel
+    // actually start" rather than a second guess living in CSS.
+    if (routeCard) {
+      if (routeCardAtTop) {
+        routeCard.style.top = (topBar ? topBar.offsetHeight : 0) + (guidanceCard ? guidanceCard.offsetHeight : 0) + "px";
+        routeCard.style.bottom = "auto";
+      } else {
+        routeCard.style.top = "";
+        routeCard.style.bottom = "";
+      }
+    }
+    if (routeCardAtTop && routeCard && !routeCard.classList.contains("hidden")) {
+      chromeTopInset += routeCard.offsetHeight;
     }
 
     const squareContentTop = chromeTopInset + RAW_COMPASS_RESERVED_PX;
@@ -1189,7 +1219,14 @@
       userState.cameraPitch = camConfig.pitch;
       userState.anchorY = camConfig.anchorY;
     }
-    _updateGuidanceCard(camConfig && camConfig.maneuver);
+    // Computed once here (not inside _updateGuidanceCard itself any more)
+    // so RAW's own screen-space flight-plan line (below, once `square` is
+    // known) reads the EXACT same "what's the next maneuver" answer the
+    // guidance card does — the same "one shared computation, not two that
+    // could silently drift" discipline this file already applies to
+    // anchorY/the rings-dots scale elsewhere.
+    const routeManeuver = _computeRouteManeuver();
+    _updateGuidanceCard(routeManeuver, camConfig && camConfig.maneuver);
     _updateRouteCard();
     _checkOffRoute();
 
@@ -1337,9 +1374,33 @@
       // row reads [LOG] ... SPD ... [range] rather than LOG sitting on its
       // own separate row above/below this one.
       LogPanel.setPosition(square.squareLeft + 8, rawRowY);
+
+      // Screen-space flight-plan line (2026-09-06) — NOT the real geo-
+      // referenced MapLibre route line (map.js hides that one while RAW is
+      // active; see EosMap's own _applyRouteVisibility doc comment for
+      // why). Shares the exact square/anchor/bands/FOV params the dots and
+      // rings above use, so it can't disagree with them the way the old
+      // real-geo rings once did.
+      const routeCoords = activeRoute && activeRoute.geometry && activeRoute.geometry.coordinates;
+      if (activeRoute && userLat !== null && userLon !== null && Array.isArray(routeCoords) && routeCoords.length >= 2) {
+        const { segIdx } = RouteGeometry.nearestOnLine(routeCoords, userLon, userLat);
+        const aheadCoords = routeCoords.slice(segIdx);
+        const turnIndex = (routeManeuver.exists && routeManeuver.targetCoordIndex != null)
+          ? Math.max(0, routeManeuver.targetCoordIndex - segIdx)
+          : null;
+        UI.renderRouteLine(
+          aheadCoords, userLat, userLon, userHeading,
+          square.squareLeft, square.squareTop, square.squareSize,
+          userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG,
+          turnIndex, routeManeuver.name || null
+        );
+      } else {
+        UI.clearRouteLine();
+      }
     } else {
       UI.clearRangeRingsOverlay();
       UI.clearRangeSelector();
+      UI.clearRouteLine();
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
@@ -1348,16 +1409,13 @@
     // the function falls back to otherwise — so ticks start right below the
     // real chrome instead of a magic number that happened to be close.
     if (isRawView) {
-      // Compact vehicle/route strip below the heading tape — RAW's
-      // equivalent of a real ND's flight-data strip (GS/TAS/ILS APP/
-      // arrival time), adapted to what's actually relevant driving a car.
-      const vehicleInfo = {
-        speedMph: userSpeedMph,
-        route: activeRoute
-          ? { destName: routeDestName || "destination", distanceMeters: activeRoute.distanceMeters, durationSeconds: activeRoute.durationSeconds }
-          : null,
-      };
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, vehicleInfo);
+      // Compact speed strip below the heading tape — RAW's equivalent of a
+      // real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
+      // to the one figure always relevant regardless of routing. When a
+      // route IS active, destination/distance/ETA live in the merged top
+      // nav-status card (#nav-guidance-card + #route-card, see
+      // _rawChromeInsets()/VCAS.css) instead of a second copy here.
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, { speedMph: userSpeedMph });
     } else {
       UI.clearCompassRing();
     }
@@ -1576,6 +1634,7 @@
     if (destPickActive) toggleDestPickMode();
     EosMap.clearRoute();
     CameraController.clearRoute();
+    UI.clearRouteLine(); // immediate, same as EosMap.clearRoute() above — don't wait for the next tick
     document.body.classList.remove("route-active");
     _hideRouteCard();
     navFollowSuspended = false;
@@ -1786,6 +1845,20 @@
   const DEFAULT_MANEUVER_ICON = { rotation: 0, glyph: "↑" };
 
   /**
+   * The ManeuverTracker call itself, hoisted out of _updateGuidanceCard so
+   * refreshIndicators() can compute it exactly once per tick and hand the
+   * SAME result to both the guidance card and (RAW only) the screen-space
+   * flight-plan line's turn label — see that call site's own comment.
+   */
+  function _computeRouteManeuver() {
+    if (!activeRoute) return { exists: false };
+    const hasSteps = Array.isArray(activeRoute.steps) && activeRoute.steps.length > 0;
+    return (hasSteps && userLat !== null && userLon !== null)
+      ? ManeuverTracker.nextManeuver(activeRoute.geometry.coordinates, activeRoute.steps, userLon, userLat)
+      : { exists: false };
+  }
+
+  /**
    * Live turn instruction. Primary source is ManeuverTracker against ORS's
    * own turn-by-turn steps (real street names, real maneuver types,
    * roundabout/arrival detection) — falls back to NavigationCameraEvaluator's
@@ -1794,8 +1867,11 @@
    * shape), so the card still shows *something* rather than going blank.
    * Called on every refresh, not just when the route first activates, so
    * the distance countdown and instruction actually update as you drive.
+   *
+   * @param {object} routeManeuver  Already-computed via _computeRouteManeuver()
+   *   (see refreshIndicators()'s call site) rather than derived again here.
    */
-  function _updateGuidanceCard(fallbackManeuver) {
+  function _updateGuidanceCard(routeManeuver, fallbackManeuver) {
     if (!activeRoute) return;
     const actionEl = document.getElementById("ngc-action-text");
     const iconEl   = document.getElementById("ngc-maneuver-icon");
@@ -1811,11 +1887,6 @@
       iconEl.style.transform = "rotate(0deg)";
       return;
     }
-
-    const hasSteps = Array.isArray(activeRoute.steps) && activeRoute.steps.length > 0;
-    const routeManeuver = (hasSteps && userLat !== null && userLon !== null)
-      ? ManeuverTracker.nextManeuver(activeRoute.geometry.coordinates, activeRoute.steps, userLon, userLat)
-      : { exists: false };
 
     if (routeManeuver.exists) {
       const icon = MANEUVER_ICONS[routeManeuver.type] || DEFAULT_MANEUVER_ICON;

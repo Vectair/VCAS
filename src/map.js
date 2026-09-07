@@ -116,7 +116,10 @@ const EosMap = (() => {
       if (!_map.getSource("route")) {
         _initRouteLayer();
         if (_currentRouteGeometry) _applyRoute(_currentRouteGeometry);
+      } else {
+        _applyRouteColor();
       }
+      _applyRouteVisibility();
       if (!_map.getSource("range-rings")) {
         _initRangeRingsLayer();
         if (_lastRingPosition) updateRangeRings(_lastRingPosition.lat, _lastRingPosition.lon, _lastRingPosition.bandsNm, _lastRingPosition.labelBearingDeg, _lastRingPosition.fovHalfAngleDeg);
@@ -150,6 +153,40 @@ const EosMap = (() => {
   function _effectiveRouteColors() {
     const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
     return raw ? ROUTE_COLORS.raw : ROUTE_COLORS.themed;
+  }
+
+  /** Re-applies the correct glow/line/highlight colours to an already-
+   * existing route layer on a style/theme switch — _initRouteLayer() only
+   * ever reads _effectiveRouteColors() once, at creation time, same gap
+   * _applyRangeRingColor() exists to close for the range rings. */
+  function _applyRouteColor() {
+    if (!_map || !_map.getLayer("route-line")) return;
+    const c = _effectiveRouteColors();
+    _map.setPaintProperty("route-glow", "line-color", c.glow);
+    _map.setPaintProperty("route-line", "line-color", c.line);
+    _map.setPaintProperty("route-highlight", "line-color", c.highlight);
+  }
+
+  /**
+   * RAW's aircraft dots/range-rings plot on a screen-space BANDED scale
+   * (Geo.bandedRadiusFraction/circularPlotRadius), deliberately not the
+   * map's real geographic zoom — see "Rings and dots share one scale now"
+   * in CLAUDE.md for the whole story of why real-geo content and that
+   * banded scale don't agree. The route line drawn by THIS module is real
+   * geo-referenced content, so leaving it visible in RAW would reproduce
+   * that exact mismatch (a turn 2km away would not line up with wherever
+   * ui.js's own screen-space flight-plan-line overlay or range rings put
+   * "2km"). Hidden here, not removed — RAW gets its own scale-consistent
+   * screen-space route line instead (ui.js's renderRouteLine), and this
+   * real layer becomes visible again the instant Hybrid is selected.
+   */
+  function _applyRouteVisibility() {
+    if (!_map || !_map.getLayer("route-line")) return;
+    const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
+    const visibility = raw ? "none" : "visible";
+    _map.setLayoutProperty("route-glow", "visibility", visibility);
+    _map.setLayoutProperty("route-line", "visibility", visibility);
+    _map.setLayoutProperty("route-highlight", "visibility", visibility);
   }
 
   function _initRouteLayer() {
@@ -215,6 +252,8 @@ const EosMap = (() => {
     if (!_mapLoaded) { _pendingRoute = geometry; return; }
     if (!_map.getSource("route")) _initRouteLayer();
     _applyRoute(geometry);
+    _applyRouteColor();
+    _applyRouteVisibility();
   }
 
   // ---- Range rings ----

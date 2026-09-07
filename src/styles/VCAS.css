@@ -1441,6 +1441,49 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 .route-card-clear:active { background: var(--btn-hover); }
 .route-card-clear.guidance-text-off { opacity: .5; }
 
+/* ---- RAW: merge the guidance card + ETA card into one top nav-status
+   panel (2026-09-06) ----
+   Direct instruction, from a hand-drawn design draft compared against a
+   real MSFS A320 ND reference photo: RAW's own turn-instruction/ETA
+   content should read like the reference's top data row (GS/TAS/ILS APP),
+   not Hybrid's separate Google-Maps-style top banner + bottom-pinned ETA
+   card. Both elements' own population logic (app.js's _updateGuidanceCard/
+   _updateRouteCard) is completely unchanged — this is a position + colour
+   override only. #route-card's actual repositioning (fixed `top`, not
+   `bottom`) is set from app.js's _rawChromeInsets(), which already
+   measures #top-bar/#nav-guidance-card's real heights for the square
+   plot's own layout — this CSS only handles the visual merge (matching
+   background, no seam) once it's there. Same rgba(14,17,23,.85)/
+   rgba(240,240,240,.18) panel colours #raw-aircraft-list already uses, so
+   every RAW-only panel reads as the same material. */
+body[data-mode="nav"][data-nav-style="raw"] #nav-guidance-card,
+body[data-mode="nav"][data-nav-style="raw"].route-active #nav-guidance-card {
+  background: rgba(14,17,23,.85);
+  border-bottom: none;
+  box-shadow: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-maneuver,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-maneuver {
+  color: #f0f0f0;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-action,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-action {
+  color: #f0f0f0;
+  font-family: 'B612 Mono', monospace; /* a digital readout, same face the ETA row below it already uses */
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-dest,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dest {
+  color: rgba(240,240,240,.75);
+}
+
+body[data-mode="nav"][data-nav-style="raw"] #route-card {
+  border-top: 1px solid rgba(240,240,240,.18);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgba(14,17,23,.85);
+  box-shadow: none;
+  animation: none; /* the slide-up-from-bottom entrance makes no sense once this lives at the top */
+}
+
 /* Route active: hide normal bottom bar behind the ETA card */
 body.route-active[data-mode="nav"] #bottom-bar {
   pointer-events: none;

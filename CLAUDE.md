@@ -6295,3 +6295,195 @@ established pattern for that project), not kept in lockstep on every
 change — carrying this forward into the native code is real, separate
 follow-up work for whenever that port's next sync pass happens, not
 something this round of edits silently included.
+
+## RAW-mode redesign, round 2: screen-space flight-plan line + merged nav-status card (2026-09-06, same day)
+
+The second, larger piece from the same 3-panel-comparison feedback,
+explicitly sequenced after round 1 above ("small ones first, then the nav
+line"): **"The flight plan line is actually something I would like to
+incorporate if navigation is on... a rudimentary line like appears on the
+actual ND screen [with] the name of the road or junction where the turn
+will be made... in place of the various airborne based information
+displayed on the top of the ND I've replaced it with relevant
+information."**
+
+**A real architectural risk found during investigation, not assumed —
+the same bug class this file already documents once, almost reproduced a
+second time.** Hybrid and RAW share the exact same MapLibre map instance
+(RAW is just a different style/theme applied to it, not a second map),
+and the real geo-referenced route line (`map.js`) already recolours
+green for RAW via `_effectiveRouteColors()` — so it technically already
+rendered in RAW before this pass, just never noticed because no one had
+looked at RAW with an active route yet. But RAW's aircraft dots/range
+rings plot on a *screen-space banded scale*
+(`Geo.bandedRadiusFraction`/`circularPlotRadius`), deliberately not the
+map's real geographic zoom — exactly the "two independent coordinate
+systems" mismatch already fixed once for the range rings themselves (see
+"Rings and dots share one scale now" above: an 8nm aircraft rendering
+inside a literal 2nm ring, because real-geo rings and banded dots never
+agreed). Leaving the real route line visible in RAW would have
+reproduced that same mismatch for the route line instead — a turn 2km
+away would not line up with wherever the dots/rings put "2km." Caught
+before shipping by reasoning from the existing rings precedent, not by
+building it wrong first and finding the bug in the field a second time.
+
+**Fix, applying the same precedent already established for rings**:
+`map.js` gained `_applyRouteVisibility()` — sets the three route layers
+(`route-glow`/`route-line`/`route-highlight`) to `visibility:"none"`
+whenever `NavDisplayStyle.isRaw()`, `"visible"` otherwise — called from
+both `setTheme()`'s `styledata` handler (covers switching into/out of
+RAW) and `showRoute()` (covers requesting a route while already in RAW).
+A small adjacent gap was fixed in the same pass, not a scope creep but a
+one-line fix sitting right next to what was already being touched:
+`_applyRouteColor()` (new) re-applies `_effectiveRouteColors()` to an
+*already-existing* route layer on a style switch — `_initRouteLayer()`
+only ever read that function once, at creation time, the same gap
+`_applyRangeRingColor()` already exists to close for the range rings,
+just never extended to the route layer until now.
+
+**RAW's own replacement: `UI.renderRouteLine()`/`clearRouteLine()`
+(`ui.js`), modelled directly on `renderRangeRingsOverlay`/
+`clearRangeRingsOverlay`** — same file, same section, same discipline.
+For each route coordinate ahead of the user (in order): compute
+`Geo.calculateBearing`/`calculateRelativeBearing`/`calculateDistanceNm`,
+then project via the *exact same* `Geo.projectToPolarPosition(...)` call
+the aircraft dots already use — confirmed via direct code read that this
+function is fully generic (bearing/range in, x/y out, zero
+aircraft-specific coupling) despite today having only ever been called
+from `Indicators._computeAll()`. Stop appending points the moment one
+projects to `null` (outside the 75° FOV) — "rudimentary" per the project
+owner's own wording, no attempt at exact edge-clipping — with a hard cap
+(30 vertices) against a pathological dense route geometry. Colour
+`#00c800`, the same RAW route green already established in `map.js`'s
+`ROUTE_COLORS.raw.line` (duplicated as a literal with a comment, same
+"keep in sync by hand" caveat this codebase already carries for
+`LOG_ENDPOINT_KEY`/`MAPTILER_KEY` and others). New `#nav-route-line-overlay`
+SVG sibling to `#nav-range-rings-overlay` in `index.html`, same z-index
+but later in DOM order — paints over the dashed rings (a real ND's
+flight-plan line is a bold foreground line over a subtle dashed
+background) while staying under the indicator icons/labels above it.
+
+**Turn/junction label**: `ManeuverTracker.nextManeuver()` gained one new
+returned field, `targetCoordIndex` (the route-coordinate-array index of
+the upcoming maneuver — already computed internally as `targetIdx`, just
+not previously surfaced). `app.js`'s `refreshIndicators()` now computes
+the maneuver **once** per tick (`_computeRouteManeuver()`, hoisted out of
+`_updateGuidanceCard()`, which now takes the result as a parameter
+instead of deriving its own copy) — the same "one shared computation, not
+two that could silently drift" discipline this file already applies to
+anchorY and the rings/dots scale, here guaranteeing the route line's
+label and the guidance card's own text can never disagree about which
+maneuver is "next." The on-plot label uses `routeManeuver.name` (the
+plain street/junction name ORS returns) — deliberately NOT
+`.instruction` (the full sentence, e.g. "Turn right onto Example
+Street — 200 m") the guidance card shows — matching the project owner's
+own explicit distinction: "the name of the road or junction... should go
+there instead [of a waypoint name]."
+
+**Verified the specific risk this pass called out, not just that
+something renders**: a Node/Playwright harness driving the real `geo.js`+
+`ui.js` placed a synthetic route point at a known 5nm distance dead
+ahead and confirmed `renderRouteLine`'s projected radius
+(`54px`) matched `renderRangeRingsOverlay`'s own 5nm ring radius
+(`53.83px`) to within `Math.round()`'s own rounding error (0.17px) — the
+exact class of check that would have caught the old rings-vs-dots bug,
+run here proactively instead of after a field report.
+
+### Part 2 — merged top nav-status card, RAW only
+
+Direct instruction, same message: replace RAW's various pieces of
+navigation text with "relevant information" at the top, matching the
+reference ND's own top data row (GS/TAS/ILS APP) — but positioned to
+show turn-instruction + ETA together, per the project owner's own
+hand-drawn draft.
+
+**Reuses the two DOM elements that already exist and already work
+correctly — zero new guidance/ETA computation logic.** Investigation
+found `#nav-guidance-card` (top banner, turn instruction) and
+`#route-card` (today pinned to the bottom, ETA/distance/dest) are
+**already populated identically in Hybrid and RAW** — neither
+`_updateGuidanceCard()` nor `_updateRouteCard()` nor `_checkOffRoute()`
+has ever gated on `NavDisplayStyle.isRaw()`, only on `mode !== "nav"`
+(which Hybrid and RAW both satisfy). The gap was never "RAW has no
+guidance data," it was "RAW never gave that data anywhere resembling ND
+styling or layout."
+
+Fixed as a position + colour override, not new logic:
+- `#route-card` is CSS `position:fixed; bottom:0` in its default
+  (Hybrid) styling — no way to attach it directly under
+  `#nav-guidance-card` with CSS alone, since the guidance card's own real
+  height depends on `#top-bar`'s real height, both dynamic. `app.js`'s
+  `_rawChromeInsets()` — which already measures both for the square
+  plot's own layout — now also sets `#route-card`'s inline `top`/
+  `bottom:auto` directly (RAW only; reset to CSS defaults for Hybrid) at
+  the exact same call site, rather than inventing a second "where's the
+  chrome" measurement living in a different function.
+- `_rawChromeInsets()`'s own `chromeTopInset`/`bottomInset` split was
+  updated to match — RAW adds `#route-card`'s height to `chromeTopInset`
+  (it's now up there) instead of `bottomInset` (where Hybrid still keeps
+  it, completely unchanged).
+- New `VCAS.css` rules, scoped to `body[data-mode="nav"][data-nav-style="raw"]`
+  (this codebase's own established pattern for RAW-specific chrome
+  overrides): both cards forced to the same dark panel colour
+  (`rgba(14,17,23,.85)`, matching `#raw-aircraft-list`'s own background so
+  every RAW-only panel reads as one material), the seam between them
+  removed (no border/gap, `#route-card`'s top corners squared off against
+  the guidance card sitting flush above it), Google-Maps-blue
+  `.route-active` background override neutralised for RAW (an ND has no
+  "route active = blue banner" concept), the turn-instruction text
+  switched to B612 Mono (a digital readout, matching the ETA row's own
+  monospace face rather than the display face other RAW text uses).
+- `UI.renderCompassRing()`'s own info strip lost its `vehicleInfo.route`
+  branch (the destName·distance·ETA second line it used to draw below
+  the compass ticks) — that content now lives in the merged top card, so
+  keeping both would just duplicate it. Always a single "SPD {mph} MPH"
+  line now, matching the passive (no route) case exactly as it already
+  rendered. `app.js`'s own `vehicleInfo` object simplified to
+  `{ speedMph }` — the `route` field it used to build is no longer read
+  anywhere.
+
+Hybrid mode is untouched by any of this — every new CSS rule is scoped to
+`[data-nav-style="raw"]`, `_rawChromeInsets()`'s Hybrid branch
+(`routeCardAtTop = false`) is exactly its old behaviour, and neither
+`_updateGuidanceCard()` nor `_updateRouteCard()`'s own population logic
+changed at all.
+
+**Verified with a real Playwright render** of a harness reproducing the
+actual top-bar/`#nav-guidance-card`/`#route-card` markup against the
+real `VCAS.css`: Hybrid renders exactly as before (blue banner,
+bottom-pinned ETA card, confirmed via a tall viewport showing the ETA
+card still anchored to the bottom); RAW renders the two merged into one
+continuous dark panel directly under the top bar with no visible seam,
+confirmed via `getComputedStyle` (not just a screenshot's visual
+impression) that `#nav-guidance-card`'s background and both text
+colours resolve to the intended values (`rgb(240,240,240)` text,
+`rgba(14,17,23,.85)` background) despite the pre-existing
+`.route-active` blue-banner rule sharing the same CSS specificity in one
+of the two override forms — confirmed the higher-specificity
+`.route-active`-inclusive variant is what actually wins, not fragile
+source-order luck.
+
+### Part 3 — confirmed "navigation on/off, independent of Hybrid/Raw" already works
+
+Investigation confirmed this was **already true architecturally** before
+this pass touched anything: `mode` (nav/air), `NavDisplayStyle`
+(hybrid/raw), and `activeRoute` (null/set) are three fully independent
+state variables — `requestRouteTo()`/`clearActiveRoute()` never touch
+`mode` or `NavDisplayStyle`, and none of the guidance/route-card/
+off-route functions gate on Raw-vs-Hybrid. No code change was needed for
+"navigation should be on both RAW and Hybrid, with the ability for both
+to be passive" — every new code path in Parts 1-2 above is gated on
+`activeRoute` being non-null, so the passive (no route) RAW view is
+provably unchanged by this pass, not just assumed to be.
+
+### Not done in this pass, and not implied by it
+
+The bottom-bar Airbus-switch-bank restyle (the project owner's 4th
+feedback point from the original 3-panel comparison) remains
+separately-scoped and untouched. Hybrid's own route-line
+rendering/appearance is untouched (still the real MapLibre 3-layer line,
+now just correctly hidden while RAW is active instead of silently
+mismatched with it). The native Android Auto port is untouched — same
+"synced in dedicated passes, not every change" standing note as round 1
+above; its own RAW screen (`RawPlotView.kt`) has no flight-plan-line or
+merged-nav-card equivalent yet.

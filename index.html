@@ -287,6 +287,16 @@
            map layers and this share nothing in common on purpose here) -->
       <svg id="nav-range-rings-overlay" style="position:fixed;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;" class="hidden"></svg>
 
+      <!-- NAV Raw-mode flight-plan line (screen-space, same banded scale as
+           the range rings/dots above — see UI.renderRouteLine's own doc
+           comment for why this is NOT the real geo-referenced MapLibre
+           route line map.js draws for Hybrid). Same z-index as the range
+           rings but later in DOM order, so it paints over them (a real
+           ND's flight-plan line is a bold foreground line over a subtle
+           dashed ring background) while still sitting under the indicator
+           icons/labels above it. -->
+      <svg id="nav-route-line-overlay" style="position:fixed;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;" class="hidden"></svg>
+
       <!-- NAV Raw-mode heading/compass tape (ND-style, top of screen) -->
       <svg id="nav-compass-ring" style="position:fixed;inset:0;width:100%;height:100%;z-index:10;pointer-events:none;" class="hidden"></svg>
 

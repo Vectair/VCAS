@@ -690,13 +690,15 @@ const UI = (() => {
    *   same safe-area constant used for range rings/indicator plotting).
    */
   /**
-   * @param {object} [vehicleInfo]  { speedMph, route: {destName, distanceMeters, durationSeconds} | null }.
-   *   Drawn as a compact strip below the heading tape's own tick labels —
-   *   RAW's equivalent of a real ND's flight-data strip (GS/TAS/ILS APP/
-   *   arrival time), adapted to what's actually relevant driving a car
-   *   instead of flying: current speed, and — when a route is active —
-   *   distance/ETA to destination. Omit for no strip (matches prior
-   *   behaviour exactly).
+   * @param {object} [vehicleInfo]  { speedMph }. Drawn as a compact strip
+   *   below the heading tape's own tick labels — RAW's equivalent of a
+   *   real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
+   *   here to just the one figure that's always relevant regardless of
+   *   whether a route is active. Omit for no strip. Destination/distance/
+   *   ETA moved out of this strip 2026-09-06 — that's now the merged
+   *   top nav-status card (#nav-guidance-card + #route-card, see
+   *   app.js's _rawChromeInsets()/VCAS.css's RAW overrides) rather than
+   *   a second copy living here too.
    */
   function renderCompassRing(viewportWidth, headingDeg, safeInset = 60, vehicleInfo = null) {
     const svg = document.getElementById("nav-compass-ring");
@@ -747,45 +749,22 @@ const UI = (() => {
       // clobber — or be clobbered by — the tape markup above.
       //
       // The range rings' own "2/5/10/15" labels are a completely separate
-      // rendering system (real geo-projected MapLibre symbols, not this
-      // SVG) with no position awareness of this strip or vice versa — a
-      // far-out ring's label can legitimately land anywhere in this upper
-      // area depending on the user's real position, so there's no fixed Y
-      // offset here that's guaranteed collision-free (confirmed: the
-      // deployed version visibly overlapped a ring label in testing).
-      // Same fix as the indicator labels already use for the same
-      // "something else might be behind this" problem — an opaque
-      // background plate (--label-bg's raw value, since this SVG can't
-      // reference CSS custom properties) — rather than trying to predict
-      // where a real geo-projected ring will or won't land.
+      // rendering system with no position awareness of this strip or vice
+      // versa — an opaque background plate keeps this legible regardless
+      // of what a ring label does around it, same reasoning the indicator
+      // labels already use for the same "something else might be behind
+      // this" problem.
       const stripY = tickTopY + 14 + 14 + 20;
       const speedLabel = `SPD ${Math.round(vehicleInfo.speedMph)} MPH`;
-      let routeLine = null;
-      if (vehicleInfo.route) {
-        const { destName, distanceMeters, durationSeconds } = vehicleInfo.route;
-        const distLabel = distanceMeters >= 1000 ? (distanceMeters / 1000).toFixed(1) + "km" : Math.round(distanceMeters) + "m";
-        const arrivalMs = Date.now() + durationSeconds * 1000;
-        const d = new Date(arrivalMs);
-        const arrivalLabel = d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
-        const shortDest = destName.length > 22 ? destName.slice(0, 21) + "…" : destName;
-        routeLine = `${shortDest} · ${distLabel} · ETA ${arrivalLabel}`;
-      }
 
       // No live text measurement available for a string injected via
       // innerHTML — a rough monospace-ish per-character estimate, generous
       // enough not to clip real content, not trying to be pixel-perfect.
-      const estWidth = str => str.length * 7.2;
-      const boxW = Math.max(estWidth(speedLabel), routeLine ? estWidth(routeLine) : 0) + 28;
-      const boxH = routeLine ? 46 : 26;
-      const bg = `<rect x="${cx - boxW / 2}" y="${stripY - 17}" width="${boxW}" height="${boxH}" rx="4"
+      const boxW = speedLabel.length * 7.2 + 28;
+      const bg = `<rect x="${cx - boxW / 2}" y="${stripY - 17}" width="${boxW}" height="26" rx="4"
                   fill="rgba(14,17,23,.82)"/>`;
-
-      let text = `<text x="${cx}" y="${stripY}" text-anchor="middle"
+      const text = `<text x="${cx}" y="${stripY}" text-anchor="middle"
                   style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">${speedLabel}</text>`;
-      if (routeLine) {
-        text += `<text x="${cx}" y="${stripY + 18}" text-anchor="middle"
-                    style="fill:#f0f0f0; font-size:12px" opacity="0.85">${_escapeHtml(routeLine)}</text>`;
-      }
       infoStrip = bg + text;
     }
 
@@ -861,6 +840,86 @@ const UI = (() => {
 
   function clearRangeRingsOverlay() {
     const svg = document.getElementById("nav-range-rings-overlay");
+    if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
+  }
+
+  // Same RAW route green EosMap uses for the real (Hybrid-only, see
+  // map.js's _applyRouteVisibility) geo-referenced route line — duplicated
+  // as a literal since ui.js and map.js have no shared palette module to
+  // both read from; keep in sync by hand if it's ever re-picked.
+  const ROUTE_LINE_COLOR = "#00c800";
+  const ROUTE_LINE_MAX_POINTS = 30; // "rudimentary" per spec — a hard cap, not exact clipping
+
+  /**
+   * RAW's own screen-space flight-plan line — a rudimentary equivalent of a
+   * real ND's green route line, direct instruction (2026-09-06): "if
+   * navigation is on there should be a rudimentary line like appears on
+   * the actual ND screen." Deliberately NOT the real geo-referenced
+   * MapLibre route line EosMap already draws (map.js's showRoute/
+   * _initRouteLayer) — that line plots on the map's real geographic zoom,
+   * which is NOT the same scale RAW's aircraft dots/range rings use (see
+   * "Rings and dots share one scale now" in CLAUDE.md for the full history
+   * of exactly this mismatch, previously hit and fixed for the range rings
+   * themselves). map.js hides the real route line whenever RAW is active
+   * for exactly this reason; this function is RAW's own scale-consistent
+   * replacement, built from the identical Geo.projectToPolarPosition call
+   * (and identical anchor/scale/FOV params) the aircraft dots use, so a
+   * turn plotted here can never disagree with where the rings/dots put the
+   * same real-world distance.
+   *
+   * @param {number[][]} coords   Route geometry coordinates AHEAD of the
+   *   user, [lon,lat][], already sliced by the caller (app.js) from the
+   *   user's current snapped position forward — this function does not
+   *   snap/slice, it only projects and draws what it's given.
+   * @param {number} userLat, userLon, userHeading
+   * @param {number} squareLeft, squareTop, squareSize  Same 1:1 plot
+   *   region the dots/rings use (Geo.computeSquarePlotLayout).
+   * @param {number} anchorY, safeInset   Same values passed to the dots'
+   *   own Geo.projectToPolarPosition calls (Indicators._computeAll).
+   * @param {number[]} bandsNm   Same array the range rings/dots use.
+   * @param {number} fovHalfAngleDeg   Same FOV the dots are restricted to.
+   * @param {number|null} turnIndex   Index into `coords` (post-slice) where
+   *   the next maneuver happens, or null if unknown.
+   * @param {string} turnLabel   Plain street/junction name for the turn
+   *   (ManeuverTracker's own `.name`, NOT the full `.instruction` sentence
+   *   the guidance card shows) — drawn only if `turnIndex` is on-screen.
+   */
+  function renderRouteLine(coords, userLat, userLon, userHeading, squareLeft, squareTop, squareSize, anchorY, safeInset, bandsNm, fovHalfAngleDeg, turnIndex, turnLabel) {
+    const svg = document.getElementById("nav-route-line-overlay");
+    if (!svg) return;
+    if (!Array.isArray(coords) || coords.length === 0) { clearRouteLine(); return; }
+
+    const points = [];
+    let turnPoint = null;
+    for (let i = 0; i < coords.length && points.length < ROUTE_LINE_MAX_POINTS; i++) {
+      const [lon, lat] = coords[i];
+      const bearing = Geo.calculateBearing(userLat, userLon, lat, lon);
+      const relativeBearing = Geo.calculateRelativeBearing(bearing, userHeading);
+      const rangeNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
+      const pos = Geo.projectToPolarPosition(relativeBearing, rangeNm, squareSize, squareSize, bandsNm, anchorY, safeInset, fovHalfAngleDeg, squareLeft, squareTop);
+      if (!pos) break; // outside the FOV — the route has turned away from dead-ahead; stop rather than exact-clip
+      points.push(pos);
+      if (turnIndex != null && i === turnIndex) turnPoint = pos;
+    }
+
+    if (points.length < 2) { clearRouteLine(); return; }
+
+    const d = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+    let markup = `<path d="${d}" fill="none" stroke="${ROUTE_LINE_COLOR}" stroke-width="2.5"
+                    stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+
+    if (turnPoint && turnLabel) {
+      markup += `<text x="${turnPoint.x}" y="${turnPoint.y - 8}" text-anchor="middle"
+                    style="fill:${ROUTE_LINE_COLOR}; font-size:11px; font-weight:600"
+                    opacity="0.9">${_escapeHtml(turnLabel)}</text>`;
+    }
+
+    svg.innerHTML = markup;
+    svg.classList.remove("hidden");
+  }
+
+  function clearRouteLine() {
+    const svg = document.getElementById("nav-route-line-overlay");
     if (svg) { svg.innerHTML = ""; svg.classList.add("hidden"); }
   }
 
@@ -1190,6 +1249,8 @@ const UI = (() => {
     clearCompassRing,
     renderRangeRingsOverlay,
     clearRangeRingsOverlay,
+    renderRouteLine,
+    clearRouteLine,
     renderRangeSelector,
     clearRangeSelector,
     renderAircraftList,
