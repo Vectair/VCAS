@@ -77,6 +77,22 @@
      independently in future without touching this global default. */
   --raw-value-green: #22c55e;
   --raw-value-cyan:  #38bdf8;
+  /* Round 4 (2026-09-08): a mid slate blue-gray, pixel-sampled from the
+     project owner's own hand-drawn RAW-mode design draft (~rgb(70,92,112)
+     across its top bar/bottom bar/list-surround chrome — not the near-
+     black this file already uses for the actual ND square). One shared
+     value so the top bar, the aircraft-list "rows" region backdrop, and
+     the bottom bar all draw from the same source instead of independently-
+     typed hex literals that could drift apart. Round 11 (2026-09-08, same
+     day): promoted from a RAW-only override to a plain global default —
+     direct instruction to apply RAW's chrome look ("fixed dark, same in
+     Day and Night") to #top-bar/#bottom-bar/#mode-row/the mode-toggle
+     buttons everywhere, not just RAW. Unlike --bg-panel and friends
+     above, this one deliberately has no Day-theme override anywhere in
+     this file — same "no day mode for a cockpit instrument" reasoning
+     this file already applies to RAW's own map content, now extended to
+     this specific set of chrome elements app-wide. */
+  --raw-chrome-bg: #465c74;
 }
 
 /* ---- Day theme ----
@@ -154,18 +170,10 @@ body[data-mode="nav"][data-nav-style="raw"] {
   --label-bg:       rgba(18,24,28,.82);
   --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.5);
   --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.04);
-  /* Round 4 (2026-09-08): a mid slate blue-gray, pixel-sampled from the
-     project owner's own hand-drawn RAW-mode design draft (~rgb(70,92,112)
-     across its top bar/bottom bar/list-surround chrome — not the near-
-     black this file already uses for the actual ND square). One shared
-     value so the top bar, the aircraft-list "rows" region backdrop, and
-     the bottom bar all draw from the same source instead of three
-     independently-typed hex literals that could drift apart. */
-  --raw-chrome-bg: #465c74;
-  /* --raw-value-green/--raw-value-cyan themselves now live in :root
-     (same values) since they're also used by shared, all-modes chrome
-     (the bottom bar's bracket connector) — not redeclared here, this
-     block would just be repeating the global default. */
+  /* --raw-chrome-bg and --raw-value-green/--raw-value-cyan all live in
+     :root now (round 11, 2026-09-08) — see :root's own comment on
+     --raw-chrome-bg for why. Not redeclared here, this block would just
+     be repeating the global default. */
 }
 
 html, body {
@@ -276,20 +284,17 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   flex-direction: column;
 }
 
-/* ---- Top bar ---- */
+/* ---- Top bar ----
+   Solid slate chrome panel (round 4's RAW-only look, round 11: applied
+   app-wide) rather than the near-black gradient this used to fall back
+   to in Hybrid/AIR — see --raw-chrome-bg's own :root comment for the
+   full history and why this doesn't vary by Day/Night. */
 #top-bar {
   pointer-events: all;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px 8px;
-  background: linear-gradient(to bottom, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
-}
-
-/* RAW-only: a solid slate chrome panel instead of the near-black gradient
-   every other mode uses — see --raw-chrome-bg's own comment above for
-   where this colour comes from. Hybrid/AIR keep the existing look. */
-body[data-mode="nav"][data-nav-style="raw"] #top-bar {
   background: var(--raw-chrome-bg);
 }
 
@@ -459,23 +464,18 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
 /* ---- Spacer ---- */
 .spacer { flex: 1; }
 
-/* ---- Bottom bar ---- */
+/* ---- Bottom bar ----
+   Solid slate chrome (round 4/5's RAW-only look, round 11: applied
+   app-wide) — matches the top bar and the aircraft-list backdrop instead
+   of the near-black gradient this and #mode-row used to fall back to in
+   Hybrid/AIR. See --raw-chrome-bg's own :root comment for the full
+   history. */
 #bottom-bar {
   pointer-events: all;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 14px 16px;
-  background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
-}
-
-/* RAW-only: solid slate chrome, matching the top bar and the aircraft-
-   list backdrop, instead of the near-black gradient every other mode
-   uses. Missed in round 4's own first pass — that only touched #top-bar,
-   leaving the bottom bar the one remaining near-black region against an
-   otherwise slate-chrome screen. */
-body[data-mode="nav"][data-nav-style="raw"] #bottom-bar,
-body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   background: var(--raw-chrome-bg);
 }
 
@@ -485,7 +485,7 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px 14px;
-  background: linear-gradient(to top, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
+  background: var(--raw-chrome-bg);
   gap: 10px;
   /* Separates the row from the map/list content above it — absent until
      2026-09-08, added to match the design draft's own horizontal rule
@@ -529,45 +529,37 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   gap: 5px;
 }
 
+/* High-contrast black/white switch caps, pixel-sampled straight from the
+   RAW design draft's own mode-toggle row (round 9, 2026-09-08 — solid
+   black buttons, bold white border+text when inactive) — round 11
+   (2026-09-08, same day): promoted from a RAW-only override to the
+   default everywhere, direct instruction to bring RAW's chrome look to
+   Hybrid/AIR too. Fixed black regardless of Day/Night, same "no day mode
+   for a cockpit instrument" reasoning as --raw-chrome-bg (see its own
+   :root comment) — overrides the base .mode-btn's --btn-bg/--border. */
 .mode-toggle .mode-btn {
   padding: 8px 10px;
   font-size: 11px;
+  background: #000;
+  border-color: #fff;
+  color: #fff;
 }
 
 /* Active button reads via a coloured border+text, not a filled
    background — matches the draft's own treatment (the active RAW button
    is outlined, not solid-filled) and overrides the base .mode-btn.
    active-mode rule (still a filled blue background elsewhere, e.g. a
-   .route-btn that ever carried this class) without touching it globally. */
-.mode-toggle .mode-btn.active-mode {
-  background: var(--btn-bg);
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: var(--btn-shadow);
-}
-.mode-toggle .mode-btn.active-mode:active { box-shadow: var(--btn-shadow-active); }
-
-/* RAW: high-contrast black/white switch caps, pixel-sampled straight from
-   the design draft's own mode-toggle row (round 9, 2026-09-08) — solid
-   black buttons, bold white border+text when inactive, bold cyan border+
-   text (reusing --raw-value-cyan, the same token the merged nav-status
+   .route-btn that ever carried this class) without touching it globally.
+   Bold cyan (--raw-value-cyan, the same token the merged nav-status
    card's distance figures already use — one shared colour, not a second
-   independently-typed hex) for the active one. Scoped to RAW only, same
-   "RAW forces its own dark instrument look regardless of Day/Night"
-   precedent as every other body[data-mode="nav"][data-nav-style="raw"]
-   override in this file — Hybrid/AIR keep the softer --btn-bg/--accent
-   cockpit-panel look the 2026-08-22 rebrand gave every other mode button,
-   since the mockup this matches is specifically RAW's own screen. */
-body[data-mode="nav"][data-nav-style="raw"] .mode-toggle .mode-btn {
-  background: #000;
-  border-color: #fff;
-  color: #fff;
-}
-body[data-mode="nav"][data-nav-style="raw"] .mode-toggle .mode-btn.active-mode {
+   independently-typed hex), also promoted to everywhere in round 11. */
+.mode-toggle .mode-btn.active-mode {
   background: #000;
   border-color: var(--raw-value-cyan);
   color: var(--raw-value-cyan);
+  box-shadow: var(--btn-shadow);
 }
+.mode-toggle .mode-btn.active-mode:active { box-shadow: var(--btn-shadow-active); }
 
 /* ---- Mode row switch-bank labels + divider (2026-09-07) ----
    Direct instruction, from the same hand-drawn RAW-mode design draft as

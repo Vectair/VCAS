@@ -7643,3 +7643,88 @@ Also re-confirmed the wordmark removal and pill-wrap fix together at
 
 Not done in this pass: no change to the native Android Auto port (same
 standing note as every prior round).
+
+## RAW-mode redesign, round 11: RAW's chrome extended to Hybrid/AIR (2026-09-08, later the same day)
+
+Direct instruction: "can you now apply the styling from the updated raw
+page across the rest of the app." A real, consequential scope question,
+so confirmed via `AskUserQuestion` before touching anything rather than
+guessed — RAW's own chrome (top/bottom bar backgrounds, mode-toggle
+buttons) is *fixed dark regardless of Day/Night* by deliberate design
+(see "RAW mode fidelity" above, "there's no day mode for a cockpit
+instrument"), while Hybrid/AIR's own chrome has followed the Day/Night
+theme since the 2026-08-22 cockpit rebrand gave Day theme its own
+distinct lighter panel look. Extending RAW's exact look to Hybrid/AIR
+therefore means Day theme stops affecting THIS specific set of chrome
+elements — worth confirming, not assuming.
+
+**Two questions asked, both answered toward the simpler/more literal
+match:**
+1. Should Hybrid/AIR's top/bottom bar + mode buttons become fixed-dark
+   like RAW (same in Day and Night), or stay theme-aware while adopting
+   RAW's new high-contrast STYLE (bordered boxes) with Day/Night-derived
+   colours? — **Answer: fixed dark everywhere.**
+2. Should Hybrid's guidance card also switch to RAW's compact colour-
+   coded "IN {dist} TURN {direction}" ND format, or keep its own full-
+   sentence Google-Maps-style banner (real street names, over a real
+   map)? — **Answer: leave Hybrid's banner as-is.** Only shared chrome
+   (bars, buttons) gets unified; Hybrid's own navigation UX, which this
+   file's own "Navigation-side status check" section already treats as
+   working well for what it is, is untouched.
+
+**Scope, precisely**: `#top-bar`, `#bottom-bar`/`#mode-row` backgrounds,
+and `.mode-toggle .mode-btn`(`.active-mode`) colours — exactly the
+elements the first question named, not a blanket "make everything look
+like RAW." The standalone `.route-btn` (the NAV/pin button)'s own
+background was deliberately left alone — it was never forced black even
+within RAW itself (checked directly: no RAW-scoped override for it
+exists anywhere in this file), so leaving it on the theme-following
+`--btn-bg` keeps Hybrid/AIR behaving exactly like RAW already does for
+that specific control, not introducing a new inconsistency. The compact
+ND-style nav-status card, the curved compass tape, range rings, the
+aircraft-list panel, and the ownship-glow removal all stay genuinely
+RAW-only — none of those are "chrome" in the sense this round's question
+was about, and question 2 explicitly kept the nav-status card scoped.
+
+**Mechanism: promoted `--raw-chrome-bg` from a RAW-scoped custom-
+property override to a plain `:root` global**, with a new comment
+explaining why it deliberately has no Day-theme override anywhere in
+this file (unlike `--bg-panel` and every other themed token) — the same
+"no day mode for a cockpit instrument" reasoning this file already
+applies to RAW's own map content, now extended to this one set of
+chrome elements app-wide. `#top-bar`/`#bottom-bar`/`#mode-row`'s base
+rules now read `background: var(--raw-chrome-bg)` directly instead of
+their old Day/Night-following gradients, and the three now-fully-
+redundant `body[data-mode="nav"][data-nav-style="raw"] #top-bar` /
+`#bottom-bar` / `#mode-row` override blocks were deleted rather than
+left as dead, no-longer-meaningful duplicates. `.mode-toggle .mode-btn`/
+`.mode-toggle .mode-btn.active-mode` got the same treatment — the
+black/white/cyan colours moved from the RAW-scoped override directly
+onto the base rule, and that now-redundant RAW-scoped block was deleted
+too. `--raw-value-cyan` (the active-button colour) needed no change —
+it already lived in `:root`, promoted globally back in round 5 for the
+exact same "shared, all-modes chrome" reason.
+
+Verified with a real Playwright/Chromium render of the actual extracted
+`#top-bar`/`#bottom-bar` markup against the real `VCAS.css`, four
+scenarios: Hybrid+Night, Hybrid+Day, AIR+Day, and a RAW+Night
+regression-recheck. All four resolved to the EXACT same computed values
+(`rgb(70,92,116)` for both bars, `rgb(0,0,0)` background with
+`rgb(56,189,248)` cyan border+text on the active button, black on
+inactive ones) — confirming the fixed-dark look now applies uniformly
+regardless of theme or mode, and that RAW's own appearance is bit-for-
+bit unchanged, not just visually similar. Also re-ran the existing
+round 5-10 real-markup composite-render harness (both passive and
+active-route RAW screens) to confirm no regression to anything else on
+that screen — identical to the round 10 renders, as expected since none
+of this round's edits touch RAW-specific selectors.
+
+Not done in this pass: no change to Hybrid/AIR's own map content,
+guidance card, route line, or marker styling — all explicitly out of
+scope per question 2's answer and per this file's own long-standing
+"chrome vs. map content" scope boundary (see "Cockpit-panel chrome
+rebrand" above); the settings screen, popups, and other panels were not
+touched, since the two questions asked were specifically about the top/
+bottom bar and mode buttons, not every themed surface in the app; no
+change to the native Android Auto port (same standing note as every
+prior round).
