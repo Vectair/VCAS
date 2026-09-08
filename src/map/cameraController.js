@@ -256,15 +256,16 @@ const CameraController = (() => {
    * Reconnected to NavigationCameraEvaluator for dynamic driving/routing state tracking.
    *
    * @param {object} [rawLayout]  { viewportWidth, viewportHeight,
-   *   squareContentTop, squareContentHeight } — only consumed by NAV_RAW's
-   *   square-anchor branch inside the evaluator. Passed straight through
-   *   from app.js's _rawChromeInsets(), the SAME numbers app.js's own
-   *   refreshIndicators() calls Geo.computeSquarePlotLayout with for the
-   *   screen-space dots/rings/list — deliberately not re-measured here, so
-   *   the real map's user-marker anchor and the screen-space square can
-   *   never drift apart the way independently-derived geometry has before
-   *   in this codebase (see CLAUDE.md). Omit for non-RAW callers/states;
-   *   the evaluator's NAV_RAW branch simply no-ops without it.
+   *   squareContentTop, squareContentHeight, plotSafeInset,
+   *   plotFovHalfAngleDeg } — only consumed by NAV_RAW's plot-anchor
+   *   branch inside the evaluator. Passed straight through from app.js's
+   *   _rawChromeInsets(), the SAME numbers app.js's own refreshIndicators()
+   *   calls Geo.computePlotLayout with for the screen-space dots/rings/
+   *   list — deliberately not re-measured/re-guessed here, so the real
+   *   map's user-marker anchor and the screen-space plot can never drift
+   *   apart the way independently-derived geometry has before in this
+   *   codebase (see CLAUDE.md). Omit for non-RAW callers/states; the
+   *   evaluator's NAV_RAW branch simply no-ops without it.
    */
   function followNav(lat, lon, heading, speedMph, rawLayout) {
     if (!_map) return;
@@ -284,6 +285,8 @@ const CameraController = (() => {
       viewportHeight: rawLayout ? rawLayout.viewportHeight : undefined,
       squareContentTop: rawLayout ? rawLayout.squareContentTop : undefined,
       squareContentHeight: rawLayout ? rawLayout.squareContentHeight : undefined,
+      plotSafeInset: rawLayout ? rawLayout.plotSafeInset : undefined,
+      plotFovHalfAngleDeg: rawLayout ? rawLayout.plotFovHalfAngleDeg : undefined,
     };
 
     // 2. Compute live camera values using NavigationCameraEvaluator state machine

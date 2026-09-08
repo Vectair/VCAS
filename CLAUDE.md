@@ -7102,3 +7102,131 @@ standing note as every prior round); the LOG button's own position
 not mentioned in this round's instructions, and it already sits
 correctly at the row's own left edge with SPD now landing just to its
 right rather than overlapping it.
+
+## RAW-mode redesign, round 7: the plot box no longer forces a literal square (2026-09-08, later the same day)
+
+Round 6's fix (pulling the plot's box up to sit almost flush with the
+chrome above it) turned out not to be what closed the real gap the user
+was seeing — a follow-up screenshot, annotated with a blue border around
+the plot's own box, showed the SAME dead space still sitting *inside*
+that box, between its top edge and the outermost ring, no matter where
+the box itself was positioned. Direct question that got to the real
+issue: "why is the box extending beyond the rings? the furthest out ring
+is the maximum distance we can see so there is no need for there to be
+any space past the ring except for aesthetic padding."
+
+**Root cause, confirmed by re-deriving the actual radius math rather
+than assuming the box's own shape was innocent**: `Geo.
+computeSquarePlotLayout()` forced the plot's box to be a literal 1:1
+square — in portrait, height was always set equal to the full available
+width, on the assumption a square "looks right" for a radar display.
+But the circular plot's own real radius (`Geo.circularPlotRadius`, the
+`min` of the dead-ahead vertical constraint and the FOV-edge horizontal
+constraint — see "RAW is a field-of-view-restricted circular display"
+above) is bound by whichever constraint is TIGHTER. On an ordinary tall
+phone in portrait, the horizontal (edge) constraint wins by a wide
+margin — the vertical headroom a full-width square provides is never
+actually reached by any ring or dot. Confirmed numerically: on a 412px-
+wide plot with the real anchorY(0.8)/safeInset(16)/FOV(75°) values, the
+true radius comes out to ≈192.5px, while a literal square gives the
+dead-ahead direction ≈293.6px of headroom — over 100px of it structurally
+unreachable, not a rendering bug, a property of the box's own shape.
+This is why round 6's fix (repositioning the box) couldn't close it:
+the gap lives *inside* the box, proportional to its own height, and
+moving the whole box up just moves the same internal gap up with it.
+
+**Fix: `Geo.computeSquarePlotLayout` → `Geo.computePlotLayout`, no
+longer forcing the secondary axis to match the primary one.** In
+portrait, the PRIMARY axis (width) still uses the full available
+content width, unchanged — that's genuinely what determines how far the
+FOV can reach left/right, still worth maximising. The SECONDARY axis
+(height) is now solved for directly: compute the plot's true radius
+using the full width (via a large placeholder height so the vertical
+constraint can't artificially cap it), derive the exact `cy` needed for
+that radius (`radius + safeInset + 20`, matching `maxRadiusForBearing`'s
+own `topY` formula), and set `plotHeight = cy + markerMarginPx` (a small
+fixed 30px allowance below the anchor for the ownship marker itself, not
+a proportional margin) — i.e. "aesthetic padding," per the project
+owner's own framing, not a second circle's worth of empty space. If
+there genuinely isn't enough `contentHeight` to fit this (a real edge
+case, not the common one), it falls back to the old "use all of it"
+behaviour with the original flat anchor fraction — there's no excess to
+reclaim in that case anyway. Landscape mirrors the same idea on the
+other axis (height stays primary/full-height, width becomes the solved-
+for secondary axis).
+
+**A real, structural consequence: `anchorY` (the "ownship low, room
+ahead" fraction) is no longer an input either caller gets to assume —
+it's now `computePlotLayout`'s own DERIVED return value.** Feeding it
+`desiredAnchorY` (still `NavigationCameraEvaluator.STATE_PRESETS.
+NAV_RAW.anchorY`, 0.80) only seeds the computation and is the exact
+fallback used when there's no room to trim; the actual fraction in
+effect (worked example: ≈0.884, slightly MORE bottom-heavy than 0.80,
+since the tight box naturally allocates almost all its height to "room
+for the ring" and only a thin marker-sized margin below) is read back
+from the function's own result. This matters because the SAME anchor
+value also drives the REAL camera (see "Camera anchor math" above and
+the round-6-adjacent explanation given directly to the project owner
+about why RAW's ownship icon is literally the real MapLibre marker, not
+a separate 2D dot) — `NavigationCameraEvaluator`'s own NAV_RAW branch
+now calls the exact same `Geo.computePlotLayout()` (with the exact same
+`safeInset`/`fovHalfAngleDeg`, threaded through from app.js's own
+`_rawChromeInsets()` via two new fields, `plotSafeInset`/
+`plotFovHalfAngleDeg`, rather than duplicated literals in a second file)
+and reads its `anchorY` back the same way — the two calls are
+structurally guaranteed to agree, by construction, not by two constants
+that happen to currently match. This is the same "one shared source, not
+independently-typed values that could drift" discipline this file's own
+history already established for the rings-vs-dots mismatch and every
+anchor-math bug since — applied here to a genuinely new piece of shared
+geometry, not just repeated as a slogan.
+
+**A real bug in the new function caught before shipping, not after**: a
+first version could return a NEGATIVE `plotHeight` for degenerate/zero
+content dimensions (no real device produces this, but a Node check
+covering it exposed the flaw) — a negative computed radius was
+propagating through `neededCy`/`neededHeight` uncaught, which then
+trivially satisfied the `<= contentHeight` fallback check even for a
+literally-zero content area. Fixed by clamping the radius to `Math.max(0,
+...)` before using it. Caught by deliberately testing zero/degenerate
+inputs, not just the realistic ones — the same discipline this project
+applies to every other pure-logic function, here turned on a function
+written in this very session.
+
+**The old field names (`squareLeft`/`squareTop`/`squareSize`) couldn't
+survive this change** — a rectangle whose two dimensions can now
+genuinely differ has no single "size" to report. Renamed to `plotLeft`/
+`plotTop`/`plotWidth`/`plotHeight` (plus the new `anchorY` field) across
+every consumer: `app.js`'s own `square` variable and all its downstream
+uses (range rings, range selector, LOG button, the flight-plan line, the
+SPD readout's `leftX`), and `ui.js`'s `renderRangeRingsOverlay`/
+`renderRouteLine`, both of which used to take one `squareSize` for what
+was silently assumed to be both width and height — now take `plotWidth`/
+`plotHeight` explicitly, matching that they're no longer required to be
+equal.
+
+**Verified two ways**: (1) a direct Node check confirming the two
+independent `computePlotLayout()` calls (app.js's screen-space plot,
+NavigationCameraEvaluator's real-camera anchor) resolve to the EXACT
+same absolute anchor pixel position for the same inputs — the concrete
+form of the "can't drift apart" guarantee, not just an assertion that it
+holds; (2) a real-markup composite render (this project's established
+harness pattern) at the literal reported device proportions: the rows
+region grew again, on top of round 6's own gain — passive from 299px to
+452px, active-route from 168px to 321px — and, visually, the rings now
+fill almost the entire plot box top-to-bottom with only a thin margin
+below the innermost ring for the ownship marker, matching the "no space
+past the ring except aesthetic padding" instruction exactly. Landscape
+and the "not enough room" fallback path were also exercised via direct
+Node checks (mirror-axis trimming, correct fallback to the flat anchor
+fraction, no negative dimensions) rather than assumed correct from the
+portrait case alone.
+
+Not done in this pass: no change to the native Android Auto port (same
+standing note as every prior round — its own `Geo.kt`/
+`NavigationCameraEvaluator.kt` still implement the literal-square
+version and would need syncing in a dedicated pass); no change to how
+the ownship marker itself is drawn (still the real MapLibre marker, per
+the earlier direct explanation to the project owner about why that
+couples RAW's anchor to the live camera) — this pass closes the gap
+without needing that coupling to change at all.

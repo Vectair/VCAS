@@ -829,22 +829,24 @@ const UI = (() => {
    * codebase was about Hybrid/AIR's real road/building detail, which
    * doesn't exist in RAW.
    *
-   * @param {number} squareLeft, squareTop, squareSize  The 1:1 plot region
-   *   (Geo.computeSquarePlotLayout) — same region the dots plot within, not
-   *   the raw viewport, so an aircraft's dot and the ring around it always
-   *   agree by construction.
+   * @param {number} plotLeft, plotTop, plotWidth, plotHeight  The plot
+   *   region (Geo.computePlotLayout) — same region the dots plot within,
+   *   not the raw viewport, so an aircraft's dot and the ring around it
+   *   always agree by construction. No longer necessarily square — see
+   *   computePlotLayout's own doc comment (2026-09-08) for why plotWidth
+   *   and plotHeight can now differ.
    * @param {number[]} bandsNm         Same array Indicators.RING_BANDS_NM
    *   and the dots' own Geo.projectToPolarPosition call use.
    * @param {number} fovHalfAngleDeg   Same Indicators.FOV_HALF_ANGLE_DEG
    *   the dots are restricted to.
    */
-  function renderRangeRingsOverlay(squareLeft, squareTop, squareSize, anchorY, safeInset, bandsNm, fovHalfAngleDeg, color) {
+  function renderRangeRingsOverlay(plotLeft, plotTop, plotWidth, plotHeight, anchorY, safeInset, bandsNm, fovHalfAngleDeg, color) {
     const svg = document.getElementById("nav-range-rings-overlay");
     if (!svg) return;
 
-    const cx = squareLeft + squareSize * 0.5;
-    const cy = squareTop + squareSize * anchorY;
-    const plotRadius = Geo.circularPlotRadius(squareSize, squareSize, anchorY, safeInset, fovHalfAngleDeg);
+    const cx = plotLeft + plotWidth * 0.5;
+    const cy = plotTop + plotHeight * anchorY;
+    const plotRadius = Geo.circularPlotRadius(plotWidth, plotHeight, anchorY, safeInset, fovHalfAngleDeg);
     const fovRad = (fovHalfAngleDeg * Math.PI) / 180;
 
     let rings = "";
@@ -904,8 +906,9 @@ const UI = (() => {
    *   user's current snapped position forward — this function does not
    *   snap/slice, it only projects and draws what it's given.
    * @param {number} userLat, userLon, userHeading
-   * @param {number} squareLeft, squareTop, squareSize  Same 1:1 plot
-   *   region the dots/rings use (Geo.computeSquarePlotLayout).
+   * @param {number} plotLeft, plotTop, plotWidth, plotHeight  Same plot
+   *   region the dots/rings use (Geo.computePlotLayout) — no longer
+   *   necessarily square, see that function's own doc comment.
    * @param {number} anchorY, safeInset   Same values passed to the dots'
    *   own Geo.projectToPolarPosition calls (Indicators._computeAll).
    * @param {number[]} bandsNm   Same array the range rings/dots use.
@@ -916,7 +919,7 @@ const UI = (() => {
    *   (ManeuverTracker's own `.name`, NOT the full `.instruction` sentence
    *   the guidance card shows) — drawn only if `turnIndex` is on-screen.
    */
-  function renderRouteLine(coords, userLat, userLon, userHeading, squareLeft, squareTop, squareSize, anchorY, safeInset, bandsNm, fovHalfAngleDeg, turnIndex, turnLabel) {
+  function renderRouteLine(coords, userLat, userLon, userHeading, plotLeft, plotTop, plotWidth, plotHeight, anchorY, safeInset, bandsNm, fovHalfAngleDeg, turnIndex, turnLabel) {
     const svg = document.getElementById("nav-route-line-overlay");
     if (!svg) return;
     if (!Array.isArray(coords) || coords.length === 0) { clearRouteLine(); return; }
@@ -928,7 +931,7 @@ const UI = (() => {
       const bearing = Geo.calculateBearing(userLat, userLon, lat, lon);
       const relativeBearing = Geo.calculateRelativeBearing(bearing, userHeading);
       const rangeNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
-      const pos = Geo.projectToPolarPosition(relativeBearing, rangeNm, squareSize, squareSize, bandsNm, anchorY, safeInset, fovHalfAngleDeg, squareLeft, squareTop);
+      const pos = Geo.projectToPolarPosition(relativeBearing, rangeNm, plotWidth, plotHeight, bandsNm, anchorY, safeInset, fovHalfAngleDeg, plotLeft, plotTop);
       if (!pos) break; // outside the FOV — the route has turned away from dead-ahead; stop rather than exact-clip
       points.push(pos);
       if (turnIndex != null && i === turnIndex) turnPoint = pos;
@@ -992,7 +995,7 @@ const UI = (() => {
   /**
    * RAW-only slate chrome backdrop behind the aircraft-list panel's own
    * region — see index.html's comment on #raw-rows-backdrop for why this
-   * exists. Takes the exact same `rowsRect` (Geo.computeSquarePlotLayout's
+   * exists. Takes the exact same `rowsRect` (Geo.computePlotLayout's
    * `rows`) renderAircraftList() does, unlike that function it does NOT
    * apply PANEL_MARGIN_PX — this is a full-bleed backdrop filling the
    * whole rows rect, with the (smaller, margined) list panel drawing on
@@ -1039,7 +1042,7 @@ const UI = (() => {
 
   /**
    * Aircraft-list panel, RAW mode only — fills the rectangle
-   * complementary to the 1:1 square plot (Geo.computeSquarePlotLayout's
+   * complementary to the plot (Geo.computePlotLayout's
    * `rows`): below the square on portrait screens (square = full width),
    * to its right on landscape screens (square = full height). Direct
    * instruction: the plot is a fixed-aspect instrument, not a shape that
@@ -1066,7 +1069,7 @@ const UI = (() => {
    *   different things — see app.js's own notes on `withinRange` vs
    *   `allRelevant`).
    * @param {object} rowsRect   { left, top, width, height } — the exact
-   *   region to fill, straight from Geo.computeSquarePlotLayout(...).rows.
+   *   region to fill, straight from Geo.computePlotLayout(...).rows.
    * @param {function} onRowClick   Called with the indicator item (same
    *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
    * @param {Set<string>} [beyondRangeHexes]  Hex codes currently beyond the

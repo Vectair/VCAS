@@ -97,26 +97,26 @@
   // like switching modes or activating/clearing a route).
   let navFollowSuspended = false;
 
-  // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout), pulled up
-  // (round 6, 2026-09-08) to sit almost flush with the real chrome above
-  // it, per direct instruction with an annotated screenshot: "the top of
-  // the radar should be almost flush with the menu/status bar, essentially
-  // where the top of the speed indication is." The compass tape itself
-  // (ticks/labels/lubber/digital heading, drawn by UI.renderCompassRing at
-  // safeInset = insets.chromeTopInset, entirely UNCHANGED by this value —
-  // see that call site) still starts at the same absolute Y it always has;
-  // only the square's own top edge moves up to meet it, so the tape's tick
-  // labels and the SPD readout now render ON TOP of the square/rings'
-  // topmost edge instead of in a separate reserved band above it — the
-  // same "tape rides the rim of the display" composition a real ND uses,
-  // not empty dead space. 31, not 0: leaves a few px so the square doesn't
-  // start pixel-for-pixel under real chrome ("almost flush", not literally
-  // flush), and lands the square's own top edge almost exactly at the SPD
+  // RAW's plot (Geo.computePlotLayout) is pulled up (round 6, 2026-09-08)
+  // to sit almost flush with the real chrome above it, per direct
+  // instruction with an annotated screenshot: "the top of the radar should
+  // be almost flush with the menu/status bar, essentially where the top of
+  // the speed indication is." The compass tape itself (ticks/labels/
+  // lubber/digital heading, drawn by UI.renderCompassRing at safeInset =
+  // insets.chromeTopInset, entirely UNCHANGED by this value — see that
+  // call site) still starts at the same absolute Y it always has; only the
+  // plot's own top edge moves up to meet it, so the tape's tick labels and
+  // the SPD readout now render ON TOP of the plot/rings' topmost edge
+  // instead of in a separate reserved band above it — the same "tape
+  // rides the rim of the display" composition a real ND uses, not empty
+  // dead space. 31, not 0: leaves a few px so the plot doesn't start
+  // pixel-for-pixel under real chrome ("almost flush", not literally
+  // flush), and lands the plot's own top edge almost exactly at the SPD
   // readout's own top edge (stripY - 17 in renderCompassRing, i.e.
   // tickTopY + 31 — not a coincidence, chosen to match). A fixed worst-
   // case constant rather than a live DOM measurement: the compass tape is
-  // an SVG overlay drawn AFTER the square's own layout is decided (its cx
-  // needs the square's contentTop to know where to start), so measuring it
+  // an SVG overlay drawn AFTER the plot's own layout is decided (its cx
+  // needs the plot's contentTop to know where to start), so measuring it
   // first would be circular; and this same number has to be shared with
   // CameraController.followNav's real-camera anchor calc (see
   // _rawChromeInsets() below) — using the SAME fixed constant in both
@@ -124,10 +124,10 @@
   // to drift apart, not just unlikely to.
   const RAW_COMPASS_RESERVED_PX = 31;
 
-  // Small fixed margin for the plot's own edges WITHIN its square — not a
+  // Small fixed margin for the plot's own edges WITHIN its own box — not a
   // chrome margin (real chrome is already fully excluded via
   // squareContentTop/squareContentHeight below), just enough that a dot at
-  // the literal edge of the plot doesn't render flush against the square's
+  // the literal edge of the plot doesn't render flush against the plot's
   // own boundary.
   const SQUARE_EDGE_MARGIN_PX = 16;
 
@@ -1130,7 +1130,7 @@
 
   /**
    * Real DOM-measured layout numbers RAW's square plot (Geo.
-   * computeSquarePlotLayout) needs — the SINGLE place these are computed,
+   * computePlotLayout) needs — the SINGLE place these are computed,
    * consumed both by the screen-space rendering in refreshIndicators()
    * below (dots/rings/list) and by CameraController.followNav's real-
    * camera anchor calc (see that function's own doc comment for why
@@ -1203,6 +1203,13 @@
       chromeTopInset, bottomInset,
       squareContentTop,
       squareContentHeight: Math.max(0, vh - squareContentTop - bottomInset),
+      // Passed straight through to CameraController.followNav ->
+      // NavigationCameraEvaluator's own NAV_RAW branch, so its
+      // Geo.computePlotLayout() call uses the EXACT same safeInset/
+      // fovHalfAngleDeg refreshIndicators() does below — one shared
+      // source, not two independently-typed literals that could drift.
+      plotSafeInset: SQUARE_EDGE_MARGIN_PX,
+      plotFovHalfAngleDeg: Indicators.FOV_HALF_ANGLE_DEG,
     };
   }
 
@@ -1244,34 +1251,47 @@
     _updateRouteCard();
     _checkOffRoute();
 
-    // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) — "as large
-    // an area as possible" within the available content, matching a real
-    // ND's fixed-aspect traffic display, NOT a shape that stretches to use
-    // whatever asymmetric headroom a full-viewport anchor happens to leave
-    // (the pre-2026-08-21 approach, which left near-zero side margin on a
-    // plain portrait phone — the common case — for the Stage 3 list panel
-    // to ever actually show in). Hybrid's edge indicators aren't a "round
-    // display" at all and keep the full teardrop Relevance computes against
-    // the plain full viewport, so none of this applies there.
+    // RAW's plot is pinned to the top in portrait / left in landscape,
+    // "as large an area as possible" along its PRIMARY axis (Geo.
+    // computePlotLayout) — matching a real ND's fixed-aspect traffic
+    // display, NOT a shape that stretches to use whatever asymmetric
+    // headroom a full-viewport anchor happens to leave (the pre-2026-08-21
+    // approach, which left near-zero side margin on a plain portrait phone
+    // — the common case — for the Stage 3 list panel to ever actually show
+    // in). Its SECONDARY axis is no longer forced to match the primary one
+    // 1:1 (round 6 follow-up, 2026-09-08) — see computePlotLayout's own
+    // doc comment for why a literal square left real, reported dead space
+    // between the plot's own box and where the rings/dots actually render.
+    // Hybrid's edge indicators aren't a "round display" at all and keep
+    // the full teardrop Relevance computes against the plain full
+    // viewport, so none of this applies there.
     const isRawView = NavDisplayStyle.isRaw();
     let square = null;
     let activeBandsNm = Indicators.RING_BANDS_NM;
     let selectedRangeNm = Indicators.RING_BANDS_NM[Indicators.RING_BANDS_NM.length - 1];
     if (isRawView) {
-      square = Geo.computeSquarePlotLayout(vw, insets.squareContentTop, insets.squareContentHeight);
+      square = Geo.computePlotLayout(vw, insets.squareContentTop, insets.squareContentHeight, {
+        desiredAnchorY: NavigationCameraEvaluator.STATE_PRESETS.NAV_RAW.anchorY,
+        safeInset: SQUARE_EDGE_MARGIN_PX,
+        fovHalfAngleDeg: Indicators.FOV_HALF_ANGLE_DEG,
+      });
       userState.fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG;
-      // The within-square anchor fraction — NOT userState.anchorY's usual
-      // full-viewport meaning. Must equal NavigationCameraEvaluator's own
-      // STATE_PRESETS.NAV_RAW.anchorY (the fraction the real camera derives
-      // its full-viewport anchorY from for this exact square, so the real
-      // user-marker lands on the same point these screen-space dots plot
-      // against) — read directly from there rather than a second constant,
-      // so the two can't quietly drift out of sync with each other.
-      userState.anchorY = NavigationCameraEvaluator.STATE_PRESETS.NAV_RAW.anchorY;
-      userState.plotWidth = square.squareSize;
-      userState.plotHeight = square.squareSize;
-      userState.plotOffsetX = square.squareLeft;
-      userState.plotOffsetY = square.squareTop;
+      // The within-plot anchor fraction — NOT userState.anchorY's usual
+      // full-viewport meaning. Read directly from square.anchorY (computed
+      // by Geo.computePlotLayout, the single shared source) rather than
+      // NavigationCameraEvaluator's own STATE_PRESETS.NAV_RAW.anchorY
+      // constant directly — that constant is now only a SEED/fallback
+      // computePlotLayout takes as an input, not the fraction actually in
+      // effect once the plot's own box has been tightened to fit its real
+      // content. Reading the derived value here is what keeps the real
+      // camera anchor (NavigationCameraEvaluator's own NAV_RAW branch,
+      // which calls the exact same function) and these screen-space dots/
+      // rings unable to drift apart, not just unlikely to.
+      userState.anchorY = square.anchorY;
+      userState.plotWidth = square.plotWidth;
+      userState.plotHeight = square.plotHeight;
+      userState.plotOffsetX = square.plotLeft;
+      userState.plotOffsetY = square.plotTop;
       userState.plotSafeInset = SQUARE_EDGE_MARGIN_PX;
 
       // ND-style range selector — a shorter prefix of the same band array
@@ -1374,20 +1394,20 @@
       // the dots above (both already only ever reach RING_BANDS_NM's own
       // boundaries anyway; this just stops short at whichever one the user
       // picked, same "zoom" effect the plot's own rescale gets from it).
-      UI.renderRangeRingsOverlay(square.squareLeft, square.squareTop, square.squareSize, userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
-      // ND-style range selector — X stays at the square's own right edge
-      // (still correct in both portrait and landscape, where the square's
+      UI.renderRangeRingsOverlay(square.plotLeft, square.plotTop, square.plotWidth, square.plotHeight, userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
+      // ND-style range selector — X stays at the plot's own right edge
+      // (still correct in both portrait and landscape, where the plot's
       // own position already differs), but Y moved up (2026-08-24) to the
-      // same row as the compass tape's SPD readout instead of the square's
+      // same row as the compass tape's SPD readout instead of the plot's
       // own top-right corner further down. 48 matches ui.js's own
       // stripY = tickTopY + 14 + 14 + 20 formula for that readout's row.
       const rawRowY = insets.chromeTopInset + 48;
-      UI.renderRangeSelector(square.squareLeft + square.squareSize - 8, rawRowY, selectedRangeNm, onRawRangeCycleClick);
+      UI.renderRangeSelector(square.plotLeft + square.plotWidth - 8, rawRowY, selectedRangeNm, onRawRangeCycleClick);
       // LOG button on the SAME row (2026-08-24 follow-up, direct request) —
       // left-aligned, mirroring the range button's right alignment, so the
       // row reads [LOG] ... SPD ... [range] rather than LOG sitting on its
       // own separate row above/below this one.
-      LogPanel.setPosition(square.squareLeft + 8, rawRowY);
+      LogPanel.setPosition(square.plotLeft + 8, rawRowY);
 
       // Screen-space flight-plan line (2026-09-06) — NOT the real geo-
       // referenced MapLibre route line (map.js hides that one while RAW is
@@ -1404,7 +1424,7 @@
           : null;
         UI.renderRouteLine(
           aheadCoords, userLat, userLon, userHeading,
-          square.squareLeft, square.squareTop, square.squareSize,
+          square.plotLeft, square.plotTop, square.plotWidth, square.plotHeight,
           userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG,
           turnIndex, routeManeuver.name || null
         );
@@ -1430,18 +1450,18 @@
       // second row (#route-eta-speed, see _updateRouteCard()) alongside
       // distance — showing it in both places at once would be a real
       // duplicate readout, not two different pieces of information.
-      // leftX (round 6, 2026-09-08) — same square.squareLeft-based left
+      // leftX (round 6, 2026-09-08) — same square.plotLeft-based left
       // margin the LOG button already uses (see LogPanel.setPosition call
       // above), so SPD sits in the same left column as LOG rather than
       // centred, per direct instruction ("the speed should stay at the
       // same latitude but move to the left of the screen").
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.squareLeft + 64 });
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 64 });
     } else {
       UI.clearCompassRing();
     }
 
     // Stage 3: aircraft-list panel — Raw only, filling the exact
-    // rectangle complementary to the square (Geo.computeSquarePlotLayout's
+    // rectangle complementary to the plot (Geo.computePlotLayout's
     // own `rows`) — below the square in portrait, to its right in
     // landscape. Deliberately built from allRelevant (the FULL relevant
     // set), not the paginated `shown` subset the plot caps to

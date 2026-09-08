@@ -1154,7 +1154,7 @@ body[data-theme="day"] .air-label-box {
 }
 #raw-aircraft-list.hidden { display: none; }
 
-/* Positioned/sized from Geo.computeSquarePlotLayout's own `rows` rect —
+/* Positioned/sized from Geo.computePlotLayout's own `rows` rect —
    see index.html's comment on the element itself for why this exists. */
 #raw-rows-backdrop { background: var(--raw-chrome-bg); }
 #raw-rows-backdrop.hidden { display: none; }

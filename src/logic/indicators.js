@@ -95,7 +95,7 @@ const Indicators = (() => {
     const anchorY = userState.anchorY;
     const fovHalfAngleDeg = userState.fovHalfAngleDeg;
     // RAW's plot lives inside a 1:1 square sub-region of the real viewport
-    // (Geo.computeSquarePlotLayout), not the full viewport itself — these
+    // (Geo.computePlotLayout), not the full viewport itself — these
     // default back to the plain viewport with no offset when unset, so
     // Hybrid (which never sets them) is completely unaffected.
     const plotWidth = userState.plotWidth != null ? userState.plotWidth : viewportWidth;

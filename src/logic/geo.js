@@ -172,7 +172,7 @@ const Geo = (() => {
    *   into and cover the full teardrop Relevance itself already computes.
    * @param {number} [offsetX]  Added to the final x, unchanged otherwise —
    *   lets a caller plot within a sub-region of the real viewport (see
-   *   computeSquarePlotLayout()) by passing that region's own width/height
+   *   computePlotLayout()) by passing that region's own width/height
    *   as viewportWidth/viewportHeight above and its top-left corner here,
    *   rather than this function needing to know about regions itself.
    * @param {number} [offsetY]  Same, for y.
@@ -317,46 +317,129 @@ const Geo = (() => {
   }
 
   /**
-   * RAW's plot region is a true 1:1 square — "as large as an area as
-   * possible" within the available screen content, not an asymmetric shape
-   * that just uses whatever headroom a fixed anchorY happens to leave (the
-   * pre-2026-08-21 approach, which reliably left near-zero side margin on a
-   * plain portrait phone — the actual common case — defeating the whole
-   * point of ever having room left for a Stage 3 aircraft list there).
-   * Direct instruction, restating an earlier discussion that hadn't been
-   * built this way yet: portrait gets the square pinned to the TOP (full
-   * content width, matching height) with the list BELOW it; landscape gets
-   * it pinned to the LEFT (full content height, matching width) with the
-   * list to the RIGHT. Matches how a real ND's own traffic display and its
-   * surrounding data fields are laid out — a fixed-aspect instrument plus
-   * whatever data panel fits around it, not a shape that stretches to fill
-   * an arbitrary rectangle.
+   * RAW's plot region — pinned to the TOP in portrait (full content width,
+   * with the aircraft list below) or the LEFT in landscape (full content
+   * height, list to the right), matching a real ND's own fixed-aspect
+   * traffic display plus whatever data panel fits around it. Originally a
+   * literal 1:1 square (both axes always equal) — reworked 2026-09-08,
+   * direct report with an annotated screenshot: a real device showed a
+   * large, genuinely empty gap between the plot's own box edge and where
+   * the rings/dots actually render, persisting no matter where the box
+   * itself was positioned on screen.
    *
-   * The ONLY thing that decides plot vs list is which of contentWidth/
-   * contentHeight is smaller — there's no separate size negotiation, so
-   * this can be (and must be) the single shared source both the real
-   * camera's marker anchor (NavigationCameraEvaluator, for NAV_RAW) and the
-   * screen-space dots/rings/list (app.js/ui.js) call, or they WILL drift
-   * apart exactly like the rings-vs-dots coordinate-system mismatch
-   * documented above.
+   * Root cause: the box's "primary" axis (width in portrait — the one that
+   * actually determines how far the FOV-restricted circular plot can reach
+   * left/right, see maxRadiusForBearing's edge-bearing constraint) was
+   * always forced to also equal the "secondary" axis (height), on the
+   * assumption a plot needs a literal square to look right. It doesn't —
+   * the plot's own true radius ends up capped by the narrower of "how much
+   * width is there" and "how much height is there" (circularPlotRadius,
+   * the min of the two), and on an ordinary tall phone the width-based cap
+   * is reached long before the height-based one would be, leaving most of
+   * a matching-height square's own height completely outside the circle's
+   * reach — dead space no repositioning of the box could ever close, since
+   * it's a property of the box's own internal proportions, not of where
+   * the box sits on screen.
    *
-   * @param {number} contentWidth   Full width available (RAW's square is
+   * Fix: keep the primary axis at its full available size (unchanged —
+   * this is what maximises the FOV's real reach, still worth preserving),
+   * but size the SECONDARY axis to just fit the plot's own true radius
+   * (plus a small fixed marker allowance) instead of defaulting to match
+   * the primary axis. `desiredAnchorY` (normally NavigationCameraEvaluator.
+   * STATE_PRESETS.NAV_RAW.anchorY, 0.80 — "ownship low, priority ahead")
+   * is used only to seed that computation and as the exact fallback
+   * fraction if there genuinely isn't enough room to trim (contentHeight/
+   * contentWidth already tighter than the plot needs) — the REAL anchor
+   * fraction in effect is derived here and returned as `anchorY`, not
+   * assumed externally by either caller.
+   *
+   * This return value's `anchorY` is now the single shared source both the
+   * real camera's marker anchor (NavigationCameraEvaluator, for NAV_RAW)
+   * and the screen-space dots/rings/list (app.js/ui.js) must read from —
+   * neither may independently assume 0.80 any more, or they WILL drift
+   * apart exactly like the rings-vs-dots coordinate-system mismatch this
+   * file's own history already documents at length.
+   *
+   * @param {number} contentWidth   Full width available (RAW's plot is
    *   never inset from the screen's left/right edges).
    * @param {number} contentTop     Y where usable content starts — real
-   *   chrome (top bar, guidance card) PLUS the compass tape/info strip's
-   *   own reserved height; see app.js's _rawSquareInputs().
+   *   chrome (top bar, guidance card) PLUS the compass tape's own reserved
+   *   height; see app.js's _rawChromeInsets().
    * @param {number} contentHeight  Usable height from contentTop down to
    *   the bottom chrome (bottom bar/route card) — already excludes both.
+   * @param {object} [opts]
+   * @param {number} [opts.desiredAnchorY=0.8]  Seed/fallback fraction —
+   *   see above.
+   * @param {number} [opts.safeInset=60]        Same meaning as elsewhere;
+   *   passed straight through to maxRadiusForBearing.
+   * @param {number} [opts.fovHalfAngleDeg=75]  RAW's FOV half-angle.
+   * @param {number} [opts.markerMarginPx=30]   Fixed room left beyond the
+   *   anchor point (below it in portrait, right of it in landscape) for
+   *   the ownship marker itself to render without clipping against the
+   *   plot's own edge.
    */
-  function computeSquarePlotLayout(contentWidth, contentTop, contentHeight) {
+  function computePlotLayout(contentWidth, contentTop, contentHeight, opts) {
+    const {
+      desiredAnchorY = 0.8,
+      safeInset = 60,
+      fovHalfAngleDeg = 75,
+      markerMarginPx = 30,
+    } = opts || {};
+
     const portrait = contentWidth <= contentHeight;
-    const squareSize = Math.max(0, portrait ? contentWidth : contentHeight);
-    const squareLeft = 0;
-    const squareTop = contentTop;
-    const rows = portrait
-      ? { left: 0, top: contentTop + squareSize, width: contentWidth, height: Math.max(0, contentHeight - squareSize) }
-      : { left: squareSize, top: contentTop, width: Math.max(0, contentWidth - squareSize), height: contentHeight };
-    return { orientation: portrait ? "portrait" : "landscape", squareLeft, squareTop, squareSize, rows };
+    const EXTRA = safeInset + 20; // matches maxRadiusForBearing's own topY = safeInset + 20
+    const EDGE_MARGIN_PX = 20;    // matches maxRadiusForBearing's own left/right margin
+
+    let plotLeft, plotTop, plotWidth, plotHeight, anchorY, rows;
+
+    if (portrait) {
+      plotWidth = Math.max(0, contentWidth);
+      // A large placeholder height so the dead-ahead (vertical) constraint
+      // can't be what caps this — we want the TRUE width-bound radius this
+      // plot's own width allows on its own, independent of how much
+      // vertical room ends up being given to it (which is exactly what
+      // we're about to solve for from this value).
+      // Clamped to 0: a degenerate/near-zero plotWidth (no real device ever
+      // produces this, but the function must still behave sanely rather
+      // than propagate a negative radius into neededCy/neededHeight below,
+      // which would otherwise pass the `<= contentHeight` check trivially
+      // and yield a negative plotHeight.
+      const radius = Math.max(0, circularPlotRadius(plotWidth, plotWidth * 10, desiredAnchorY, safeInset, fovHalfAngleDeg));
+      const neededCy = radius + EXTRA;               // exactly enough dead-ahead room, no more
+      const neededHeight = neededCy + markerMarginPx; // + fixed room below for the marker itself
+      if (neededHeight <= contentHeight) {
+        plotHeight = neededHeight;
+        anchorY = neededCy / plotHeight;
+      } else {
+        // Not enough room to trim — fall back to the old "use it all" shape;
+        // there's no excess to reclaim in this case anyway.
+        plotHeight = Math.max(0, contentHeight);
+        anchorY = desiredAnchorY;
+      }
+      plotLeft = 0;
+      plotTop = contentTop;
+      rows = { left: 0, top: contentTop + plotHeight, width: contentWidth, height: Math.max(0, contentHeight - plotHeight) };
+    } else {
+      plotHeight = Math.max(0, contentHeight);
+      const cyFixed = plotHeight * desiredAnchorY;
+      const deadAheadRadius = Math.max(0, cyFixed - EXTRA);
+      // Mirror image of the portrait branch: minimal width whose own
+      // edge-bearing constraint reaches at least deadAheadRadius — beyond
+      // that point, more width buys nothing, since dead-ahead (fixed by
+      // the given height) would already be what's capping the circle.
+      const sinEdge = Math.sin(fovHalfAngleDeg * Math.PI / 180) || 1;
+      const neededWidth = 2 * (deadAheadRadius * sinEdge + EDGE_MARGIN_PX);
+      plotWidth = neededWidth <= contentWidth ? neededWidth : Math.max(0, contentWidth);
+      anchorY = desiredAnchorY;
+      plotLeft = 0;
+      plotTop = contentTop;
+      rows = { left: plotWidth, top: contentTop, width: Math.max(0, contentWidth - plotWidth), height: contentHeight };
+    }
+
+    return {
+      orientation: portrait ? "portrait" : "landscape",
+      plotLeft, plotTop, plotWidth, plotHeight, anchorY, rows,
+    };
   }
 
   return {
@@ -367,7 +450,7 @@ const Geo = (() => {
     bandedRadiusFraction,
     maxRadiusForBearing,
     circularPlotRadius,
-    computeSquarePlotLayout,
+    computePlotLayout,
     projectToPolarPosition,
     projectPosition,
     destinationPoint,

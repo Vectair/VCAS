@@ -200,34 +200,48 @@ const NavigationCameraEvaluator = (() => {
 
       // 9b. NAV_RAW's anchor is a special case, computed AFTER (superseding)
       // the viewport-bias blending above rather than through it. RAW's own
-      // screen-space plot (dots/rings/list — see Geo.computeSquarePlotLayout,
-      // app.js's refreshIndicators) lives inside a 1:1 square sized to fit
-      // the available content area, not the raw full viewport — portrait
-      // pins it to the top (full width), landscape pins it to the left
-      // (full height). The REAL map camera's anchor (which positions the
-      // real user-marker MapLibre layer, map.js's _userMarker) has to land
-      // at that SAME point or the marker visibly drifts from the screen-
-      // space dots/rings around it — exactly the anchor-mismatch bug class
-      // this project has hit more than once (see CLAUDE.md's "Camera
-      // anchor math"). ctx.squareContentTop/squareContentHeight are plain
-      // numbers the caller (CameraController.followNav) measures from the
-      // DOM once per call — passed in rather than measured here so this
-      // function stays free of DOM access itself.
+      // screen-space plot (dots/rings/list — see Geo.computePlotLayout,
+      // app.js's refreshIndicators) lives inside a box sized to fit the
+      // available content area, not the raw full viewport — portrait pins
+      // it to the top (full width), landscape pins it to the left (full
+      // height); its OTHER axis is sized to just fit the plot's own real
+      // content rather than always matching the first 1:1 (2026-09-08,
+      // see computePlotLayout's own doc comment for why a literal square
+      // left real dead space between the plot and its own box edge). The
+      // REAL map camera's anchor (which positions the real user-marker
+      // MapLibre layer, map.js's _userMarker) has to land at that SAME
+      // point or the marker visibly drifts from the screen-space dots/
+      // rings around it — exactly the anchor-mismatch bug class this
+      // project has hit more than once (see CLAUDE.md's "Camera anchor
+      // math"). ctx.squareContentTop/squareContentHeight/plotSafeInset/
+      // plotFovHalfAngleDeg are plain values the caller (CameraController.
+      // followNav, itself relaying app.js's _rawChromeInsets()) passes
+      // through once per call — not re-measured/re-guessed here, so this
+      // function stays free of DOM access itself and can't type a
+      // different safeInset/fovHalfAngleDeg than refreshIndicators()'s own
+      // Geo.computePlotLayout() call uses for the screen-space rendering.
       //
-      // basePreset.anchorY (0.80) is reused here as the fraction WITHIN the
-      // square (not of the full viewport, its usual meaning for every other
-      // state) — same "ownship sits low, room ahead" convention, just
-      // scoped to the square's own bounds instead of the screen's. The
-      // viewport-bias phone-p/phone-l/auto overrides above are deliberately
-      // NOT applied to NAV_RAW: they're coarse per-device-class nudges for
-      // states whose anchor is otherwise a flat constant, superseded here by
-      // a per-frame calculation that already adapts exactly to the real
-      // portrait/landscape aspect, not just a device-class guess at it.
+      // basePreset.anchorY (0.80) is passed through as computePlotLayout's
+      // OWN desiredAnchorY seed — same "ownship sits low, room ahead"
+      // convention, just no longer assumed to be the fraction actually in
+      // effect: the ACTUAL anchor fraction is whatever computePlotLayout
+      // derives (its own `anchorY` return field) once the plot's box has
+      // been tightened to fit its real content, read back here rather than
+      // recomputed independently. The viewport-bias phone-p/phone-l/auto
+      // overrides above are deliberately NOT applied to NAV_RAW: they're
+      // coarse per-device-class nudges for states whose anchor is
+      // otherwise a flat constant, superseded here by a per-frame
+      // calculation that already adapts exactly to the real portrait/
+      // landscape aspect and real plot content, not just a device-class
+      // guess at either.
       if (targetState === "NAV_RAW" && ctx.viewportWidth && ctx.viewportHeight && ctx.squareContentHeight != null) {
-        const square = Geo.computeSquarePlotLayout(ctx.viewportWidth, ctx.squareContentTop || 0, ctx.squareContentHeight);
-        const withinSquareAnchorY = STATE_PRESETS.NAV_RAW.anchorY;
-        const anchorXPx = square.squareLeft + square.squareSize * 0.5;
-        const anchorYPx = square.squareTop + square.squareSize * withinSquareAnchorY;
+        const plot = Geo.computePlotLayout(ctx.viewportWidth, ctx.squareContentTop || 0, ctx.squareContentHeight, {
+          desiredAnchorY: STATE_PRESETS.NAV_RAW.anchorY,
+          safeInset: ctx.plotSafeInset,
+          fovHalfAngleDeg: ctx.plotFovHalfAngleDeg,
+        });
+        const anchorXPx = plot.plotLeft + plot.plotWidth * 0.5;
+        const anchorYPx = plot.plotTop + plot.plotHeight * plot.anchorY;
         anchorX = anchorXPx / ctx.viewportWidth;
         anchorY = anchorYPx / ctx.viewportHeight;
       }
