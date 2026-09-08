@@ -1144,6 +1144,13 @@
     // itself is synchronous (reads already-loaded map tile data, no
     // network call), so this is cheap even on ticks where nothing happens.
     LocalObstruction.refresh(EosMap, userLat, userLon);
+    // Same "safe to call every tick" contract, and — uniquely among the
+    // three environmental-scoring providers — genuinely no CORS relay
+    // involved at all: Open-Meteo's own server sends
+    // Access-Control-Allow-Origin: * (confirmed directly against their
+    // real server source, see upperAirProvider.js's own comment), so this
+    // fetch()es api.open-meteo.com directly from the browser.
+    UpperAirProvider.refresh(userLat, userLon).then(() => UI.setUpperAirStatus(UpperAirProvider.getStatus()));
 
     // setInterval fires on a fixed clock regardless of whether the previous
     // call finished — on a slow connection a single fetch (up to the 8s
@@ -1327,6 +1334,7 @@
       safeInset: insets.bottomInset,
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
+      upperAir: UpperAirProvider.getCached(),
       // Not read by Indicators.build() itself — carried through purely so
       // LogPanel.update()'s own copy of this object (see below) can hand it
       // to ObservationLogger.buildObservation(), which was missing "which
@@ -1650,6 +1658,7 @@
       viewportWidth: vw, viewportHeight: vh,
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
+      upperAir: UpperAirProvider.getCached(),
       mode: _activeDisplayMode(),
     };
 

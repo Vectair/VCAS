@@ -141,6 +141,22 @@ const Visibility = (() => {
   const LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG = 12;
   const LOCAL_OBSTRUCTION_DENSE_THRESHOLD = 0.45;
 
+  // Upper-air cloud-band signal (UpperAirProvider/Open-Meteo, 2026-09-08)
+  // — see _applyUpperAirAdjustment()'s own comment for the full reasoning;
+  // exists specifically to close the KNOWN GAP _applyMetarAdjustment()
+  // documents above. The low/mid band split (~2km/~7km AGL) is the
+  // standard WMO-style low/mid/high cloud classification, a real industry
+  // convention — but not verified against the exact pressure-level cutoff
+  // whichever specific model backs a given Open-Meteo response actually
+  // uses, so treat as a reasonable approximation, not an exact figure.
+  // UPPER_AIR_DENSE_THRESHOLD_PCT is a field-tuned guess, same honesty-
+  // about-provenance as CONTRAIL_*/LOCAL_OBSTRUCTION_* above — pending
+  // real calibration once ground-truth log data with a populated
+  // computed.upperAir snapshot actually accumulates.
+  const UPPER_AIR_LOW_BAND_MAX_AGL_FT = 6500;
+  const UPPER_AIR_MID_BAND_MAX_AGL_FT = 23000;
+  const UPPER_AIR_DENSE_THRESHOLD_PCT = 70;
+
   function _sizeForType(typeCode) {
     if (!typeCode) return FALLBACK_SIZES.UNKNOWN;
     const key = typeCode.toUpperCase().trim();
@@ -231,20 +247,22 @@ const Visibility = (() => {
    * No-ops entirely (returns `cat` unchanged) when `metar` is null/absent,
    * so this is fully opt-in from the caller's side.
    *
-   * KNOWN GAP, not fixed here (2026-09-02): when no BKN/OVC/VV layer is
-   * reported at all, `_lowestOccludingLayer` returns null and this
-   * function's cloud check silently no-ops — but METAR/CAVOK only
-   * actually characterizes the surface-to-~5,000ft column and prevailing
-   * visibility; it says nothing about an unreported mid/upper-level layer
-   * (e.g. a jet at FL320 could be sitting above a real but unreported
-   * OVC deck at FL180-230). "No cloud reported" is being read as
-   * "confirmed clear to the aircraft's altitude," which isn't actually
-   * what METAR promises. Fixing this properly needs an upper-air data
-   * source METAR itself can't provide (a global model like ECMWF/GFS —
-   * scoped separately, not built yet) — deliberately NOT patching this
-   * with an interim confidence cap here, since without real upper-air
-   * data any such cap would be an uncalibrated guess that risks fighting
-   * the contrail-rescue logic above. See CLAUDE.md for the full writeup.
+   * GAP, formerly unfixed (2026-09-02), closed by _applyUpperAirAdjustment
+   * below (2026-09-08): when no BKN/OVC/VV layer is reported at all,
+   * `_lowestOccludingLayer` returns null and this function's cloud check
+   * silently no-ops — but METAR/CAVOK only actually characterizes the
+   * surface-to-~5,000ft column and prevailing visibility; it says nothing
+   * about an unreported mid/upper-level layer (e.g. a jet at FL320 could
+   * be sitting above a real but unreported OVC deck at FL180-230). "No
+   * cloud reported" being read as "confirmed clear to the aircraft's
+   * altitude" isn't actually what METAR promises. This was deliberately
+   * left unpatched here for a real reason — without an actual upper-air
+   * data source, any interim confidence cap would have been an
+   * uncalibrated guess risking a fight with the contrail-rescue logic
+   * above — until UpperAirProvider (Open-Meteo) gave this a real,
+   * genuinely CORS-open data source to close the gap properly with. See
+   * _applyUpperAirAdjustment()'s own comment, and CLAUDE.md, for the
+   * full writeup either way.
    */
   function _applyMetarAdjustment(cat, altitudeFt, horizNm, metar) {
     if (!metar) return cat;
@@ -268,6 +286,55 @@ const Visibility = (() => {
     }
 
     return cat;
+  }
+
+  /**
+   * Closes the GAP _applyMetarAdjustment() documents above: a coarse
+   * regional cloud-cover-by-altitude-band signal (UpperAirProvider, Open-
+   * Meteo) — NOT a specific cloud base height the way METAR reports one,
+   * just "how much of the sky in this band is cloudy across the region,"
+   * so this can only ever answer "is the aircraft's altitude band densely
+   * clouded," never "is there a specific layer directly between the
+   * observer and this aircraft." Same downward-only, cap-not-raise
+   * discipline as the other two adjustments — reuses _capAtPossiblyVisible,
+   * never a hard drop to the worst tier the way METAR's own OVC/VV case
+   * is (that's justified there by a real reported base height; this
+   * signal is too coarse to claim that much certainty).
+   *
+   * Deliberately scoped to MID/HIGH-band traffic only — an aircraft still
+   * within the LOW band (`UPPER_AIR_LOW_BAND_MAX_AGL_FT`, ~2km AGL) is
+   * exactly where METAR's own near-surface data is already authoritative;
+   * this function no-ops there rather than risk a coarse regional
+   * forecast-model fraction contradicting a real, already-checked METAR
+   * (or the absence of one) for altitudes it already legitimately covers.
+   * This matches the documented gap precisely — an unreported MID/UPPER
+   * layer METAR structurally can't see — rather than widening scope
+   * beyond what was actually identified as missing.
+   *
+   * Band membership is by altitudeFt, corrected to the forecast grid
+   * cell's own MSL elevation the same way _lowestOccludingLayer's
+   * baseMslFt already is for METAR (see that function's own comment) —
+   * upperAir.elevationFt is Open-Meteo's model-grid terrain elevation for
+   * this location, not a literal station, but the same AGL-vs-MSL
+   * reasoning applies at this signal's own coarser scale.
+   *
+   * No-ops entirely when `upperAir` is null/absent (no fetch has ever
+   * succeeded) — same "absence of data must never itself reduce a score"
+   * discipline _applyLocalObstructionAdjustment() already establishes.
+   */
+  function _applyUpperAirAdjustment(cat, altitudeFt, upperAir) {
+    if (!upperAir || altitudeFt == null) return cat;
+
+    const elevFt = upperAir.elevationFt != null ? upperAir.elevationFt : 0;
+    const aglFt = altitudeFt - elevFt;
+    if (aglFt <= UPPER_AIR_LOW_BAND_MAX_AGL_FT) return cat; // METAR's own domain — leave it alone
+
+    const bandPct = aglFt <= UPPER_AIR_MID_BAND_MAX_AGL_FT
+      ? upperAir.cloudCoverMidPct
+      : upperAir.cloudCoverHighPct;
+
+    if (bandPct == null || bandPct < UPPER_AIR_DENSE_THRESHOLD_PCT) return cat;
+    return _capAtPossiblyVisible(cat);
   }
 
   /**
@@ -319,10 +386,15 @@ const Visibility = (() => {
    * @param {object} [localObstruction]  Current LocalObstruction.getCached()
    *   snapshot — { buildingDensity, vegetationDensity, combinedDensity,
    *   radiusM }. Omit/null for no adjustment.
+   * @param {object} [upperAir]  Current UpperAirProvider.getCached()
+   *   snapshot — { cloudCoverLowPct, cloudCoverMidPct, cloudCoverHighPct,
+   *   elevationFt }. Omit/null for no adjustment. Plain 6th positional
+   *   parameter, matching this file's own existing precedent (metar/
+   *   localObstruction) rather than a signature refactor — see CLAUDE.md.
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
-  function estimate(userLat, userLon, aircraft, metar, localObstruction) {
+  function estimate(userLat, userLon, aircraft, metar, localObstruction, upperAir) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
 
     const horizNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
@@ -379,6 +451,7 @@ const Visibility = (() => {
     }
 
     cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
+    cat = _applyUpperAirAdjustment(cat, altitudeFt, upperAir);
     cat = _applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction, veryClose);
 
     return {

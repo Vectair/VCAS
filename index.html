@@ -404,11 +404,7 @@
               <!-- Data-source status pills, restyled (2026-09-08) to match
                    a hand-drawn design draft's bolder pill row — real
                    sources only, no fabricated indicators for anything
-                   VCAS doesn't actually depend on; see CLAUDE.md. No
-                   Open-Meteo pill — VCAS has no Open-Meteo integration
-                   anywhere (reviewed once, never adopted, see CLAUDE.md's
-                   "ADS-B data source" history) — a pill for it would be
-                   citing a service that isn't real.
+                   VCAS doesn't actually depend on; see CLAUDE.md.
 
                    2026-09-08 (round 6): #adsb-status's own label now reads
                    "adsb.fi" (was "ADS-B") and IS itself the real link
@@ -429,7 +425,19 @@
                    supply a service we can just show that we're connected
                    to the service" — so this shows configured-or-not
                    (UI.setMaptilerStatus, keyed on CONFIG.MAPTILER_KEY
-                   being present), not a fabricated live check. -->
+                   being present), not a fabricated live check.
+
+                   2026-09-08 (same day, later): added #upper-air-status —
+                   Open-Meteo is now a genuinely real dependency
+                   (UpperAirProvider, feeding Visibility.estimate()'s
+                   `upperAir` parameter, closing a documented gap in the
+                   METAR-only adjustment — see CLAUDE.md's "Visibility
+                   model calibration pass #2" and "Open-Meteo upper-air
+                   signal" entries). A real per-request health signal like
+                   adsb.fi/METAR, not a one-time configured-check like
+                   MapTiler — Open-Meteo needs no key/relay at all (their
+                   own server sends Access-Control-Allow-Origin: *,
+                   confirmed directly against their real source). -->
               <div id="status-pill-row">
                 <div id="adsb-status" class="status-pill error">
                   <div class="dot"></div>
@@ -442,6 +450,10 @@
                 <div id="maptiler-status" class="status-pill stale">
                   <div class="dot"></div>
                   <span class="label">MapTiler</span>
+                </div>
+                <div id="upper-air-status" class="status-pill stale">
+                  <div class="dot"></div>
+                  <span class="label">Open-Meteo</span>
                 </div>
               </div>
             </div>
@@ -690,6 +702,7 @@
   <script src="src/logic/geo.js?v=__BUILD_ID__"></script>
   <script src="src/logic/metarProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/localObstruction.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/upperAirProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/visibility.js?v=__BUILD_ID__"></script>
   <script src="src/logic/aircraftExtrapolation.js?v=__BUILD_ID__"></script>
   <script src="src/logic/relevance.js?v=__BUILD_ID__"></script>

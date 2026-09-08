@@ -80,6 +80,16 @@ const UI = (() => {
     _setStatusPill("maptiler-status", configured ? "active" : "stale", "MapTiler", "MapTiler");
   }
 
+  /**
+   * Same shape/vocabulary as setAdsbStatus()/setMetarStatus() — see
+   * UpperAirProvider.getStatus(). A real per-request health signal (does
+   * genuinely fetch on every poll cycle, unlike MapTiler's one-time
+   * configured-check), not a fabricated one.
+   */
+  function setUpperAirStatus(state, text) {
+    _setStatusPill("upper-air-status", state, text, "Open-Meteo");
+  }
+
   // ---- Config banner ----
 
   function showConfigBanner(show) {
@@ -1365,6 +1375,7 @@ const UI = (() => {
     setAdsbStatus,
     setMetarStatus,
     setMaptilerStatus,
+    setUpperAirStatus,
     showConfigBanner,
     showGpsMessage,
     showCompassPermissionBanner,

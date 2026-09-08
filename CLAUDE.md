@@ -7898,3 +7898,176 @@ Both JSDoc comments describing `userState`'s shape (`observationLogger.js`'s
 `buildObservation()`, `logPanel.js`'s `update()`) were updated to list
 `mode` alongside `lat`/`lon`/`heading`/`speedMph`, so a future reader
 doesn't have to discover it by diffing.
+
+## Open-Meteo upper-air signal — closing the "no METAR cloud reported ≠ confirmed clear above" gap (2026-09-08)
+
+Direct follow-up to a status question: "can you just confirm that the
+full redesign of the visibility likelihood has been deployed. I thought
+we were getting met information from sources other than aviationweather."
+Investigation found the deploy itself was current (confirmed via GitHub
+Actions — `deploy-pages.yml` triggers on push to this project's own
+working branch, all recent runs succeeded), but only aviationweather.gov
+(via the METAR relay) was actually wired into `Visibility.estimate()` —
+Open-Meteo had been reviewed as a proposal during calibration pass #2
+(see "Visibility model calibration pass #2" above) specifically for the
+gap that section documents and explicitly leaves open: METAR only
+characterizes the surface-to-~5,000ft column and prevailing visibility,
+so "no cloud reported" (including CAVOK) was being read as "confirmed
+clear all the way to the aircraft's altitude" even for a jet that could
+be sitting above a real, unreported mid/upper-level deck — but that
+proposal was never actually built. Confirmed via `AskUserQuestion`-style
+direct question, then built the same day once the project owner said to
+go ahead.
+
+**API shape verified against real, current source — not assumed, and one
+wrong initial assumption caught before writing code.** This sandbox
+can't reach `api.open-meteo.com` directly (`curl`/`WebFetch` both
+blocked), so — same "verify against real reference source" discipline
+this project's entire Android Auto history is built on — cloned
+`open-meteo/open-meteo`'s own GitHub repo and read two things directly:
+1. `openapi/forecast.yml`'s real response schema. First assumption
+   (`current=cloud_cover_low,cloud_cover_mid,cloud_cover_high`) was
+   wrong — the `current` block's schema only has a single plain
+   `cloud_cover` field; the three per-band fields
+   (`cloud_cover_low`/`cloud_cover_mid`/`cloud_cover_high`) are
+   `hourly`-only. Caught by reading the spec's actual response schema
+   before writing any code, not after a live-call failure.
+2. `Sources/App/configure.swift`'s real server config:
+   `CORSMiddleware.Configuration(allowedOrigin: .all, ...)` — genuine
+   confirmation Open-Meteo needs **no CORS relay**, unlike adsb.fi and
+   aviationweather.gov, both of which required a custom PHP relay built
+   earlier in this project specifically because they lack this header.
+   This is the first weather/data source in VCAS's history that's
+   directly callable from the browser with zero server-side workaround.
+
+**`src/logic/upperAirProvider.js`** (new) — mirrors `metarProvider.js`'s
+exact shape (`refresh(lat, lon)`/`getCached()`/`getStatus()`,
+in-flight-coalescing, 15-minute refresh interval, 10s timeout, same
+`"active"`/`"stale"` two-state status vocabulary keyed on a
+`_lastFetchOk` flag). Requests `hourly=cloud_cover_low,cloud_cover_mid,
+cloud_cover_high` plus `past_hours=1&forecast_hours=2` (a small window
+around "now," since Open-Meteo's hourly array is forecast-model output,
+not a live observation — the closest-to-now index is picked from
+whatever's actually returned) and `elevation` (metres, converted to
+feet) for the same AGL correction METAR's own `baseMslFt` fix already
+established (see calibration pass #2 above) — Open-Meteo's cloud-cover-
+by-band figures are tied to the grid cell's own ground level, not sea
+level, so raw aircraft altitude needs the identical MSL→AGL correction
+before band-matching.
+
+**Cloud-altitude bands are a documented approximation, not an exact
+figure** — WMO-style low/mid/high bands (~2km/~2-7km/~7km+) are a widely
+used convention, but no exact pressure-level cutoff specific to
+Open-Meteo's own model could be found in its source or docs during this
+investigation. Implemented as three named constants in `visibility.js`
+(`UPPER_AIR_LOW_BAND_MAX_AGL_FT` = 6500, `UPPER_AIR_MID_BAND_MAX_AGL_FT`
+= 23000, `UPPER_AIR_DENSE_THRESHOLD_PCT` = 70) with an honest inline
+comment — same "reasonable starting guess, not a physically derived
+number" provenance already established for `CONTRAIL_MIN_ALTITUDE_FT`/
+`LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG` elsewhere in this file, not a
+number to treat as settled.
+
+**`_applyUpperAirAdjustment(cat, altitudeFt, upperAir)`** (`visibility.js`,
+new, placed right after `_applyMetarAdjustment()`) — deliberately scoped
+to MID/HIGH bands only, explicitly leaving the LOW band (< 6500ft AGL)
+untouched: that's METAR's own domain (surface-based cloud/visibility
+reports are authoritative there), and touching it here would mean two
+adjustments competing over the same altitude range with no clear
+precedence. For an aircraft in the MID or HIGH band, if that band's own
+reported cloud cover percentage is at/above `UPPER_AIR_DENSE_THRESHOLD_PCT`,
+the category is capped at "Possibly visible" via the existing
+`_capAtPossiblyVisible()` helper — same downward-only discipline already
+established for both `_applyMetarAdjustment()` and
+`_applyLocalObstructionAdjustment()` (never raises an already-worse
+category, e.g. one already staleness-degraded to "Very unlikely"). Wired
+into `estimate()` as a genuine 6th positional parameter
+(`estimate(userLat, userLon, aircraft, metar, localObstruction, upperAir)`),
+deliberately NOT part of a signature refactor — calibration pass #2's own
+proposal to move this whole parameter list to a named options object is
+a separate, not-yet-adopted decision, and this stays consistent with the
+interim shape that proposal itself already recommended.
+
+**Threaded through the same path `metar`/`localObstruction` already
+established**: `indicators.js`'s `_computeAll()` destructures `upperAir`
+from `userState` and passes it to `Visibility.estimate()`; `app.js`'s
+`fetchAircraft()` calls `UpperAirProvider.refresh(userLat, userLon)`
+right alongside the existing `MetarProvider.refresh()`/
+`LocalObstruction.refresh()` calls (same "safe to call every tick,
+internally self-throttles" contract); both `refreshIndicators()`'s and
+`refreshAirMode()`'s `userState` object literals gained
+`upperAir: UpperAirProvider.getCached()`; `observationLogger.js`'s
+`buildObservation()` snapshots `UpperAirProvider.getCached()` verbatim
+into every logged observation's `computed.upperAir` field, same "raw
+context, not a derived flag" pattern already established for the
+`metar`/`localObstruction` snapshots — so a future `not_visible_weather`/
+`visible_airframe` entry involving a mid/high-altitude aircraft can be
+checked against the actual Open-Meteo band data in effect, not just the
+final tier.
+
+**A real, genuine 4th status pill, not a fabricated indicator** — unlike
+the MapTiler pill (round 9, configured-or-not only, no live per-request
+signal), Open-Meteo needs no key/relay at all, so
+`UI.setUpperAirStatus()` reports the same real two-state
+`"active"`/`"stale"` signal adsb.fi/METAR already do, called from
+`app.js`'s `fetchAircraft()` right after the `refresh()` call resolves.
+`index.html`'s `#status-pill-row` gained a 4th `#upper-air-status` pill;
+`sw.js`'s comment listing intentionally-bypassed live-data hosts was
+updated to include `api.open-meteo.com` (and, a small pre-existing
+documentation gap noticed in passing, the METAR relay itself, which had
+been left off that list) — confirmed it was correctly NOT added to
+`STATIC_CDN_HOSTS`, the exact bug class already hit once for the ADS-B
+relay (see "PWA: real bug — the app-shell service worker was silently
+serving stale ADS-B data" above) and worth re-checking explicitly every
+time a new live endpoint is added, not just assumed safe.
+
+**Verified with real Node execution against the actual shipped
+`upperAirProvider.js`/`visibility.js`, this project's own established
+"verify pure logic with real execution" discipline** — 15 checks against
+the provider (`vm.runInContext`, mirroring the exact harness pattern
+`metarProvider.js`'s own test already established: URL construction,
+closest-hour-index selection, timeout/abort handling, malformed-response
+handling, in-flight coalescing, status transitions) and 11 checks against
+`_applyUpperAirAdjustment()`'s wiring into `estimate()` (low-band
+immunity regardless of density, mid/high-band capping, wrong-band
+non-interference, the sparse-cloud no-op, the cap-never-raises guarantee,
+the veryClose exemption, the AGL/MSL elevation correction) — 26 checks
+total, all passing against the real, shipped files.
+
+**Two of the 11 `estimate()` scenario tests needed a real, verified fix
+to their own premise before they proved anything — the same "vacuous
+test" mistake this project has hit before (see the Kotlin
+`Visibility.kt`/`Relevance.kt` port test-writeups), caught here in the
+JS test itself before shipping, not after.** Both the mid-band and
+high-band capping tests initially picked an aircraft/distance combination
+whose PRE-adjustment category was already "Possibly visible" for an
+unrelated reason (angular size alone, or — for the high-band case — the
+existing contrail floor, since the first draft's 35,000ft/~24nm aircraft
+sits above `CONTRAIL_MIN_ALTITUDE_FT` within `CONTRAIL_MAX_RANGE_NM`),
+making the "capped at Possibly visible" assertion true regardless of
+whether `_applyUpperAirAdjustment` did anything at all. Both fixed by
+first probing several `distanceDeg`/altitude combinations against the
+real `estimate()` output to find one that genuinely scores better than
+"Possibly visible" from angular size alone (mid-band: 15,000ft at
+~2nm, scoring "Likely visible"/66; high-band: 24,000ft — still >23,000ft
+AGL but deliberately below the 26,000ft contrail threshold — at ~2nm,
+also "Likely visible"/66) before asserting the cap actually changes
+that. Each test now explicitly asserts the pre-cap baseline first
+(`before.score > 33`) so a future edit that accidentally weakens the
+baseline back into vacuousness would fail loudly instead of silently
+passing.
+
+**Honest status**: the pure logic (`upperAirProvider.js`'s parsing/
+throttling, `visibility.js`'s adjustment/capping) is genuinely, fully
+verified via real execution. What's NOT verified, for the same sandbox-
+network-access reason `metarProvider.js`'s own header comment already
+carries for aviationweather.gov: the actual shape of a live
+`api.open-meteo.com` response has never been checked against this
+parsing code with a real network call — only against the real, current
+OpenAPI spec's documented schema. If cloud data still isn't visibly
+affecting scores after this deploys, the next thing to check is whether
+the live response's real field names/units genuinely match the spec as
+read here, the same category of caveat already on record for the METAR
+relay's own parsing. Verified deployed the same way the `mode`-field
+commit immediately before this one was: pushed to
+`claude/project-audit-review-4p0ft2`, confirmed via GitHub Actions that
+the triggered `deploy-pages.yml` run succeeded.

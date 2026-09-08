@@ -132,6 +132,14 @@ const ObservationLogger = (() => {
         // plus the logged elevationDeg above and visibility.js's own
         // LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG/DENSE_THRESHOLD constants.
         localObstruction: (typeof LocalObstruction !== "undefined") ? LocalObstruction.getCached() : null,
+        // Same "raw context, not a derived flag" pattern as metar/
+        // localObstruction above, added 2026-09-08 alongside
+        // UpperAirProvider itself — without this, a future
+        // not_visible_weather/visible_airframe entry involving a mid/
+        // high-altitude aircraft can't be checked against the actual
+        // Open-Meteo band data that was (or wasn't) applied to it, only
+        // the final tier.
+        upperAir: (typeof UpperAirProvider !== "undefined") ? UpperAirProvider.getCached() : null,
       },
       outcome: outcomeCode,
     };

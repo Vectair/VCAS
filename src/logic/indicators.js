@@ -84,7 +84,7 @@ const Indicators = (() => {
    * with that.
    */
   function _computeAll(aircraftList, userState, staleThresholdSeconds) {
-    const { lat, lon, heading, viewportWidth, viewportHeight, metar, localObstruction } = userState;
+    const { lat, lon, heading, viewportWidth, viewportHeight, metar, localObstruction, upperAir } = userState;
     // Must match what the camera actually used for this frame (see
     // CameraController/geo.js's projectToPolarPosition doc comment) or the
     // plotted origin silently drifts from where the user marker and range
@@ -127,7 +127,7 @@ const Indicators = (() => {
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
-        const vis = Visibility.estimate(lat, lon, a, metar, localObstruction);
+        const vis = Visibility.estimate(lat, lon, a, metar, localObstruction, upperAir);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
         const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         // Slant range (not flat horizontal distance) — the same figure

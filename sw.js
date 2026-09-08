@@ -97,10 +97,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Anything else — the ADS-B relay, ORS routing/geocoding, MapTiler
-  // tiles, adsb.fi's own direct fallback — is intentionally left alone:
-  // no event.respondWith() call, so the browser handles it as if this
-  // service worker didn't exist. See the file-level comment above for why.
+  // Anything else — the ADS-B relay, the METAR relay, ORS routing/
+  // geocoding, MapTiler tiles, adsb.fi's own direct fallback, and
+  // api.open-meteo.com (2026-09-08, UpperAirProvider — a live per-poll
+  // data source same as the rest of this list, despite needing no relay
+  // of its own) — is intentionally left alone: no event.respondWith()
+  // call, so the browser handles it as if this service worker didn't
+  // exist. See the file-level comment above for why.
 });
 
 async function networkFirst(req) {
