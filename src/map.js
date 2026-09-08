@@ -416,12 +416,30 @@ const EosMap = (() => {
    * shared by every mode (NAV/RAW/AIR all render the same real MapLibre
    * marker, just under different styles/cameras). Replaced the previous
    * plain directional chevron per direct instruction (2026-09-06): "the
-   * ownership symbol should be switched to the car symbol." Body+wheels use
-   * fill="currentColor" rather than a hardcoded colour so the existing
-   * `.user-marker-nav { color: var(--accent-user) }` / RAW-forced-yellow
-   * CSS override (VCAS.css) keeps working unchanged regardless of how many
-   * shape elements make up the icon — only the windshield keeps an explicit
-   * dark fill, so it still reads as glass against either colour.
+   * ownership symbol should be switched to the car symbol."
+   *
+   * 2026-09-08 redesign: the first version (a rounded body + four small
+   * wheel-bump <rect>s) tested fine in an isolated, 4x-zoomed Playwright
+   * harness — but at the marker's REAL rendered size (18x26 CSS px) the
+   * wheel bumps were too fine to survive real-device rendering/photo
+   * compression at all, and the plain rounded body alone read as a
+   * capsule/padlock shape, not a car — confirmed directly from a real
+   * device screenshot the project owner sent, not assumed from further
+   * zoomed-in testing. Re-verified this replacement AT the marker's true
+   * 18x26 CSS px size (not zoomed) before shipping it, the same mistake
+   * this file's own established "verify against a real instance" rule
+   * exists to catch. Dropped the wheel bumps entirely (empirically not a
+   * robust design element at this scale) in favour of a single bold
+   * continuous body shape with a chamfered/tapered front and a large,
+   * high-contrast windshield rectangle — both survive real-device scale
+   * because they're either the outline itself or a large enough patch,
+   * not a separate few-pixel detail.
+   *
+   * fill="currentColor" on the body (not a hardcoded colour) so the
+   * existing `.user-marker-nav { color: var(--accent-user) }` /
+   * RAW-forced-yellow CSS override (VCAS.css) keeps working unchanged —
+   * only the windshield keeps an explicit dark fill, so it still reads as
+   * glass against either colour.
    *
    * Long-term this is meant to become one of several selectable vehicle
    * icons (car/bike/pedestrian, per the same instruction) — not built yet,
@@ -435,17 +453,9 @@ const EosMap = (() => {
     el.innerHTML = `
       <div class="user-marker-halo"></div>
       <svg class="user-marker-nav" viewBox="0 0 20 28" xmlns="http://www.w3.org/2000/svg">
-        <g fill="currentColor" stroke="#ffffff" stroke-width="0.7" stroke-linejoin="round">
-          <rect x="3" y="14" width="2" height="4" rx="0.8"/>
-          <rect x="15" y="14" width="2" height="4" rx="0.8"/>
-          <rect x="3" y="20" width="2" height="4" rx="0.8"/>
-          <rect x="15" y="20" width="2" height="4" rx="0.8"/>
-          <path d="M10 2 C 13.5 2 15.5 4.5 15.5 8 L 15.5 22.5 C 15.5 25.5 13.5 26.5 10 26.5
-                   C 6.5 26.5 4.5 25.5 4.5 22.5 L 4.5 8 C 4.5 4.5 6.5 2 10 2 Z"/>
-        </g>
-        <path d="M6.4 9.2 C 6.9 6.8 8.1 5.6 10 5.6 C 11.9 5.6 13.1 6.8 13.6 9.2
-                 C 13.9 10.6 13.9 11.6 13.6 12.4 L 6.4 12.4 C 6.1 11.6 6.1 10.6 6.4 9.2 Z"
-              fill="#0a0e11" opacity="0.55"/>
+        <path d="M10 3 L14.5 8 L14.5 23 Q14.5 26.5 11.5 26.5 L8.5 26.5 Q5.5 26.5 5.5 23 L5.5 8 Z"
+              fill="currentColor" stroke="#ffffff" stroke-width="0.9" stroke-linejoin="round"/>
+        <rect x="6.8" y="8.5" width="6.4" height="6.5" rx="1.3" fill="#0a0e11" opacity="0.6"/>
       </svg>`;
 
     return new maplibregl.Marker({ element: el, anchor: "center" })

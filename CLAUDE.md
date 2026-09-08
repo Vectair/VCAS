@@ -6561,3 +6561,68 @@ the flight-plan line and merged nav-status card (round 2), and this
 bottom-bar restyle (round 3). Not implied by finishing this list: the
 native Android Auto port's own bottom controls remain unrestyled, same
 "synced in dedicated passes" standing note as rounds 1-2 above.
+
+## Round 1's car ownship icon didn't survive real-device scale — redesigned (2026-09-08)
+
+Reported directly, with a real device screenshot of the passive (no
+route) deployed RAW view: "there is barely any difference from the
+previous version." Investigation split this into two separate things,
+not one:
+
+**Most of rounds 2-3's own work is legitimately invisible in a passive
+screenshot, by design, not a bug.** The flight-plan line and the merged
+nav-status card (round 2) only render once a route is active
+(`activeRoute` gates both) — a passive RAW view was always going to look
+like the old one for those two features specifically, since neither has
+anything to draw with no destination set. The bottom-bar SCREEN/NAV
+labels (round 3) WERE visible in the reported screenshot, confirming the
+deploy itself was current — this wasn't a stale-cache/wrong-branch
+problem.
+
+**The one real, confirmed regression: round 1's car ownship icon.**
+Cropped and zoomed the actual reported screenshot (Python/PIL, this
+project's established "pixel-sample the real image, don't eyeball the
+chat thumbnail" convention) and found the icon reading as a plain
+capsule/padlock shape, not a car at all — the four wheel-bump `<rect>`
+elements from round 1's design were completely invisible at the icon's
+real ~18×26 CSS px marker size. **Root cause, confirmed by re-testing
+properly rather than assumed**: round 1's own verification screenshot
+was taken at 4x zoom in an isolated Playwright harness — real and
+correctly showing the wheel bumps AT THAT ZOOM, but never re-checked at
+the marker's actual unmagnified render size, which is exactly what a
+real device screenshot is. A design element can pass a zoomed-in review
+and still not survive real-device scale — the same category of mistake
+this file's own "verify against a real instance, not a zoomed/idealized
+one" discipline exists to catch, just missed once here by not extending
+that discipline all the way to actual output scale.
+
+**Fix**: dropped the wheel bumps entirely — confirmed empirically (not
+assumed) they're not a viable design element at 18×26px by testing
+several alternatives directly at true scale (`deviceScaleFactor: 3`,
+matching a real phone, no artificial zoom) before picking one. Replaced
+with a single bold continuous body path with a chamfered/tapered front
+(reads as "vehicle facing this direction" through the outline itself,
+which survives scaling because it's the whole shape, not a few-pixel
+detail) and a large, high-contrast dark windshield rectangle (big enough
+as a patch to survive scaling too). `fill="currentColor"` kept on the
+body, so the existing RAW-forced-yellow `.user-marker-nav { color }`
+override from round 1 still works unchanged.
+
+Verified two ways before shipping: extracted the actual committed
+marker markup verbatim from `map.js` (via a small Node regex, not
+retyped by hand) into a real-CSS Playwright harness rendered at the
+marker's true 18×26 CSS px size with `deviceScaleFactor: 3` (matching a
+real phone, not a magnified idealized view) — confirmed legible as a
+distinct vehicle-with-windshield shape in both RAW's forced-yellow and
+Hybrid/AIR's lime-green colouring, the same two states round 1's own
+(insufficient) verification already covered, just finally checked at
+the size that actually matters.
+
+**Lesson, adding to this file's own repeated pattern of "the fix isn't
+remember harder, it's writing the exact constraint down"**: a UI element
+this small needs its OWN verification pass done specifically at 1:1
+real-device scale, not inferred from how it looks zoomed in for ease of
+review — zooming in to check DETAIL is fine, but the pass/fail judgement
+on "does this read clearly" has to happen at the size a real user will
+actually see it, or a real regression like this one ships looking
+verified.
