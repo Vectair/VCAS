@@ -1395,19 +1395,19 @@
       // boundaries anyway; this just stops short at whichever one the user
       // picked, same "zoom" effect the plot's own rescale gets from it).
       UI.renderRangeRingsOverlay(square.plotLeft, square.plotTop, square.plotWidth, square.plotHeight, userState.anchorY, SQUARE_EDGE_MARGIN_PX, activeBandsNm, Indicators.FOV_HALF_ANGLE_DEG, "#f0f0f0");
-      // ND-style range selector — X stays at the plot's own right edge
+      // ND-style range selector + LOG button, both moved to the BOTTOM of
+      // the plot box (round 8, 2026-09-08, direct instruction with an
+      // annotated screenshot) — X stays at the plot's own left/right edges
       // (still correct in both portrait and landscape, where the plot's
-      // own position already differs), but Y moved up (2026-08-24) to the
-      // same row as the compass tape's SPD readout instead of the plot's
-      // own top-right corner further down. 48 matches ui.js's own
-      // stripY = tickTopY + 14 + 14 + 20 formula for that readout's row.
-      const rawRowY = insets.chromeTopInset + 48;
-      UI.renderRangeSelector(square.plotLeft + square.plotWidth - 8, rawRowY, selectedRangeNm, onRawRangeCycleClick);
-      // LOG button on the SAME row (2026-08-24 follow-up, direct request) —
-      // left-aligned, mirroring the range button's right alignment, so the
-      // row reads [LOG] ... SPD ... [range] rather than LOG sitting on its
-      // own separate row above/below this one.
-      LogPanel.setPosition(square.plotLeft + 8, rawRowY);
+      // own position already differs), just the row itself moved from the
+      // top (where it shared a row with the SPD readout) to the bottom, to
+      // stay clear of the SPD readout now occupying that whole top-left
+      // corner on its own (see the leftX comment below). 40px up from the
+      // plot's own bottom edge — comfortably inside the box, above where
+      // the aircraft-list panel begins at plotTop+plotHeight.
+      const bottomRowY = square.plotTop + square.plotHeight - 40;
+      UI.renderRangeSelector(square.plotLeft + square.plotWidth - 8, bottomRowY, selectedRangeNm, onRawRangeCycleClick);
+      LogPanel.setPosition(square.plotLeft + 8, bottomRowY);
 
       // Screen-space flight-plan line (2026-09-06) — NOT the real geo-
       // referenced MapLibre route line (map.js hides that one while RAW is
@@ -1450,12 +1450,14 @@
       // second row (#route-eta-speed, see _updateRouteCard()) alongside
       // distance — showing it in both places at once would be a real
       // duplicate readout, not two different pieces of information.
-      // leftX (round 6, 2026-09-08) — same square.plotLeft-based left
-      // margin the LOG button already uses (see LogPanel.setPosition call
-      // above), so SPD sits in the same left column as LOG rather than
-      // centred, per direct instruction ("the speed should stay at the
-      // same latitude but move to the left of the screen").
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 64 });
+      // leftX — round 6 (2026-09-08) moved SPD left of centre, sharing the
+      // row with LOG/range; round 8 (same day, direct instruction with an
+      // annotated screenshot) moved LOG/range to the bottom of the plot box
+      // instead, freeing the whole top-left corner for SPD alone — so this
+      // now uses LOG's OLD left margin (square.plotLeft + 8, matching
+      // LogPanel.setPosition's own former x) rather than sitting just to
+      // its right.
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 8 });
     } else {
       UI.clearCompassRing();
     }

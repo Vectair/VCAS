@@ -7312,3 +7312,39 @@ short-lived, low-noise console/log-endpoint breadcrumb specifically at
 the `renderAircraftList()` call site (e.g. logging `rowsRect` on every
 real-device RAW render) so the NEXT real-device report comes with actual
 runtime numbers instead of only a screenshot to infer from.
+
+**Resolved (2026-09-08, same day): the panel started working after some
+time passed, unrelated to any of the investigation above.** The project
+owner reported it back with no further action taken — most likely
+explanation, consistent with everything ruled out above, is ordinary
+first-fetch/deploy-propagation latency rather than a real rendering bug.
+Nothing in this entry needs revisiting unless the symptom recurs.
+
+## RAW-mode redesign, round 8: LOG + range moved to the bottom of the plot, SPD alone at top-left (2026-09-08, later the same day)
+
+Direct instruction with an annotated screenshot, once the aircraft-list
+panel above was confirmed working: move LOG and the ND-style range
+selector down to the BOTTOM of the plot box (currently sharing the top
+row with SPD), and move SPD further left into LOG's old top-left corner
+— giving SPD that whole corner to itself, and putting LOG/range right
+above the aircraft-list panel instead.
+
+Pure repositioning, no behaviour change: `app.js`'s `bottomRowY =
+square.plotTop + square.plotHeight - 40` replaces the old `rawRowY =
+insets.chromeTopInset + 48` for both `UI.renderRangeSelector`'s and
+`LogPanel.setPosition`'s Y coordinate — X stays at the plot's own left/
+right edges exactly as before (`square.plotLeft + 8` / `square.plotLeft
++ square.plotWidth - 8`), just the shared row moved from top to bottom.
+40px up from the plot's own bottom edge keeps both buttons comfortably
+inside the box, clear of the aircraft-list panel that begins immediately
+below at `plotTop + plotHeight`. `UI.renderCompassRing`'s SPD `leftX`
+moved from `square.plotLeft + 64` (to the right of where LOG used to
+sit) to `square.plotLeft + 8` (LOG's own old position, now vacated).
+
+Verified with the same real-markup composite-render harness this
+project's round 5-7 investigations already established, both passive
+and with an active route: SPD now sits alone at the top-left, LOG and
+"10NM" sit side-by-side at the bottom-left/bottom-right of the plot box
+respectively, directly above the aircraft-list panel's own title bar —
+matching the annotated screenshot's three arrows exactly (SPD moving
+left, LOG and range both moving down).
