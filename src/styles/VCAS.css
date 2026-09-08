@@ -146,6 +146,22 @@ body[data-mode="nav"][data-nav-style="raw"] {
   --label-bg:       rgba(18,24,28,.82);
   --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.5);
   --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.04);
+  /* Round 4 (2026-09-08): a mid slate blue-gray, pixel-sampled from the
+     project owner's own hand-drawn RAW-mode design draft (~rgb(70,92,112)
+     across its top bar/bottom bar/list-surround chrome — not the near-
+     black this file already uses for the actual ND square). One shared
+     value so the top bar, the aircraft-list "rows" region backdrop, and
+     the bottom bar all draw from the same source instead of three
+     independently-typed hex literals that could drift apart. */
+  --raw-chrome-bg: #465c74;
+  /* Colour-coded readout values (round 4, 2026-09-08) — also pixel-
+     sampled from the design draft's own nav-status text: a saturated
+     green for "good value" figures (turn direction, speed, ETA time) and
+     a saturated cyan-blue for distance figures, matching a real ND's own
+     convention of colour-coding different data types rather than leaving
+     everything one flat colour. */
+  --raw-value-green: #22c55e;
+  --raw-value-cyan:  #38bdf8;
 }
 
 html, body {
@@ -261,6 +277,13 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   background: linear-gradient(to bottom, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
 }
 
+/* RAW-only: a solid slate chrome panel instead of the near-black gradient
+   every other mode uses — see --raw-chrome-bg's own comment above for
+   where this colour comes from. Hybrid/AIR keep the existing look. */
+body[data-mode="nav"][data-nav-style="raw"] #top-bar {
+  background: var(--raw-chrome-bg);
+}
+
 #top-bar .brand {
   font-size: 18px;
   font-weight: 700;
@@ -297,7 +320,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 
 #btn-settings:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
-/* ---- Top-right controls (ADS-B status + credit) ----
+/* ---- Top-right controls (status pills + credit) ----
    Was previously unused CSS with no matching element (a leftover from an
    earlier design iteration — #theme-picker, styled a few rules down, is
    the same story and is still unused) — revived 2026-08-23 to stack the
@@ -310,22 +333,36 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   gap: 5px;
 }
 
-#adsb-status {
+/* Bolder pill treatment (2026-09-08), matching a hand-drawn design draft's
+   own status-pill row — larger, bold, near-white text rather than the
+   original's small muted uppercase, and shared by every real data-source
+   pill (`#adsb-status`, `#metar-status`) via one class rather than two
+   near-duplicate id-scoped rules. See CLAUDE.md for why only these two
+   exist — no MapTiler/Open-Meteo pills, VCAS doesn't track either's
+   health for real. */
+#status-pill-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-pill {
   display: flex;
   align-items: center;
   gap: 6px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text-primary);
+  box-shadow: var(--btn-shadow);
+  white-space: nowrap;
 }
 
-#adsb-status .dot {
+.status-pill .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -334,10 +371,9 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   transition: background .4s;
 }
 
-#adsb-status.active .dot   { background: #4caf50; }
-#adsb-status.stale  .dot   { background: #ff9800; }
-#adsb-status.error  .dot   { background: #9e9e9e; }
-#adsb-status.active { color: var(--text-primary); }
+.status-pill.active .dot   { background: #4caf50; }
+.status-pill.stale  .dot   { background: #ff9800; }
+.status-pill.error  .dot   { background: #9e9e9e; }
 
 /* adsb.fi attribution — moved here from a Settings sub-screen (2026-08-23)
    so it's visible for the whole time the app is open, not a one-time
@@ -423,9 +459,13 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 14px 14px;
+  padding: 12px 14px 14px;
   background: linear-gradient(to top, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
   gap: 10px;
+  /* Separates the row from the map/list content above it — absent until
+     2026-09-08, added to match the design draft's own horizontal rule
+     above its SCREEN/NAVIGATION switch banks. */
+  border-top: 1px solid var(--border);
 }
 
 .mode-btn {
@@ -447,39 +487,40 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 .mode-btn:active       { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 .mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; box-shadow: var(--btn-shadow-active); }
 
-/* Hybrid/Raw/Air co-located as one segmented control (same pattern as
-   .theme-toggle-group in the settings screen) rather than independent
-   buttons at opposite ends of the bar — switching modes on a touchscreen
-   shouldn't mean reaching across the width of the screen. Tighter padding/
-   font than the base .mode-btn (which the standalone route-pin button also
-   uses) — three labels including "HYBRID" need to fit one row alongside
-   the aircraft count and route button on a narrow phone. */
+/* Hybrid/Raw/Air, grouped under the "SCREEN" bracket (see .mode-row-group
+   below) rather than independent buttons at opposite ends of the bar —
+   switching modes on a touchscreen shouldn't mean reaching across the
+   width of the screen. Individually bordered boxes with a small gap
+   between them (2026-09-08, replacing the earlier single merged/
+   segmented pill) per the design draft — each button reads as its own
+   switch cap rather than three flush segments in one recessed housing.
+   Tighter padding/font than the base .mode-btn (which the standalone
+   route-pin button also uses) — three labels including "HYBRID" need to
+   fit one row alongside the aircraft count and route button on a narrow
+   phone. */
 .mode-toggle {
   display: flex;
   align-items: center;
-  gap: 0;
-  background: var(--btn-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  /* The bank itself carries the raised bevel, like a recessed switch
-     housing — individual segments (below) go flat so they read as caps
-     set into one frame rather than three separately-raised buttons. */
-  box-shadow: var(--btn-shadow);
+  gap: 5px;
 }
 
 .mode-toggle .mode-btn {
-  border: none;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   font-size: 11px;
-  box-shadow: none;
 }
 
-.mode-toggle .mode-btn.active-mode { box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
-
-.mode-toggle .mode-btn:last-child { border-right: none; }
+/* Active button reads via a coloured border+text, not a filled
+   background — matches the draft's own treatment (the active RAW button
+   is outlined, not solid-filled) and overrides the base .mode-btn.
+   active-mode rule (still a filled blue background elsewhere, e.g. a
+   .route-btn that ever carried this class) without touching it globally. */
+.mode-toggle .mode-btn.active-mode {
+  background: var(--btn-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--btn-shadow);
+}
+.mode-toggle .mode-btn.active-mode:active { box-shadow: var(--btn-shadow-active); }
 
 /* ---- Mode row switch-bank labels + divider (2026-09-07) ----
    Direct instruction, from the same hand-drawn RAW-mode design draft as
@@ -507,6 +548,35 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   text-transform: uppercase;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* "SCREEN"'s own bordered capsule (2026-09-08, matching the draft) — "NAV"
+   stays plain text, per the draft's own distinction between the two
+   labels (only SCREEN gets a boxed outline there). */
+.mode-row-label-boxed {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+/* Bracket connecting the "SCREEN" label down to the three mode buttons —
+   purely decorative (the same tree-connector the draft draws by hand),
+   drawn once as a relative-unit SVG (viewBox 0 0 6 1.4, stretched via
+   CSS width to whatever the actual button row measures) rather than
+   computed from real button positions — the three drop points (x=1,3,5)
+   assume three roughly-equal-width buttons, which HYBRID/RAW/AIR already
+   are. .mode-bracket-stem is the short vertical link between the label
+   and the bracket's own horizontal bar. */
+.mode-bracket-stem {
+  width: 1px;
+  height: 6px;
+  background: var(--border);
+}
+
+.mode-bracket {
+  width: 100%;
+  height: 10px;
+  display: block;
 }
 
 .mode-row-divider {
@@ -1076,6 +1146,28 @@ body[data-theme="day"] .air-label-box {
 }
 #raw-aircraft-list.hidden { display: none; }
 
+/* Positioned/sized from Geo.computeSquarePlotLayout's own `rows` rect —
+   see index.html's comment on the element itself for why this exists. */
+#raw-rows-backdrop { background: var(--raw-chrome-bg); }
+#raw-rows-backdrop.hidden { display: none; }
+
+/* Plain, non-interactive title bar (2026-09-08) — a label, not the
+   removed sort-button row, see renderAircraftList()'s own doc comment
+   in ui.js for why bringing this back doesn't reopen the "less
+   interaction" concern that removal was actually about. */
+.raw-list-title-bar {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(240,240,240,.18);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-align: center;
+  color: #f0f0f0;
+}
+
+.raw-list-title-count { color: var(--raw-value-green); }
+
 .raw-list-body {
   flex: 1;
   overflow-y: auto;
@@ -1290,18 +1382,50 @@ body[data-theme="day"] .air-label-box {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---- Route button (in mode-row) ---- */
+/* ---- Route button (in mode-row) ----
+   Redesigned 2026-09-08 (design draft) as a road-sign diamond + an
+   OFF/ON rocker-switch-style readout, replacing the plain pin-emoji
+   circle — same element/id/click behaviour as before ("the current
+   version of this is the Pin," per direct instruction), just restyled.
+   OFF/ON reflects a REAL state (body.route-active, already toggled by
+   requestRouteTo()/clearActiveRoute() — see app.js), not a fabricated
+   indicator: OFF highlighted with no active route, ON highlighted once
+   one exists. */
 .route-btn {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-  font-size: 16px;
-  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--btn-bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
 }
+
+.route-btn-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: #e8833a; /* road-sign orange, matching the draft's diamond+arrow */
+}
+
+.route-btn-toggle {
+  display: flex;
+  flex-direction: column;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.3;
+}
+
+.route-btn-off, .route-btn-on { opacity: .4; transition: opacity .2s; }
+.route-btn-off { opacity: 1; }
+body.route-active .route-btn-off { opacity: .4; }
+body.route-active .route-btn-on  { opacity: 1; color: #4caf50; }
 
 .route-btn:active   { opacity: .75; }
 .route-btn:disabled { opacity: .5; pointer-events: none; }
 .route-btn.picking  { background: #ff6b6b; border-color: #ff6b6b; animation: btn-armed-pulse 1.2s ease-in-out infinite; }
+.route-btn.picking .route-btn-icon { color: #ffffff; }
 
 @keyframes btn-armed-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,.55); }
@@ -1519,8 +1643,37 @@ body[data-mode="nav"][data-nav-style="raw"] #route-card {
   animation: none; /* the slide-up-from-bottom entrance makes no sense once this lives at the top */
 }
 
-/* Route active: hide normal bottom bar behind the ETA card */
-body.route-active[data-mode="nav"] #bottom-bar {
+/* Colour-coded readout values, RAW only (round 4, 2026-09-08) — Hybrid's
+   own guidance/route card keeps its plain text colours unchanged, this is
+   specifically an ND-instrument-readout convention. .ngc-dist-value/
+   .ngc-direction-value are new spans app.js's _updateGuidanceCard() wraps
+   around the distance figure/direction word (see that function) rather
+   than writing the whole sentence as one flat textContent string; the
+   route-card fields were already separate elements, so no JS change was
+   needed for those. */
+body[data-mode="nav"][data-nav-style="raw"] .ngc-dist-value,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dist-value,
+body[data-mode="nav"][data-nav-style="raw"] #route-dist-text {
+  color: var(--raw-value-cyan);
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-direction-value,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-direction-value,
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-time,
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-arrival {
+  color: var(--raw-value-green);
+}
+
+/* Route active: hide normal bottom bar behind the ETA card.
+   RAW-excluded (2026-09-08) — this predates round 2's "merge the
+   guidance/ETA card into one top nav-status panel" change, which moved
+   RAW's own #route-card off the bottom entirely (see that section
+   above), so there's no longer a real visual conflict there for it to
+   hide behind. Left as-is for Hybrid/AIR, where #route-card is still
+   bottom-pinned and this still matters. Without this exclusion, RAW's
+   whole bottom bar — including the mode toggle and the nav button this
+   round just redesigned — would silently vanish for the entire time a
+   route is active, with no way to switch modes or cancel the route. */
+body.route-active[data-mode="nav"]:not([data-nav-style="raw"]) #bottom-bar {
   pointer-events: none;
   opacity: 0;
   transition: opacity .3s;

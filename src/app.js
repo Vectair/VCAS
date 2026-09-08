@@ -507,6 +507,7 @@
         UI.clearAircraftList();
         UI.clearRangeSelector(); // same bug pattern as the two clears above
         UI.clearRouteLine(); // same bug pattern again — see renderRouteLine's own call site
+        UI.clearRowsBackdrop(); // and again — see renderRowsBackdrop's own call site
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -1029,7 +1030,7 @@
     // poll loop rather than needing a separate timer. Fire-and-forget: the
     // very next refreshIndicators()/refreshAirMode() call just reads
     // whatever's cached (possibly still null on the first few ticks).
-    MetarProvider.refresh(userLat, userLon);
+    MetarProvider.refresh(userLat, userLon).then(() => UI.setMetarStatus(MetarProvider.getStatus()));
     // Same "safe to call every tick, internally no-ops" contract —
     // LocalObstruction only actually re-queries once the user has moved
     // far enough (or the cached result is stale), and queryLocalDensity()
@@ -1439,8 +1440,13 @@
       // 2026-09-06 (direct instruction): Android-Auto-bound, so less
       // interaction is the right default — always most-visible-first.
       const beyondRangeHexes = new Set(beyondRange.map(it => it.aircraft.hex));
+      // Same square.rows rect the list panel itself uses — see
+      // UI.renderRowsBackdrop's own doc comment for why this has to be
+      // the identical source, not a second measurement.
+      UI.renderRowsBackdrop(square.rows);
       UI.renderAircraftList(allRelevant, square.rows, onIndicatorClick, beyondRangeHexes);
     } else {
+      UI.clearRowsBackdrop();
       UI.clearAircraftList();
     }
   }
@@ -1891,9 +1897,15 @@
     if (routeManeuver.exists) {
       const icon = MANEUVER_ICONS[routeManeuver.type] || DEFAULT_MANEUVER_ICON;
       const instruction = routeManeuver.instruction || (routeManeuver.isArrival ? "Arrive at destination" : "Continue");
-      actionEl.textContent = routeManeuver.isArrival
-        ? instruction
-        : `${instruction} — ${_fmtDistance(routeManeuver.distanceMeters)}`;
+      // innerHTML (not textContent) so the distance figure can be wrapped
+      // in its own colour-coded span for RAW's instrument-readout look
+      // (see VCAS.css's .ngc-dist-value, RAW-scoped) — instruction is real
+      // ORS response text, so it's escaped before landing in innerHTML
+      // the same as any other interpolated string this codebase injects
+      // this way (see ui.js's own _escapeHtml precedent).
+      actionEl.innerHTML = routeManeuver.isArrival
+        ? _escapeHtml(instruction)
+        : `${_escapeHtml(instruction)} — <span class="ngc-dist-value">${_fmtDistance(routeManeuver.distanceMeters)}</span>`;
       iconEl.textContent = icon.glyph;
       iconEl.style.transform = `rotate(${icon.rotation}deg)`;
       return;
@@ -1901,7 +1913,7 @@
 
     if (fallbackManeuver && fallbackManeuver.exists) {
       const direction = fallbackManeuver.bearingDeltaDeg > 0 ? "right" : "left";
-      actionEl.textContent = `Turn ${direction} in ${_fmtDistance(fallbackManeuver.distanceMeters)}`;
+      actionEl.innerHTML = `Turn <span class="ngc-direction-value">${direction}</span> in <span class="ngc-dist-value">${_fmtDistance(fallbackManeuver.distanceMeters)}</span>`;
       iconEl.textContent = "↑";
       const iconRotation = Math.max(-120, Math.min(120, fallbackManeuver.bearingDeltaDeg));
       iconEl.style.transform = `rotate(${iconRotation}deg)`;
@@ -1914,6 +1926,15 @@
   }
 
   // ---- Numerical Utilities ----
+
+  /** Same shape as ui.js's own _escapeHtml — needed here now that
+   * _updateGuidanceCard() injects ORS response text via innerHTML (for the
+   * colour-coded distance span) rather than plain textContent. */
+  function _escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[ch]));
+  }
 
   function _fmtDistance(meters) {
     return meters >= 1000 ? (meters / 1000).toFixed(1) + " km" : Math.round(meters) + " m";

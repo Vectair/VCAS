@@ -32,6 +32,7 @@ const MetarProvider = (() => {
   let _cached = null; // { stationId, visibilitySm, clouds, obsTime, distanceNm, elevationFt }
   let _lastFetchAt = 0;
   let _inFlight = null;
+  let _lastFetchOk = null; // null = never attempted; true/false = outcome of the most recent attempt
 
   /**
    * ORS-style defensive numeric parsing for aviationweather.gov's `visib`
@@ -183,6 +184,7 @@ const MetarProvider = (() => {
     _inFlight = _fetchNearest(lat, lon).then(result => {
       _inFlight = null;
       _lastFetchAt = Date.now();
+      _lastFetchOk = !!result;
       if (result) _cached = result;
       return _cached;
     });
@@ -192,7 +194,23 @@ const MetarProvider = (() => {
   /** Synchronous read of whatever's currently cached — null until the first successful refresh(). */
   function getCached() { return _cached; }
 
-  return { refresh, getCached };
+  /**
+   * "active" if the most recent real fetch attempt succeeded, "stale"
+   * otherwise (never attempted yet, or that attempt failed — even if an
+   * older cached value is still being served, per refresh()'s own
+   * "a failed fetch doesn't clear the existing cache" behaviour above).
+   * Deliberately keyed on _lastFetchOk, not on _cached truthiness — the
+   * cache can stay non-null long after the relay/direct fetch has
+   * actually started failing, which would otherwise never show as
+   * anything but "active." Same two-state vocabulary UI.setAdsbStatus()'s
+   * dot already uses, not a new one, so this drives the equivalent
+   * #metar-status pill the same way.
+   */
+  function getStatus() {
+    return _lastFetchOk ? "active" : "stale";
+  }
+
+  return { refresh, getCached, getStatus };
 })();
 
 if (typeof module !== "undefined") module.exports = MetarProvider;

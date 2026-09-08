@@ -6626,3 +6626,178 @@ review — zooming in to check DETAIL is fine, but the pass/fail judgement
 on "does this read clearly" has to happen at the size a real user will
 actually see it, or a real regression like this one ships looking
 verified.
+
+## RAW-mode redesign, round 4: comprehensive chrome match against the design draft (2026-09-08)
+
+Direct feedback, after rounds 1-3 shipped: "all you are doing is
+changing the car icon. I want the whole raw screen to look like this" —
+pointing back at the project owner's own hand-drawn design draft.
+Rounds 1-3 were real, individually correct changes, but scoped too
+narrowly against what was actually wanted: a comprehensive chrome
+match, not another incremental slice. Pixel-sampled directly from the
+draft (this project's own established convention, not eyeballed): top/
+bottom bar background ≈ `rgb(70,92,112)` (a mid slate blue-gray), the
+nav-status "good value" text ≈ a saturated green, distance figures ≈ a
+saturated cyan-blue. Since this is a hand-drawn sketch, not a photograph
+of real hardware, clean representative values in the same hue family
+were used rather than chasing exact-hex reproduction.
+
+**One scope decision confirmed with the project owner before building,
+not guessed**: the draft shows three top-bar status pills (Open-Meteo,
+MAPTiler, ADSB.FI). Searched the codebase directly — VCAS has no
+Open-Meteo integration anywhere (reviewed once during the weather-
+calibration work, never adopted) and no live MapTiler health tracking
+(a static API key only, no tile-load success/failure signal). Building
+fake pills for either would be exactly the kind of half-finished/
+non-functional control this project's conventions already reject (see
+the settings screen's own precedent for not shipping a toggle with no
+real effect behind it). Confirmed via `AskUserQuestion`: real pills
+only — restyle the existing ADS-B pill, add a genuine new METAR pill,
+no MapTiler/Open-Meteo pills.
+
+### Part 1 — Top bar
+
+`src/logic/metarProvider.js` gained `getStatus()` — `"active"` if the
+most recent real fetch attempt succeeded, `"stale"` otherwise (never
+attempted, or that attempt failed) — deliberately keyed on a new
+`_lastFetchOk` flag rather than `_cached` truthiness, since a failed
+fetch doesn't clear an existing cache (by design, see that file's own
+`refresh()` comment) and `_cached` alone would never show a later relay
+outage once the very first fetch had ever succeeded. `ui.js` gained
+`setMetarStatus()`, sharing a new `_setStatusPill()` helper with the
+existing `setAdsbStatus()` rather than a second near-duplicate
+implementation. `app.js` calls it right where `MetarProvider.refresh()`
+already runs. `index.html`'s `#top-right-controls` restructured from
+"one pill + credit stacked vertically" into a horizontal `#status-pill-
+row` (ADS-B + METAR) with the adsb.fi credit line kept directly below —
+still always visible, since that's a real legal attribution requirement
+(see the Pre-V1 checklist above), not something to demote while
+restyling around it. Both pills share one new `.status-pill` CSS class
+(bolder, larger, near-white text vs. the original's small muted
+uppercase) instead of two id-scoped near-duplicates. New RAW-only
+`#top-bar` override: a solid slate background (`--raw-chrome-bg`,
+pixel-sampled per above) replacing the near-black gradient every other
+mode still uses.
+
+### Part 2 — Nav-status colour coding
+
+`app.js`'s `_updateGuidanceCard()` switched from `.textContent` to
+`.innerHTML` so the distance figure (and, on the geometric-fallback
+path, the direction word) can sit in their own `<span>`s — coloured
+cyan/green respectively via new RAW-scoped CSS rather than one flat
+string. ORS's own real instruction text is escaped first (`app.js`
+gained its own `_escapeHtml`, mirroring `ui.js`'s), same discipline this
+codebase already applies to any interpolated string landing in
+`innerHTML`. `#route-card`'s ETA/arrival/distance fields needed zero JS
+changes — they were already separate elements (`.route-eta-time`,
+`.route-eta-arrival`, `#route-dist-text`), just never coloured; pure CSS
+additions cover them. The compass tape's own "SPD {mph} MPH" strip
+(`ui.js`'s `renderCompassRing()`) gained a `<tspan>` around the numeric
+value, coloured green directly (this function only ever renders for RAW,
+so no Hybrid-scoping concern there unlike the guidance/route card). New
+shared `--raw-value-green`/`--raw-value-cyan` custom properties (in the
+same RAW palette block as `--raw-chrome-bg`) so every one of these rules
+draws from one source rather than several independently-typed hex
+literals.
+
+### Part 3 — Aircraft list title bar
+
+`ui.js`'s `renderAircraftList()` lost its header entirely when the sort
+buttons were removed (round 1). Added back a plain, non-interactive
+"AIRCRAFT NEARBY {count}" bar (count in green) — a label, not a control,
+so it doesn't reopen the "less interaction" concern that removal was
+actually about. `items.length` (the panel's own full relevant-set
+count) is used, which can legitimately differ from the bottom bar's own
+`aircraft-count` figure — they've always represented different things
+(see round 1's own notes on `withinRange` vs `allRelevant`).
+`MIN_PANEL_HEIGHT_PX` raised from 70 to 100 — the old threshold could
+leave room for a header but no actual row underneath it now that one
+exists.
+
+### Part 4 — RAW "rows" region backdrop
+
+The real MapLibre canvas is black everywhere in RAW — a single
+`background`-type map layer with no concept of "square" vs "rows"
+regions (that split is a purely screen-space, app-level idea) — so the
+area behind/around the aircraft-list panel showed through as black
+instead of matching the top/bottom bar's slate chrome. New
+`#raw-rows-backdrop` div, positioned/sized by `app.js`'s
+`refreshIndicators()` from the *exact same* `square.rows` object
+already passed to `UI.renderAircraftList()` — confirmed via a direct
+Playwright check (not just a screenshot) that the backdrop's real
+rendered rect exactly equals the given rows rect, and the list panel's
+own rect is that same rect inset by `PANEL_MARGIN_PX` on every side —
+the same "one shared source, not two measurements that could drift"
+discipline this file documents at length elsewhere (the rings-vs-dots
+history, the flight-plan-line/range-ring scale check in round 2). Sits
+at a lower z-index than the list panel, so nothing about the panel's own
+styling needed to change. The square (compass/rings/dots) itself stays
+pure black — only the rows region gets the tint.
+
+### Part 5 — Bottom bar restructure
+
+- **Mode buttons**: `.mode-toggle` reworked from one merged/segmented
+  pill (solid blue fill for the active button) into three individually
+  bordered boxes with a small gap between them, matching the draft. The
+  active button now reads via a coloured border+text
+  (`.mode-toggle .mode-btn.active-mode` overridden specifically, not the
+  global `.mode-btn.active-mode` rule other buttons like `.route-btn`
+  still use) rather than a filled background.
+- **Bracket connector**: a small relative-unit SVG (`viewBox="0 0 6
+  1.4"`, `preserveAspectRatio="none"`) stretched via CSS width to
+  whatever the button row actually measures, with three drop points at
+  x=1/3/5 — assumes three roughly-equal-width buttons (already true for
+  HYBRID/RAW/AIR) rather than computing real button positions, since
+  this is purely decorative. A short `.mode-bracket-stem` div links the
+  "SCREEN" label down to the bracket's own horizontal bar.
+- **"SCREEN" label**: gained a bordered capsule (`.mode-row-label-
+  boxed`) — "NAV" stays plain text, matching the draft's own asymmetry
+  between the two labels.
+- **Horizontal divider above the row**: `#mode-row` gained a
+  `border-top` — confirmed absent before via a direct audit, not assumed.
+- **Nav button**: redesigned from a plain pin-emoji circle into a
+  road-sign diamond icon (orange, `currentColor`-based so it survives
+  the existing `.picking` red-armed state too) + an "OFF/ON"
+  rocker-switch-style readout — same `#btn-test-route` element/click
+  behaviour, matching the project owner's own framing from round 3
+  ("the current version of this is the Pin"). The OFF/ON state reflects
+  a REAL existing signal (`body.route-active`, already toggled by
+  `requestRouteTo()`/`clearActiveRoute()`) — not a fabricated indicator,
+  the same "no fake controls" discipline behind the status-pill scope
+  decision above.
+
+**A real, adjacent bug found and fixed while verifying this pass, not
+part of the original plan but directly blocking it**: a pre-existing
+rule — `body.route-active[data-mode="nav"] #bottom-bar { opacity: 0;
+... }` — hides the whole bottom bar whenever a route is active, written
+back when Hybrid's `#route-card` was always bottom-pinned and would
+otherwise visually collide with it. Round 2 moved RAW's own
+`#route-card` to the TOP (merged with the guidance card) but never
+revisited this rule, which doesn't distinguish RAW from Hybrid/AIR at
+all — meaning RAW's entire bottom bar, including everything this round
+just redesigned, was silently vanishing for the whole time a route was
+active, with no way to switch modes or cancel the route. Fixed by
+excluding RAW from the selector
+(`:not([data-nav-style="raw"])`) — Hybrid/AIR keep the original
+behaviour (still correct there), RAW's bottom bar now stays visible
+throughout navigation. Verified directly: RAW+route-active renders the
+bottom bar normally; Hybrid+route-active still hides it exactly as
+before.
+
+**Verified end-to-end, not just per-piece**: beyond a real Playwright
+render of each individual part (top bar at 360/412px in both RAW and
+Hybrid, the colour-coded card, the list title bar, the rows backdrop's
+exact rect match, the bottom bar at 360/412px with no overflow), a full
+composite render assembling every real extracted piece of markup
+against the real `VCAS.css` — top bar, merged nav-status card, aircraft
+list, bottom bar — together on one simulated screen, populated with
+realistic values (an active route, two tracked aircraft), confirmed the
+whole RAW screen reads as one coherent design matching the reference
+draft's aesthetic, not just individually-correct fragments that might
+not cohere together.
+
+Not done in this pass, and not implied by it: the native Android Auto
+port is untouched (same standing "synced in dedicated passes" note as
+every prior round); no change to the plot's own compass tape/range
+ring/aircraft-dot colours, which were explicitly out of scope (already
+reference-matched against the real ND photo in earlier work).

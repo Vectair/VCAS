@@ -42,15 +42,24 @@ const UI = (() => {
     }[ch]));
   }
 
-  // ---- ADS-B status pill ----
+  // ---- Data-source status pills (ADS-B, METAR) ----
 
-  function setAdsbStatus(state, text) {
-    const el = document.getElementById("adsb-status");
+  function _setStatusPill(elId, state, text, fallbackLabel) {
+    const el = document.getElementById(elId);
     if (!el) return;
-    el.className = "";
+    el.className = "status-pill";
     el.classList.add(state); // "active" | "stale" | "error"
     const label = el.querySelector(".label");
-    if (label) label.textContent = text || "ADS-B";
+    if (label) label.textContent = text || fallbackLabel;
+  }
+
+  function setAdsbStatus(state, text) {
+    _setStatusPill("adsb-status", state, text, "ADS-B");
+  }
+
+  /** Same shape/vocabulary as setAdsbStatus() — see MetarProvider.getStatus(). */
+  function setMetarStatus(state, text) {
+    _setStatusPill("metar-status", state, text, "METAR");
   }
 
   // ---- Config banner ----
@@ -755,7 +764,8 @@ const UI = (() => {
       // labels already use for the same "something else might be behind
       // this" problem.
       const stripY = tickTopY + 14 + 14 + 20;
-      const speedLabel = `SPD ${Math.round(vehicleInfo.speedMph)} MPH`;
+      const speedValue = String(Math.round(vehicleInfo.speedMph));
+      const speedLabel = `SPD ${speedValue} MPH`;
 
       // No live text measurement available for a string injected via
       // innerHTML — a rough monospace-ish per-character estimate, generous
@@ -763,8 +773,12 @@ const UI = (() => {
       const boxW = speedLabel.length * 7.2 + 28;
       const bg = `<rect x="${cx - boxW / 2}" y="${stripY - 17}" width="${boxW}" height="26" rx="4"
                   fill="rgba(14,17,23,.82)"/>`;
+      // The numeric value alone gets its own <tspan> so it can be coloured
+      // green (matching the design draft's own colour-coded readout —
+      // see VCAS.css's --raw-value-green) independent of the "SPD"/"MPH"
+      // labels around it, which stay the tape's usual near-white.
       const text = `<text x="${cx}" y="${stripY}" text-anchor="middle"
-                  style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">${speedLabel}</text>`;
+                  style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">SPD <tspan style="fill:var(--raw-value-green)">${speedValue}</tspan> MPH</text>`;
       infoStrip = bg + text;
     }
 
@@ -957,13 +971,40 @@ const UI = (() => {
     if (btn) btn.classList.add("hidden");
   }
 
+  /**
+   * RAW-only slate chrome backdrop behind the aircraft-list panel's own
+   * region — see index.html's comment on #raw-rows-backdrop for why this
+   * exists. Takes the exact same `rowsRect` (Geo.computeSquarePlotLayout's
+   * `rows`) renderAircraftList() does, unlike that function it does NOT
+   * apply PANEL_MARGIN_PX — this is a full-bleed backdrop filling the
+   * whole rows rect, with the (smaller, margined) list panel drawing on
+   * top of it.
+   */
+  function renderRowsBackdrop(rowsRect) {
+    const el = document.getElementById("raw-rows-backdrop");
+    if (!el) return;
+    el.style.left   = rowsRect.left + "px";
+    el.style.top    = rowsRect.top + "px";
+    el.style.width  = rowsRect.width + "px";
+    el.style.height = rowsRect.height + "px";
+    el.classList.remove("hidden");
+  }
+
+  function clearRowsBackdrop() {
+    const el = document.getElementById("raw-rows-backdrop");
+    if (el) el.classList.add("hidden");
+  }
+
   // ---- RAW mode aircraft list panel (Stage 3) ----
 
   // Below these dimensions there isn't room to show callsign+type+altitude+
   // range legibly (or even a header + a single row) — the panel hides
-  // entirely rather than render an unreadably-cramped sliver.
+  // entirely rather than render an unreadably-cramped sliver. Height
+  // bumped from 70 (2026-09-08) now that the panel has a title bar again
+  // (see renderAircraftList's own doc comment) — that alone eats ~30px,
+  // so the old threshold could leave room for a header but no actual row.
   const MIN_PANEL_WIDTH_PX = 90;
-  const MIN_PANEL_HEIGHT_PX = 70;
+  const MIN_PANEL_HEIGHT_PX = 100;
   const PANEL_MARGIN_PX = 8;
 
   /**
@@ -985,7 +1026,15 @@ const UI = (() => {
    *   instruction): "less interaction" is the right default for an
    *   Android-Auto-bound list, so the panel is always most-visible-first
    *   now, matching the plot's own icon-priority order exactly rather than
-   *   letting the two diverge.
+   *   letting the two diverge. A plain, non-interactive "AIRCRAFT NEARBY
+   *   {count}" title bar was added back 2026-09-08 (per the same design
+   *   draft as the rest of this round) — this is a label, not a control,
+   *   so it doesn't reopen the "less interaction" concern the sort
+   *   buttons above were actually about; `items.length` is this panel's
+   *   own full relevant-set count, which can legitimately differ from the
+   *   bottom bar's own `aircraft-count` figure (they've always represented
+   *   different things — see app.js's own notes on `withinRange` vs
+   *   `allRelevant`).
    * @param {object} rowsRect   { left, top, width, height } — the exact
    *   region to fill, straight from Geo.computeSquarePlotLayout(...).rows.
    * @param {function} onRowClick   Called with the indicator item (same
@@ -1033,7 +1082,8 @@ const UI = (() => {
             </div>`;
         }).join("");
 
-    panel.innerHTML = `<div class="raw-list-body">${rows}</div>`;
+    const titleBar = `<div class="raw-list-title-bar">AIRCRAFT NEARBY <span class="raw-list-title-count">${items.length}</span></div>`;
+    panel.innerHTML = `${titleBar}<div class="raw-list-body">${rows}</div>`;
 
     panel.querySelectorAll(".raw-list-row[data-hex]").forEach(rowEl => {
       const hex = rowEl.dataset.hex;
@@ -1229,6 +1279,7 @@ const UI = (() => {
 
   return {
     setAdsbStatus,
+    setMetarStatus,
     showConfigBanner,
     showGpsMessage,
     showCompassPermissionBanner,
@@ -1255,6 +1306,8 @@ const UI = (() => {
     clearRangeSelector,
     renderAircraftList,
     clearAircraftList,
+    renderRowsBackdrop,
+    clearRowsBackdrop,
     showPopup,
     showAirPopup,
     hidePopup,

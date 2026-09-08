@@ -303,6 +303,18 @@
       <!-- Edge indicators layer (sits above map, below UI chrome) -->
       <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
 
+      <!-- RAW-only chrome backdrop (2026-09-08) behind the aircraft-list
+           panel's own region (Geo.computeSquarePlotLayout's `rows` rect) —
+           the real map canvas is black everywhere in RAW (it has no
+           concept of "square" vs "rows"), so without this the area
+           around/behind the list panel shows through as black instead of
+           matching the top/bottom bar's slate chrome. Positioned from the
+           exact same `square.rows` rect the list panel itself uses (see
+           app.js's refreshIndicators) so the two can't drift apart; sits
+           behind the list panel (lower z-index) so nothing about the
+           panel's own styling changes. -->
+      <div id="raw-rows-backdrop" class="hidden" style="position:fixed;z-index:7;pointer-events:none;"></div>
+
       <!-- RAW mode sortable aircraft list panel (Stage 3) — fills whatever
            side margin the circular plot leaves empty on wider screens;
            hidden entirely when there isn't room. See UI.renderAircraftList. -->
@@ -372,9 +384,20 @@
           </div>
           <div id="top-bar-right">
             <div id="top-right-controls">
-              <div id="adsb-status" class="error">
-                <div class="dot"></div>
-                <span class="label">ADS-B</span>
+              <!-- Data-source status pills, restyled (2026-09-08) to match
+                   a hand-drawn design draft's bolder pill row — real
+                   sources only (ADS-B, METAR), no fabricated MapTiler/
+                   Open-Meteo indicators for data VCAS doesn't actually
+                   track the health of; see CLAUDE.md. -->
+              <div id="status-pill-row">
+                <div id="adsb-status" class="status-pill error">
+                  <div class="dot"></div>
+                  <span class="label">ADS-B</span>
+                </div>
+                <div id="metar-status" class="status-pill stale">
+                  <div class="dot"></div>
+                  <span class="label">METAR</span>
+                </div>
               </div>
               <!-- adsb.fi's usage terms require a link to their homepage
                    wherever their data is used — moved here from a Settings
@@ -410,7 +433,11 @@
                choice, not a functional change: see CLAUDE.md. -->
           <div id="mode-row">
             <div class="mode-row-group">
-              <div class="mode-row-label">Screen</div>
+              <div class="mode-row-label mode-row-label-boxed">Screen</div>
+              <div class="mode-bracket-stem"></div>
+              <svg class="mode-bracket" viewBox="0 0 6 1.4" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,0 L6,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4" stroke="var(--border)" stroke-width="0.12" fill="none"/>
+              </svg>
               <div class="mode-toggle">
                 <button class="mode-btn active-mode" id="btn-raw">RAW</button>
                 <button class="mode-btn" id="btn-air">AIR</button>
@@ -421,7 +448,17 @@
             <div class="mode-row-divider"></div>
             <div class="mode-row-group">
               <div class="mode-row-label">Nav</div>
-              <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
+              <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">
+                <svg class="route-btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M8 15 L14 15 L14 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M11 8 L14 8 L14 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="route-btn-toggle">
+                  <span class="route-btn-off">OFF</span>
+                  <span class="route-btn-on">ON</span>
+                </span>
+              </button>
             </div>
           </div>
         </div>
