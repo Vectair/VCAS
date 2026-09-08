@@ -7548,3 +7548,98 @@ implement the flat compass tape, the dot-based aircraft-list rows, the
 old `#e8833a` nav-icon orange, and have no MapTiler-pill or mode-order-
 customization equivalent; syncing the native port to this round's
 changes is real, separately-scoped follow-up work.
+
+## RAW-mode redesign, round 10: wordmark removed, a real tick-clipping bug fixed (2026-09-08, later the same day)
+
+A real device screenshot after round 9 shipped, with direct feedback:
+"the VCAS word mark in the top bar can be removed, the icon replaces
+it. the compass needs to be resized or the container of the radar
+screen as a whole needs to be brought down in order for it to all fit."
+The screenshot also showed the 3rd status pill (MapTiler, added round 9)
+pushed off the right edge of the screen — not separately called out by
+the project owner, but a real, connected layout bug worth fixing in the
+same pass rather than leaving it for a future report.
+
+**Wordmark removed.** `index.html`'s `.brand` div now contains only the
+icon (`assets/icons/favicon-64.png`) — the "V<span>CAS</span>" text
+next to it is gone. The icon already carries the "VCAS" wordmark baked
+into its own artwork (the lime-green wordmark integrated into the real
+app icon, see the icon-redesign history above), so the separate text
+was a literal duplicate, not a second piece of information. Sized up
+24px → 30px now that it's the sole brand mark rather than sharing the
+row with text; `alt="VCAS"` carries the accessible name the text used
+to provide, and the now-unused `#top-bar .brand span { color: var(
+--accent) }` rule was removed alongside it.
+
+**The real, connected bug: 3 status pills with no wrap/overflow
+handling at all.** `#top-bar`/`#status-pill-row`/`#top-right-controls`
+have never had `flex-wrap` — fine with 2 pills (adsb.fi/METAR, rounds
+1-8), but round 9 added a 3rd (MapTiler) without re-checking narrow-
+width fit, and the reported screenshot showed exactly the predictable
+result: the row overflowing past the right edge of the screen. Fixed
+with `flex-wrap: wrap` + `justify-content: flex-end` on
+`#status-pill-row` — on a narrow device the 3rd pill now wraps onto its
+own right-aligned second line instead of clipping off-screen. Verified
+at 360px width: `#top-bar`'s `scrollWidth` no longer exceeds its
+`clientWidth` (confirmed `false` directly, not eyeballed), and the
+wrapped layout reads cleanly in a real render. Removing the wordmark
+text also helps here directly — freed real horizontal room in the same
+row the pills live in — but the wrap fix is what actually guarantees no
+overflow regardless of device width, rather than relying on how much
+room the text removal happened to free.
+
+**The real compass-fit bug, re-derived from the actual tick geometry,
+not guessed at.** Round 9's curved tape draws each tick radiating
+OUTWARD from `tapeRadius` (`renderCompassRing`'s own "clock hands"
+comment) — at dead-ahead (relative bearing 0), "outward" means straight
+UP, toward smaller y. A major tick's outer tip reaches `tapeRadius +
+14px` (`COMPASS_MAJOR_TICK_H`), i.e. 14px ABOVE `insets.chromeTopInset`
+— which is exactly where the real, opaque `#top-bar` sits (same
+z-index as the compass SVG, later in DOM order, so it wins and hides
+whatever's underneath). This is a real, previously-unnoticed regression
+from the round-9 curve: the OLD flat tape only ever drew ticks
+DOWNWARD from `tickTopY`, so nothing could ever poke above the chrome —
+the curved version's ticks can, and the dead-ahead-most one visibly did
+in the reported screenshot, appearing as a jagged, partially-hidden
+mark right where the black radar area meets the pill row.
+
+Fixed by giving the tape real clearance for its own tallest tick:
+`ui.js` extracted the tick-height magic number into a named, exported
+constant (`UI.COMPASS_MAJOR_TICK_H = 14`) rather than a value only
+implicitly known inside `renderCompassRing`'s own loop. `app.js`'s
+`tapeRadius` derivation now subtracts `COMPASS_MAJOR_TICK_H + 4` (the
+`+4` matching this file's own "almost flush, not literally flush"
+convention already established for `RAW_COMPASS_RESERVED_PX`) before
+computing the tape's radius — one shared constant read by both the
+place that NEEDS the tick height (the tick-drawing loop) and the place
+that needs to LEAVE ROOM for it (the radius derivation), not two
+independently-guessed numbers that could drift apart the way this bug
+itself happened (the curve's own geometry changed without anyone
+re-deriving how much clearance it now actually needs).
+
+**This directly answers the project owner's own two suggested fixes
+("resize the compass, or bring the container down") with a third,
+more precise one: neither the compass's overall size nor the plot
+box's own position needed to change — only the tape's radius needed a
+few more px of margin from its own tallest tick, which is a smaller,
+more surgical fix than either alternative and doesn't touch round 7's
+own "no space past the ring except aesthetic padding" plot-sizing work
+at all.** The rings/dots/plot box are completely unaffected by this
+change — `tapeRadius` has always been derived independently of
+`plotRadius` (the rings' own radius), so shrinking the tape's radius
+slightly to add tick clearance doesn't touch the rings' or dots' own
+geometry, sizing, or position in any way.
+
+Verified with the same real-markup composite-render harness this
+project's rounds 5-9 investigations already established (both passive
+and active-route), rebuilt with the actual fixed `ui.js`/`app.js`
+formulas: the digital heading readout and lubber line now render with
+clear, visible separation below the top bar (previously touching/
+overlapping it), and every tick — including the dead-ahead-most one —
+renders as a complete, unbroken mark with no jagged cut-off appearance.
+Also re-confirmed the wordmark removal and pill-wrap fix together at
+412px (single-line pill row, no wrap needed, icon-only brand mark) and
+360px (pill row correctly wraps to two lines, no overflow either way).
+
+Not done in this pass: no change to the native Android Auto port (same
+standing note as every prior round).

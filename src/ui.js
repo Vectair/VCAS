@@ -6,6 +6,13 @@ const UI = (() => {
   let _popupTimer = null;
   const POPUP_DISMISS_MS = 4000;
 
+  // The compass tape's major-tick outer height (renderCompassRing, round 9
+  // curved-tape rework) — exported so app.js's tapeRadius derivation
+  // (round 10 follow-up) can give the tape's dead-ahead tick real
+  // clearance from the real chrome above it, rather than a second,
+  // independently-guessed number that could drift from this one.
+  const COMPASS_MAJOR_TICK_H = 14;
+
   // Stage 3: cross-highlight between the on-plot icon and its matching
   // aircraft-list row. Module-level (not per-render) so it survives the
   // ~500ms extrapolation re-render tick — both renderIndicators() and
@@ -775,7 +782,7 @@ const UI = (() => {
       const theta = (relDeg * Math.PI) / 180;
       const sinT = Math.sin(theta), cosT = Math.cos(theta);
       const isMajor = wrapped % 30 === 0;
-      const tickH = isMajor ? 14 : 8;
+      const tickH = isMajor ? COMPASS_MAJOR_TICK_H : 8;
 
       // Ticks point outward (away from the anchor), same "radiating like
       // clock hands" composition the range rings' own labels already use.
@@ -1376,6 +1383,7 @@ const UI = (() => {
     selectAircraft,
     renderCompassRing,
     clearCompassRing,
+    COMPASS_MAJOR_TICK_H,
     renderRangeRingsOverlay,
     clearRangeRingsOverlay,
     renderRouteLine,

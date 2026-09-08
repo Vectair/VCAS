@@ -309,18 +309,17 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
    history), matching the design draft's own top-left badge. Reuses the
    existing favicon asset rather than a new export — it's already the
    right small size and the right artwork, no reason to duplicate it.
-   Kept alongside the "VCAS" text rather than replacing it (the draft's
-   own crop doesn't clearly show whether it kept the text) — the text is
-   this app's real accessible name/branding and costs nothing to keep. */
+   Round 10 (2026-09-08): the separate "VCAS" text next to it was
+   removed — the icon's own artwork already has the wordmark baked in,
+   the text was a literal duplicate, and dropping it freed real
+   horizontal room the 3-pill status row needed (see #status-pill-row's
+   own comment). Sized up slightly (24px -> 30px) now that it's the
+   sole brand mark rather than sharing the row with text. */
 .brand-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
   flex-shrink: 0;
-}
-
-#top-bar .brand span {
-  color: var(--accent);
 }
 
 #top-bar-right {
@@ -364,14 +363,24 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
 /* Bolder pill treatment (2026-09-08), matching a hand-drawn design draft's
    own status-pill row — larger, bold, near-white text rather than the
    original's small muted uppercase, and shared by every real data-source
-   pill (`#adsb-status`, `#metar-status`) via one class rather than two
-   near-duplicate id-scoped rules. See CLAUDE.md for why only these two
-   exist — no MapTiler/Open-Meteo pills, VCAS doesn't track either's
-   health for real. */
+   pill (`#adsb-status`, `#metar-status`, `#maptiler-status`) via one class
+   rather than several near-duplicate id-scoped rules. See CLAUDE.md for
+   why only these three exist — no Open-Meteo pill, VCAS has no real
+   dependency on it.
+   flex-wrap (round 10, 2026-09-08): a real device screenshot showed the
+   3rd pill (added round 9) pushed past the right edge of the screen —
+   this row, #top-bar, and #top-right-controls had no wrap/overflow
+   handling at all, never re-verified at a narrow width once a 3rd pill
+   existed. Wraps onto a second line (right-aligned, matching the row's
+   own flex-end column parent) rather than clipping off-screen on a
+   narrow device instead of silently overflowing. */
 #status-pill-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
+  row-gap: 6px;
 }
 
 .status-pill {

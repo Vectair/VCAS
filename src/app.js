@@ -1560,9 +1560,22 @@
       // the rings' own dome by construction (same cx/cy, same
       // fovHalfAngleDeg), not by two formulas that happen to currently
       // match — see renderCompassRing's own doc comment.
+      // Round 10 (2026-09-08) follow-up, from a real device screenshot:
+      // ticks radiate OUTWARD from tapeRadius (see renderCompassRing's own
+      // comment), and at dead-ahead "outward" means UP — a major tick's
+      // outer tip reaches tapeRadius+COMPASS_MAJOR_TICK_H, i.e.
+      // COMPASS_MAJOR_TICK_H px above insets.chromeTopInset. Without this
+      // clearance, the dead-ahead-most tick pokes that far into the real
+      // #top-bar sitting right above it (same z-index, later in DOM order,
+      // so it wins and hides whatever's underneath) — reproducing exactly
+      // the truncated/cut-off tick marks reported. TICK_CLEARANCE_PX adds
+      // a few px of "not literally touching" room on top of the bare
+      // minimum, same "almost flush, not literally flush" spirit
+      // RAW_COMPASS_RESERVED_PX's own comment already establishes.
+      const TICK_CLEARANCE_PX = UI.COMPASS_MAJOR_TICK_H + 4;
       const tapeCx = square.plotLeft + square.plotWidth * 0.5;
       const tapeCy = square.plotTop + square.plotHeight * square.anchorY;
-      const tapeRadius = Math.max(0, tapeCy - insets.chromeTopInset);
+      const tapeRadius = Math.max(0, tapeCy - insets.chromeTopInset - TICK_CLEARANCE_PX);
       UI.renderCompassRing(tapeCx, tapeCy, tapeRadius, userHeading, Indicators.FOV_HALF_ANGLE_DEG, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 8 });
     } else {
       UI.clearCompassRing();

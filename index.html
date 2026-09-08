@@ -388,9 +388,16 @@
                was just crowding the status pills. UI.setModeLabel() still
                runs (it also toggles the bottom-bar buttons' own
                .active-mode class) but no-ops the now-absent text write. -->
+          <!-- "VCAS" wordmark text removed (round 10, 2026-09-08, direct
+               instruction) — the brand icon itself already carries the
+               "VCAS" wordmark baked into its own artwork (see the
+               icon-redesign history in CLAUDE.md), so the separate text
+               next to it was a literal duplicate, and the pair was
+               crowding the 3-pill status row into overflowing off the
+               right edge on a real device. alt text on the icon now
+               carries the accessible name the text used to provide. -->
           <div class="brand" id="brand-tap-target">
-            <img class="brand-icon" src="assets/icons/favicon-64.png?v=__BUILD_ID__" alt="" width="24" height="24" />
-            V<span>CAS</span>
+            <img class="brand-icon" src="assets/icons/favicon-64.png?v=__BUILD_ID__" alt="VCAS" width="30" height="30" />
           </div>
           <div id="top-bar-right">
             <div id="top-right-controls">
