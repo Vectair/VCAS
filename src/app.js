@@ -97,19 +97,32 @@
   // like switching modes or activating/clearing a route).
   let navFollowSuspended = false;
 
-  // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout) that has to
-  // start below the compass tape's real rendered content — ticks/labels,
-  // lubber line, digital heading, and (when a route is active) the info
-  // strip — see UI.renderCompassRing's own internal layout math. A fixed
-  // worst-case constant rather than a live DOM measurement: the compass
-  // tape is an SVG overlay drawn AFTER the square's own layout is decided
-  // (its cx needs the square's contentTop to know where to start), so
-  // measuring it first would be circular; and this same number has to be
-  // shared with CameraController.followNav's real-camera anchor calc
-  // (see _rawChromeInsets() below) — using the SAME fixed constant in both
+  // RAW's plot is a 1:1 square (Geo.computeSquarePlotLayout), pulled up
+  // (round 6, 2026-09-08) to sit almost flush with the real chrome above
+  // it, per direct instruction with an annotated screenshot: "the top of
+  // the radar should be almost flush with the menu/status bar, essentially
+  // where the top of the speed indication is." The compass tape itself
+  // (ticks/labels/lubber/digital heading, drawn by UI.renderCompassRing at
+  // safeInset = insets.chromeTopInset, entirely UNCHANGED by this value —
+  // see that call site) still starts at the same absolute Y it always has;
+  // only the square's own top edge moves up to meet it, so the tape's tick
+  // labels and the SPD readout now render ON TOP of the square/rings'
+  // topmost edge instead of in a separate reserved band above it — the
+  // same "tape rides the rim of the display" composition a real ND uses,
+  // not empty dead space. 31, not 0: leaves a few px so the square doesn't
+  // start pixel-for-pixel under real chrome ("almost flush", not literally
+  // flush), and lands the square's own top edge almost exactly at the SPD
+  // readout's own top edge (stripY - 17 in renderCompassRing, i.e.
+  // tickTopY + 31 — not a coincidence, chosen to match). A fixed worst-
+  // case constant rather than a live DOM measurement: the compass tape is
+  // an SVG overlay drawn AFTER the square's own layout is decided (its cx
+  // needs the square's contentTop to know where to start), so measuring it
+  // first would be circular; and this same number has to be shared with
+  // CameraController.followNav's real-camera anchor calc (see
+  // _rawChromeInsets() below) — using the SAME fixed constant in both
   // rather than two different live measurements is what keeps them unable
   // to drift apart, not just unlikely to.
-  const RAW_COMPASS_RESERVED_PX = 80;
+  const RAW_COMPASS_RESERVED_PX = 31;
 
   // Small fixed margin for the plot's own edges WITHIN its square — not a
   // chrome margin (real chrome is already fully excluded via
@@ -283,7 +296,7 @@
     bindButtons(); 
     
     UI.setModeLabel(_activeDisplayMode());
-    UI.setAdsbStatus("error", "ADS-B");
+    UI.setAdsbStatus("error", "adsb.fi");
     UI.setLoading(false);
 
     // Measure the real bottom-bar height immediately so the VIEW/SPD/LOG dev
@@ -714,7 +727,7 @@
   function showConfigWarningIfNeeded() {
     if (!AdsbExchangeClient.isConfigured()) {
       UI.showConfigBanner(true);
-      UI.setAdsbStatus("error", "ADS-B");
+      UI.setAdsbStatus("error", "adsb.fi");
     }
   }
 
@@ -1063,7 +1076,7 @@
 
     if (result.error) {
       if (result.error === "not_configured") {
-        UI.setAdsbStatus("error", "ADS-B");
+        UI.setAdsbStatus("error", "adsb.fi");
       } else if (result.error === "auth_failed") {
         UI.setAdsbStatus("error", "Auth error");
       } else {
@@ -1076,7 +1089,7 @@
         UI.setAdsbStatus("stale", `No data (${result.error})`);
       }
     } else {
-      UI.setAdsbStatus("active", "ADS-B");
+      UI.setAdsbStatus("active", "adsb.fi");
       UI.showConfigBanner(false);
     }
 
@@ -1417,7 +1430,12 @@
       // second row (#route-eta-speed, see _updateRouteCard()) alongside
       // distance — showing it in both places at once would be a real
       // duplicate readout, not two different pieces of information.
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph });
+      // leftX (round 6, 2026-09-08) — same square.squareLeft-based left
+      // margin the LOG button already uses (see LogPanel.setPosition call
+      // above), so SPD sits in the same left column as LOG rather than
+      // centred, per direct instruction ("the speed should stay at the
+      // same latitude but move to the left of the screen").
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.squareLeft + 64 });
     } else {
       UI.clearCompassRing();
     }

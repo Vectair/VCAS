@@ -6977,3 +6977,128 @@ turn-instruction/destination string) will show more of it; not treated
 as a bug worth a separate fix in this pass, since it was not what was
 reported and the actual reported symptom (invisible list, huge gap) is
 resolved.
+
+## RAW-mode redesign, round 6: radar flush with the top chrome, SPD moved left, adsb.fi pill-as-link (2026-09-08, later the same day)
+
+Another real device screenshot, hand-annotated (a red circle/arrow
+around the SPD readout and a downward arrow toward the range rings; an
+orange arrow from SPD's own position curving left toward the LOG
+button; two green horizontal bars bracketing the space between the
+ownship icon and the bottom nav bar): "the top of the radar should be
+almost flush with the menu/status bar, essentially where the top of
+the speed indication is (red circle and arrow). the speed should stay
+at the same latitude but move to the left of the screen (orange
+arrow). this will then free up space for the aircraft list (between
+green bars)." A separate, smaller instruction in the same message:
+"replace the text of the adsb pill to read adsb.fi so that the small
+note beneath the settings cog can be removed."
+
+### The radar/SPD layout fix
+
+**Root cause, re-derived rather than assumed**: `RAW_COMPASS_RESERVED_PX`
+(app.js) reserved a fixed 80px band between the real chrome
+(top bar/guidance/route card) and the square/rings' own top edge,
+specifically so the compass tape's ticks/labels/lubber/digital heading
+(and, passively, the SPD strip) had somewhere to render without
+overlapping either the real chrome above or the rings below. That
+80px was tuned as a genuinely worst-case number, never revisited once
+the tape's own content (SPD row at `tickTopY + 48`) turned out to only
+need about half of it — the remaining ~30px below the SPD row and
+above the square's old start was pure dead black space, which is
+exactly what the annotated screenshot's red arrow was pointing at.
+
+**Fix — pull the square up to meet the tape, don't move the tape at
+all.** `RAW_COMPASS_RESERVED_PX` dropped from 80 to 31 — chosen so the
+square's new top edge (`chromeTopInset + 31`) lands almost exactly at
+the SPD readout's own top edge (`stripY - 17` in
+`UI.renderCompassRing`, which works out to `tickTopY + 31` — not a
+coincidence, solved for). Deliberately did NOT touch
+`UI.renderCompassRing`'s own `tickTopY`/`stripY` math at all — the tape
+(ticks, digital heading, lubber, SPD row) sits at exactly the same
+absolute Y it always has; only the SQUARE's own starting point moved up
+to meet it. Since the compass-tape SVG (`z-index:10`) already painted
+above the range-rings SVG (`z-index:8`) before this change, the tape
+now simply renders ON TOP of the rings' own topmost arc instead of in a
+separate reserved band above them — the same "tape rides the rim of
+the display" composition a real ND uses, matching the reference draft
+directly, not empty dead space with the tape floating above it.
+
+**SPD moved to the left, same row** — direct instruction, illustrated
+by an arrow from SPD's current centred position curving toward the LOG
+button on the far left. `UI.renderCompassRing`'s info-strip rendering
+(previously always `text-anchor="middle"` at the viewport's horizontal
+centre) gained a `vehicleInfo.leftX` option — left-aligns the
+background plate and text at a given x instead of centring them,
+falling back to the old centred behaviour when omitted (no other
+caller exists today, but this keeps the change additive rather than a
+breaking signature change). `app.js`'s call site passes
+`square.squareLeft + 64` — the same `square.squareLeft`-based
+coordinate system the LOG button (`square.squareLeft + 8`) already
+uses for its own position, so SPD now sits in the same left-hand
+column as LOG rather than floating independently in the centre.
+
+**Verified the actual freed space, not just "it looks closer to the
+top"** — re-ran the same real-markup composite-render harness this
+project's round-5 investigation already built (real
+`index.html`/`ui.js`/`VCAS.css`/`geo.js`, not hand-typed markup),
+before/after the constant change, both with and without an active
+route:
+- Passive (no route): rows region grew from 239px to 299px.
+- Active route: rows region grew from 108px to 168px.
+
+Both increases land almost exactly on the ~60px the reserved-band
+reduction (80→31, a 49px cut, plus a few px from the top-bar itself
+shrinking — see below) predicts, confirming the fix does what it
+claims rather than just moving pixels around cosmetically. Hybrid/AIR
+are structurally unaffected — `RAW_COMPASS_RESERVED_PX` only ever feeds
+`_rawChromeInsets()`'s `squareContentTop`, itself only read inside
+`if (isRawView)` branches, and `renderCompassRing`'s `leftX` param only
+has any effect when the RAW-only call site passes it.
+
+### adsb.fi pill-as-link, credit line removed
+
+`#adsb-status`'s label (previously a plain `<span>` reading "ADS-B",
+with state-specific overrides like "Auth error"/"No data (...)" on the
+error/stale paths — those are unchanged, still legitimate diagnostic
+text, not the branding label) is now a real `<a href="https://adsb.fi"
+target="_blank" rel="noopener">` reading "adsb.fi" on its normal/
+active/not-configured paths (`ui.js`'s `setAdsbStatus()` fallback and
+all three `UI.setAdsbStatus(..., "ADS-B")`/`"adsb.fi"` call sites in
+`app.js`, mechanically updated). New `.status-pill-link` CSS rule
+(`color: inherit; text-decoration: none;`) resets the browser's default
+blue-underlined anchor styling back to plain pill text — visually
+identical to the old span, just a real functional link underneath now.
+
+**This is a genuine substitute for the separate `#adsb-credit` line,
+not a downgrade of it** — adsb.fi's usage terms require "a link to
+their homepage wherever their data is used" (see the Pre-V1 checklist
+and "ADS-B data source" sections above), and the pill's label now IS
+that link, visible for the app's entire open duration exactly like the
+line it replaces was. The old `#adsb-credit` div (and its now-dead CSS)
+were removed outright rather than left duplicating the same citation
+twice in the same top bar. The splash-screen's own comment referencing
+`#adsb-credit` by name (`index.html`, near the top of `<body>`) was
+updated to point at the pill instead, so it doesn't describe a since-
+removed element.
+
+**Incidental benefit, not the point of the change but worth recording**:
+removing the credit line's own row shrank the top bar's real height
+(48px vs. 65px in the round-5 harness measurements above) — every RAW
+layout number in this entry already reflects that shrink alongside the
+`RAW_COMPASS_RESERVED_PX` reduction, not two separate before/after
+baselines that would be misleading to compare directly.
+
+Verified with a real Playwright render of the actual extracted
+`#status-pill-row` markup against the real `VCAS.css`: the label
+resolves to a real `<a>` with the correct `href`/`target`, computed
+`text-decoration-line: none`, and a colour matching the pill's own
+near-white text (not browser-default blue) — reads identically to the
+old span at a glance, confirmed by screenshot, while genuinely being a
+clickable link now.
+
+Not done in this pass: no change to the native Android Auto port (same
+standing note as every prior round); the LOG button's own position
+(`square.squareLeft + 8`, same row as SPD/range) was left untouched —
+not mentioned in this round's instructions, and it already sits
+correctly at the row's own left edge with SPD now landing just to its
+right rather than overlapping it.

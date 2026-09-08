@@ -242,10 +242,12 @@
        flag's own comment) — a real "app finished starting" signal, not a
        fixed timer, so it never lingers on a slow load or vanishes early on
        a fast one. Deliberately ADDITIVE to, not a replacement for, the
-       top-bar #adsb-credit line (see CLAUDE.md's "How VCAS is actually
-       installed" / adsb.fi attribution history) — that placement stays for
-       the whole session because the citation is an ongoing obligation; this
-       is a one-time hero moment on top of it, not instead of it.
+       top-bar's own adsb.fi attribution — the #adsb-status pill's label is
+       itself a real link to adsb.fi's homepage (round 6, 2026-09-08; see
+       CLAUDE.md's "How VCAS is actually installed" / adsb.fi attribution
+       history) — that placement stays for the whole session because the
+       citation is an ongoing obligation; this is a one-time hero moment on
+       top of it, not instead of it.
 
        Background is #12181c — VCAS.css's real --bg-dark (Night), same
        value as manifest.json's background_color (2026-08-24 fix). Android's
@@ -393,24 +395,24 @@
                    a hand-drawn design draft's bolder pill row — real
                    sources only (ADS-B, METAR), no fabricated MapTiler/
                    Open-Meteo indicators for data VCAS doesn't actually
-                   track the health of; see CLAUDE.md. -->
+                   track the health of; see CLAUDE.md.
+
+                   2026-09-08 (round 6): #adsb-status's own label now reads
+                   "adsb.fi" (was "ADS-B") and IS itself the real link
+                   adsb.fi's usage terms require — see .status-pill-link's
+                   own comment in VCAS.css. This is what let the separate
+                   #adsb-credit line below the settings cog be removed
+                   outright rather than duplicating the same citation
+                   twice in the same top bar. -->
               <div id="status-pill-row">
                 <div id="adsb-status" class="status-pill error">
                   <div class="dot"></div>
-                  <span class="label">ADS-B</span>
+                  <a class="label status-pill-link" href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
                 </div>
                 <div id="metar-status" class="status-pill stale">
                   <div class="dot"></div>
                   <span class="label">METAR</span>
                 </div>
-              </div>
-              <!-- adsb.fi's usage terms require a link to their homepage
-                   wherever their data is used — moved here from a Settings
-                   sub-screen (2026-08-23) so it's actually visible for the
-                   whole time the app is open, not just a one-time mention
-                   someone has to go looking for. See CLAUDE.md. -->
-              <div id="adsb-credit">
-                Data: <a href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
               </div>
             </div>
             <button type="button" id="btn-settings" title="Settings">⚙</button>

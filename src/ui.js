@@ -54,7 +54,7 @@ const UI = (() => {
   }
 
   function setAdsbStatus(state, text) {
-    _setStatusPill("adsb-status", state, text, "ADS-B");
+    _setStatusPill("adsb-status", state, text, "adsb.fi");
   }
 
   /** Same shape/vocabulary as setAdsbStatus() — see MetarProvider.getStatus(). */
@@ -703,15 +703,19 @@ const UI = (() => {
    *   same safe-area constant used for range rings/indicator plotting).
    */
   /**
-   * @param {object} [vehicleInfo]  { speedMph }. Drawn as a compact strip
-   *   below the heading tape's own tick labels — RAW's equivalent of a
-   *   real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
+   * @param {object} [vehicleInfo]  { speedMph, leftX }. Drawn as a compact
+   *   strip below the heading tape's own tick labels — RAW's equivalent of
+   *   a real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
    *   here to just the one figure that's always relevant regardless of
    *   whether a route is active. Omit for no strip. Destination/distance/
    *   ETA moved out of this strip 2026-09-06 — that's now the merged
    *   top nav-status card (#nav-guidance-card + #route-card, see
    *   app.js's _rawChromeInsets()/VCAS.css's RAW overrides) rather than
-   *   a second copy living here too.
+   *   a second copy living here too. `leftX` (round 6, 2026-09-08) left-
+   *   aligns the strip at that x instead of centring it on the viewport —
+   *   app.js passes the square's own left margin so this sits in the same
+   *   left column as the LOG button, per direct instruction that the
+   *   speed readout should move left while staying on the same row.
    */
   function renderCompassRing(viewportWidth, headingDeg, safeInset = 60, vehicleInfo = null) {
     const svg = document.getElementById("nav-compass-ring");
@@ -775,13 +779,23 @@ const UI = (() => {
       // innerHTML — a rough monospace-ish per-character estimate, generous
       // enough not to clip real content, not trying to be pixel-perfect.
       const boxW = speedLabel.length * 7.2 + 28;
-      const bg = `<rect x="${cx - boxW / 2}" y="${stripY - 17}" width="${boxW}" height="26" rx="4"
+      // Left-aligned (round 6, 2026-09-08, direct instruction: "the speed
+      // should stay at the same latitude but move to the left of the
+      // screen") when the caller supplies leftX (app.js passes the same
+      // square-relative margin the LOG button already uses, so the two
+      // sit on one visually-grouped left column); falls back to centred
+      // if omitted, for any caller that doesn't have a square to anchor
+      // against.
+      const x0 = vehicleInfo.leftX != null ? vehicleInfo.leftX : cx - boxW / 2;
+      const bg = `<rect x="${x0}" y="${stripY - 17}" width="${boxW}" height="26" rx="4"
                   fill="rgba(14,17,23,.82)"/>`;
       // The numeric value alone gets its own <tspan> so it can be coloured
       // green (matching the design draft's own colour-coded readout —
       // see VCAS.css's --raw-value-green) independent of the "SPD"/"MPH"
       // labels around it, which stay the tape's usual near-white.
-      const text = `<text x="${cx}" y="${stripY}" text-anchor="middle"
+      const textX = vehicleInfo.leftX != null ? x0 + 14 : cx;
+      const textAnchor = vehicleInfo.leftX != null ? "start" : "middle";
+      const text = `<text x="${textX}" y="${stripY}" text-anchor="${textAnchor}"
                   style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">SPD <tspan style="fill:var(--raw-value-green)">${speedValue}</tspan> MPH</text>`;
       infoStrip = bg + text;
     }
