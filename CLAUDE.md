@@ -7846,3 +7846,55 @@ themselves — real validation needs more logging volume in the days
 following 2026-09-05, not more analysis of what's already been pulled)
 and the one concrete, cheap follow-up worth doing whenever logging is
 next touched (add `mode` to the observation payload).
+
+### Follow-up: added `mode` to the observation payload (2026-09-08, same day)
+
+The one concrete follow-up the review above flagged, done the same day
+once asked to go ahead. `src/dev/observationLogger.js`'s
+`buildObservation()` gained a new top-level `mode` field — `"raw"` |
+`"hybrid"` | `"air"`, whichever screen was showing when the observation
+was logged — alongside `user`/`aircraft`/`computed`/`outcome`, not
+nested under `user` (it's app display state, not the user's own
+physical state, even though it's threaded through the same `userState`
+object for convenience).
+
+Sourced from `app.js`'s own `_activeDisplayMode()` (line ~950,
+pre-existing — the same function that decides which bottom-bar button
+shows as active), not a new computation: `mode === "air" ? "air" :
+(NavDisplayStyle.isRaw() ? "raw" : "hybrid")`. Threaded into all three
+places that ever call `ObservationLogger.buildObservation()`:
+`refreshIndicators()`'s `userState` (the RAW/Hybrid path, also what
+`LogPanel.update()` receives and later hands to its own direct
+`_logObservation()` call), `refreshAirMode()`'s `userState` (AIR,
+same relationship to `LogPanel.update()`), and `onLogOutcome()`'s own
+minimal `userState` (the NAV/AIR popup path, both converge here).
+`logPanel.js` itself needed no changes — it already stores whatever
+`userState` object it's handed verbatim and passes it straight through
+to `buildObservation()`, so it picks up `mode` automatically once the
+object it's given carries it.
+
+Degrades to `null`, not `undefined` or a thrown error, for any caller
+that doesn't supply `mode` (`userState.mode || null`) — matters for
+every record already sitting in `Vectair/vcas-logs` from before this
+change, which will simply read back with `mode: null`, and guards
+against a future missed call site doing the same rather than breaking.
+
+**Verified with real Node/`vm` execution against the actual shipped
+`observationLogger.js`** (this project's established "verify pure
+logic with real execution" discipline, same `vm.runInContext` approach
+already used for `sw.js`'s own fetch-routing tests) — 4 checks: a
+`userState.mode` of `"raw"`/`"air"`/`"hybrid"` each pass through
+unchanged, and a `userState` with no `mode` field at all (simulating
+every pre-existing logged record, or a future caller that forgets to
+set it) degrades to `null` rather than `undefined` or throwing. All 4
+passed. `node --check` on both edited files (`app.js`,
+`observationLogger.js`) confirms no syntax regression. Not verified
+against a live Playwright render — this is a pure data-plumbing change
+with no rendering/layout surface, matching the review entry's own
+"mechanically verified" precedent for the two OUTCOMES-array additions
+earlier in this file.
+
+Both JSDoc comments describing `userState`'s shape (`observationLogger.js`'s
+`buildObservation()`, `logPanel.js`'s `update()`) were updated to list
+`mode` alongside `lat`/`lon`/`heading`/`speedMph`, so a future reader
+doesn't have to discover it by diffing.

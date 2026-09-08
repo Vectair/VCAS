@@ -1327,6 +1327,11 @@
       safeInset: insets.bottomInset,
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
+      // Not read by Indicators.build() itself — carried through purely so
+      // LogPanel.update()'s own copy of this object (see below) can hand it
+      // to ObservationLogger.buildObservation(), which was missing "which
+      // screen was this logged from" entirely until 2026-09-08.
+      mode: _activeDisplayMode(),
     };
 
     const camConfig = CameraController.getLastEvaluated();
@@ -1645,6 +1650,7 @@
       viewportWidth: vw, viewportHeight: vh,
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
+      mode: _activeDisplayMode(),
     };
 
     // AIR mode stays unfiltered (buildAll, not build) — everything in range
@@ -1680,7 +1686,10 @@
   // ---- Ground-truth logging (shared by the NAV and AIR popups) ----
 
   async function onLogOutcome(item, outcomeCode) {
-    const userState = { lat: userLat, lon: userLon, heading: userHeading, speedMph: userSpeedMph };
+    const userState = {
+      lat: userLat, lon: userLon, heading: userHeading, speedMph: userSpeedMph,
+      mode: _activeDisplayMode(),
+    };
     const observation = ObservationLogger.buildObservation(item, userState, outcomeCode);
     await ObservationLogger.record(observation);
   }

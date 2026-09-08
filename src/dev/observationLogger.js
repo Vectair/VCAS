@@ -69,13 +69,24 @@ const ObservationLogger = (() => {
    * buttons can't drift apart.
    *
    * @param {object} item        { aircraft, vis, relevance, distanceNm, relativeBearing }
-   * @param {object} userState   { lat, lon, heading, speedMph }
+   * @param {object} userState   { lat, lon, heading, speedMph, mode }
    * @param {string} outcomeCode One of OUTCOMES[].code
    */
   function buildObservation(item, userState, outcomeCode) {
     const a = item.aircraft;
     return {
       timestamp: new Date().toISOString(),
+      // Which of the three main screens was active when this was logged —
+      // "raw" | "hybrid" | "air", from app.js's own _activeDisplayMode().
+      // Added 2026-09-08: every field below already answered "what was the
+      // model's own input/output for this sighting," but nothing recorded
+      // which screen the sighting was actually made from, which matters
+      // for exactly the kind of question a calibration pass needs to ask
+      // (e.g. does a null localObstruction mean the feature wasn't live
+      // yet, or that this screen's map state couldn't query it). Optional
+      // on read — records logged before this field existed simply won't
+      // have it, no migration needed.
+      mode: userState.mode || null,
       user: {
         lat: userState.lat, lon: userState.lon,
         heading: userState.heading, speedMph: userState.speedMph,

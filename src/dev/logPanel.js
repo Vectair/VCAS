@@ -108,7 +108,7 @@ const LogPanel = (() => {
 
   /**
    * @param {Array} trackedList  Result of Indicators.buildAll(aircraftList, userState, staleThresholdSeconds).
-   * @param {object} userState   { lat, lon, heading, speedMph }
+   * @param {object} userState   { lat, lon, heading, speedMph, mode }
    */
   function update(trackedList, userState) {
     _tracked   = trackedList || [];
