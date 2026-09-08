@@ -8071,3 +8071,77 @@ relay's own parsing. Verified deployed the same way the `mode`-field
 commit immediately before this one was: pushed to
 `claude/project-audit-review-4p0ft2`, confirmed via GitHub Actions that
 the triggered `deploy-pages.yml` run succeeded.
+
+## Open-Meteo attribution + METAR pill removed in favour of it (2026-09-08, same day)
+
+Direct follow-up once the Open-Meteo integration above shipped, prompted
+by a status question ("is there anything I need to do to better
+integrate open-meteo?"): flagged that Open-Meteo's data is CC BY 4.0
+licensed, which requires attribution — the same citation-obligation
+category adsb.fi's own usage terms already impose (see the Pre-V1
+checklist above) — but nothing credited Open-Meteo anywhere in the app.
+Direct instruction to fix it, plus two more changes in the same message:
+make the Open-Meteo pill function like the adsb.fi pill (tap through to
+their homepage), and remove the METAR pill now that Open-Meteo's own
+pill covers the app's weather-status indicator.
+
+**Launch screen** (`index.html`'s `#launch-screen`): the credit line
+("Proudly powered by...") gained a 4th name — restructured from
+"adsb.fi, MapLibre and MapTiler" to "adsb.fi, MapLibre, MapTiler and
+Open-Meteo," linking to `https://open-meteo.com`, matching the exact
+comma/and pattern the other three already use.
+
+**Open-Meteo pill becomes a real citation link, mirroring adsb.fi's own
+pattern exactly.** `#upper-air-status`'s label changed from a plain
+`<span>` to a real `<a href="https://open-meteo.com" target="_blank"
+rel="noopener" class="label status-pill-link">` — the identical shape
+`#adsb-status`'s own label already uses (round 6 above). `UI.
+_setStatusPill()` needed no change at all — it only ever writes
+`label.textContent` on state transitions, never touches `href`/`target`,
+so the link survives every "active"/"stale" pill-state update exactly
+like adsb.fi's own link already does.
+
+**`#metar-status` removed outright, not just hidden** — matching this
+project's own established "if it's genuinely unused, delete it, don't
+leave a disabled shell" convention (see round 1's sort-button removal).
+This is a UI-only removal: METAR data itself is completely untouched —
+`metarProvider.js` still fetches/caches METAR and
+`Visibility.estimate()`'s `metar` parameter still receives it exactly as
+before (calibration passes #1/#2's AGL/MSL and horizontal-range fixes
+are all still live) — only the dedicated status pill and its supporting
+plumbing are gone:
+- `app.js`'s `fetchAircraft()` still calls `MetarProvider.refresh(userLat,
+  userLon)` (METAR data still needs to keep flowing), just without the
+  trailing `.then(() => UI.setMetarStatus(...))` that used to update the
+  now-deleted pill.
+- `UI.setMetarStatus()` deleted from `ui.js` (function body + export) —
+  zero remaining callers once the `app.js` call site above was cut.
+- `MetarProvider.getStatus()` and its backing `_lastFetchOk` flag deleted
+  from `metarProvider.js` — a real, confirmed-by-grep zero-caller method
+  once `setMetarStatus()` (its only consumer) was gone; `getCached()`'s
+  own "a failed fetch doesn't clear the cache" behaviour in `refresh()`
+  is completely unaffected, since `_lastFetchOk` was tracked purely for
+  `getStatus()`'s own benefit and nothing else ever read it.
+  `UpperAirProvider.getStatus()` — the module whose pill actually
+  survives — is untouched, still the real per-poll "active"/"stale"
+  signal it always was; only its own doc comment was updated to stop
+  cross-referencing a method that no longer exists.
+
+**Verified with a real Playwright render** of the actual extracted
+`#status-pill-row`/`#launch-screen` markup against the real `VCAS.css`:
+exactly 3 pills render (adsb.fi/MapTiler/Open-Meteo, no `#metar-status`
+element in the DOM at all), the Open-Meteo pill resolves to a real
+`<a href="https://open-meteo.com" target="_blank">` alongside adsb.fi's
+own equally-real `<a>`, no horizontal overflow at the project's standard
+360px check, and the launch screen's 4 credit links (adsb.fi, MapLibre,
+MapTiler, Open-Meteo) all resolve to their real homepages. A direct Node
+sanity check confirmed `MetarProvider`'s trimmed export surface
+(`{refresh, getCached}`, `getStatus` genuinely gone) still behaves
+correctly end-to-end: a failing fetch degrades to a `null` cache exactly
+as `refresh()`'s own documented "never a crash or a silently wrong
+value" contract requires, unaffected by the removed status tracking.
+
+Not done in this pass, and not implied by it: no change to the native
+Android Auto port (same standing "synced in dedicated passes" note as
+every RAW-mode-redesign round above) — it has no METAR/Open-Meteo status
+pills at all today, so there's nothing there to remove or relink.

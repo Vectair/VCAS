@@ -161,7 +161,16 @@ const UpperAirProvider = (() => {
   /** Synchronous read of whatever's currently cached — null until the first successful refresh(). */
   function getCached() { return _cached; }
 
-  /** Same two-state vocabulary/reasoning as MetarProvider.getStatus() — see its own comment. */
+  /**
+   * "active" if the most recent real fetch attempt succeeded, "stale"
+   * otherwise (never attempted, or that attempt failed — even if an older
+   * cached value is still being served, per refresh()'s own "a failed
+   * fetch doesn't clear the cache" behaviour). Same two-state vocabulary
+   * UI.setAdsbStatus()'s dot already uses — drives #upper-air-status the
+   * same way (this module's own real status pill; MetarProvider's
+   * equivalent method/pill were both removed 2026-09-08 once this pill
+   * took over as the app's weather-status indicator).
+   */
   function getStatus() {
     return _lastFetchOk ? "active" : "stale";
   }

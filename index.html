@@ -266,9 +266,10 @@
     <div style="position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#56707d;font-size:clamp(9px,2.9vw,12px);line-height:1.6;white-space:nowrap;">
       Proudly powered by
       <a href="https://adsb.fi" target="_blank" rel="noopener" style="color:#8ba3b1;">adsb.fi</a>,
-      <a href="https://maplibre.org" target="_blank" rel="noopener" style="color:#8ba3b1;">MapLibre</a>
-      and
+      <a href="https://maplibre.org" target="_blank" rel="noopener" style="color:#8ba3b1;">MapLibre</a>,
       <a href="https://www.maptiler.com" target="_blank" rel="noopener" style="color:#8ba3b1;">MapTiler</a>
+      and
+      <a href="https://open-meteo.com" target="_blank" rel="noopener" style="color:#8ba3b1;">Open-Meteo</a>
     </div>
   </div>
 
@@ -437,15 +438,24 @@
                    adsb.fi/METAR, not a one-time configured-check like
                    MapTiler — Open-Meteo needs no key/relay at all (their
                    own server sends Access-Control-Allow-Origin: *,
-                   confirmed directly against their real source). -->
+                   confirmed directly against their real source).
+
+                   2026-09-08 (same day, later still): #metar-status
+                   removed outright, and #upper-air-status's own label is
+                   now a real link to open-meteo.com — same
+                   `.status-pill-link` pattern #adsb-status already uses,
+                   direct instruction. METAR data itself is untouched
+                   (metarProvider.js still feeds Visibility.estimate()
+                   exactly as before, via app.js's own MetarProvider.
+                   refresh() call) — only its dedicated status pill is
+                   gone, now that Open-Meteo's own pill is the app's
+                   weather-status indicator and a genuine citation link
+                   for a real CC BY 4.0 attribution obligation (also
+                   added to the launch-screen credit line the same day). -->
               <div id="status-pill-row">
                 <div id="adsb-status" class="status-pill error">
                   <div class="dot"></div>
                   <a class="label status-pill-link" href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
-                </div>
-                <div id="metar-status" class="status-pill stale">
-                  <div class="dot"></div>
-                  <span class="label">METAR</span>
                 </div>
                 <div id="maptiler-status" class="status-pill stale">
                   <div class="dot"></div>
@@ -453,7 +463,7 @@
                 </div>
                 <div id="upper-air-status" class="status-pill stale">
                   <div class="dot"></div>
-                  <span class="label">Open-Meteo</span>
+                  <a class="label status-pill-link" href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
                 </div>
               </div>
             </div>

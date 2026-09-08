@@ -49,7 +49,7 @@ const UI = (() => {
     }[ch]));
   }
 
-  // ---- Data-source status pills (ADS-B, METAR) ----
+  // ---- Data-source status pills (adsb.fi, MapTiler, Open-Meteo) ----
 
   function _setStatusPill(elId, state, text, fallbackLabel) {
     const el = document.getElementById(elId);
@@ -64,11 +64,6 @@ const UI = (() => {
     _setStatusPill("adsb-status", state, text, "adsb.fi");
   }
 
-  /** Same shape/vocabulary as setAdsbStatus() — see MetarProvider.getStatus(). */
-  function setMetarStatus(state, text) {
-    _setStatusPill("metar-status", state, text, "METAR");
-  }
-
   /**
    * Round 9 (2026-09-08) — MapTiler has no live per-request health signal
    * the way adsb.fi/METAR do (no relay reporting success/failure per
@@ -81,10 +76,14 @@ const UI = (() => {
   }
 
   /**
-   * Same shape/vocabulary as setAdsbStatus()/setMetarStatus() — see
-   * UpperAirProvider.getStatus(). A real per-request health signal (does
-   * genuinely fetch on every poll cycle, unlike MapTiler's one-time
-   * configured-check), not a fabricated one.
+   * Same shape/vocabulary as setAdsbStatus() — see UpperAirProvider.
+   * getStatus(). A real per-request health signal (does genuinely fetch
+   * on every poll cycle, unlike MapTiler's one-time configured-check),
+   * not a fabricated one. This pill's own label is a real link to
+   * open-meteo.com (2026-09-08), mirroring #adsb-status's own
+   * pill-as-citation-link pattern — see .status-pill-link's comment in
+   * VCAS.css — which is also what let the standalone #metar-status pill
+   * be removed outright rather than kept alongside a second weather pill.
    */
   function setUpperAirStatus(state, text) {
     _setStatusPill("upper-air-status", state, text, "Open-Meteo");
@@ -1373,7 +1372,6 @@ const UI = (() => {
 
   return {
     setAdsbStatus,
-    setMetarStatus,
     setMaptilerStatus,
     setUpperAirStatus,
     showConfigBanner,

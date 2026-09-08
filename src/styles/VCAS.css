@@ -368,20 +368,22 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 /* Bolder pill treatment (2026-09-08), matching a hand-drawn design draft's
    own status-pill row — larger, bold, near-white text rather than the
    original's small muted uppercase, and shared by every real data-source
-   pill (`#adsb-status`, `#metar-status`, `#maptiler-status`,
-   `#upper-air-status`) via one class rather than several near-duplicate
-   id-scoped rules. See CLAUDE.md for why each of these four exist and why
-   nothing else does — every one is a real, live dependency VCAS actually
-   has (or, for MapTiler, a real static config it's actually keyed to),
-   never a fabricated indicator for a service the app doesn't use.
-   flex-wrap (round 10, 2026-09-08): a real device screenshot showed the
-   3rd pill (added round 9) pushed past the right edge of the screen —
-   this row, #top-bar, and #top-right-controls had no wrap/overflow
-   handling at all, never re-verified at a narrow width once a 3rd pill
-   existed. Wraps onto a second line (right-aligned, matching the row's
-   own flex-end column parent) rather than clipping off-screen on a
-   narrow device instead of silently overflowing — the same wrap now
-   also covers the 4th (Open-Meteo) pill added the same day. */
+   pill (`#adsb-status`, `#maptiler-status`, `#upper-air-status`) via one
+   class rather than several near-duplicate id-scoped rules. See CLAUDE.md
+   for why each of these three exist and why nothing else does — every one
+   is a real, live dependency VCAS actually has (or, for MapTiler, a real
+   static config it's actually keyed to), never a fabricated indicator for
+   a service the app doesn't use. `#metar-status` (a 4th pill, briefly)
+   was removed the same day once Open-Meteo's own pill took over as the
+   app's weather-status indicator and citation link — METAR data itself is
+   untouched, only its dedicated pill is gone.
+   flex-wrap (round 10, 2026-09-08): a real device screenshot showed a 3rd
+   pill (added round 9) pushed past the right edge of the screen — this
+   row, #top-bar, and #top-right-controls had no wrap/overflow handling at
+   all, never re-verified at a narrow width once a 3rd pill existed.
+   Wraps onto a second line (right-aligned, matching the row's own
+   flex-end column parent) rather than clipping off-screen on a narrow
+   device instead of silently overflowing. */
 #status-pill-row {
   display: flex;
   align-items: center;

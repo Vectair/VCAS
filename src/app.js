@@ -1137,7 +1137,11 @@
     // poll loop rather than needing a separate timer. Fire-and-forget: the
     // very next refreshIndicators()/refreshAirMode() call just reads
     // whatever's cached (possibly still null on the first few ticks).
-    MetarProvider.refresh(userLat, userLon).then(() => UI.setMetarStatus(MetarProvider.getStatus()));
+    // The METAR status pill itself was removed (2026-09-08) once the
+    // Open-Meteo pill took over as the app's own weather-status indicator
+    // — METAR data still feeds Visibility.estimate() exactly as before,
+    // only its dedicated UI pill is gone, so this call is unchanged.
+    MetarProvider.refresh(userLat, userLon);
     // Same "safe to call every tick, internally no-ops" contract —
     // LocalObstruction only actually re-queries once the user has moved
     // far enough (or the cached result is stale), and queryLocalDensity()
