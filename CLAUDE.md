@@ -7728,3 +7728,121 @@ touched, since the two questions asked were specifically about the top/
 bottom bar and mode buttons, not every themed surface in the app; no
 change to the native Android Auto port (same standing note as every
 prior round).
+
+## Visibility model: fresh review of the ground-truth log data (2026-09-08)
+
+Direct instruction: "do a fresh review of the spotting visibility
+records" — a pure investigation pass, no code changes made or requested.
+Pulled the full `Vectair/vcas-logs` mirror (124 files, up from the 80 at
+calibration pass #2's own pull on 2026-09-02 — 108 real observations
+after excluding 16 crash/watchdog error reports, vs. 73 real
+observations at pass #2) and re-ran the same outcome-vs-predicted-label
+crosstab this project's own calibration passes have used twice before.
+
+**Headline finding: the METAR and local-obstruction fixes from
+calibration passes #1/#2 still have almost no real-world data to
+validate them against.** Of the 108 real observations, only **3** carry
+a non-null `computed.metar` snapshot (all dated 2026-09-05 or later —
+none of the 10 `not_visible_weather` cases logged so far fall in that
+window, so there is still zero real confirmation either way that the
+AGL/MSL and horizontal-vs-slant-range METAR fixes from pass #2 are
+actually improving predictions) and only **1** carries a non-null
+`computed.localObstruction` (2026-09-08). Every record logged before
+2026-09-05 shows `metar: null`/`localObstruction: null` even where the
+relevant code had already shipped days earlier — consistent with normal
+deploy lag plus very low observation volume in that window (most of
+2026-09-02 through 2026-09-08 was spent on the RAW-mode redesign passes
+above, not field-testing), not evidence of a new bug on its own. Still
+the right thing to flag plainly rather than claim either fix is
+confirmed working: it isn't yet, one way or the other.
+
+**Crosstab (outcome → predicted label), all 108 real observations:**
+
+| Outcome | n | Predicted |
+|---|---|---|
+| visible_contrail | 48 | Possibly visible (47/48) — still exactly as designed |
+| visible_airframe | 32 | Likely (19) / Possibly (8) / Certainly (5) |
+| not_visible_weather | 10 | Likely (6) / Possibly (3) / Certainly (1) — all pre-fix, metar was null on every one |
+| not_visible_missed | 9 | Possibly (5) / Likely (3) / Certainly (1) |
+| not_visible_obstruction | 9 | Likely (6) / Certainly (2) / Possibly (1) |
+| visible_lights | 0 | — (added 2026-08-27, never yet used) |
+
+**visible_contrail remains the best-calibrated category by far** —
+47/48 "Possibly visible," matching pass #1's own 38/39 finding almost
+exactly. No action needed; the contrail floor is doing its job.
+
+**visible_airframe: real sightings score reasonably, but 8/32 (25%)
+sit right at the "Possibly visible" boundary.** All 8 score exactly 33
+(the tier's own flat score) with `angularSizeDeg` between 0.064° and
+0.152° — below the 0.167° cutoff for "Likely visible" — despite a real
+human confidently identifying the airframe (not just a contrail) in
+every case. No single confound explains all 8: altitude ranges from
+1,400ft (a P28A at 2.5nm) to 35,700ft (a B77L at 14nm), elevation angle
+from 1.2° to 43.1°. This is an *underconfidence* pattern (the model is
+more cautious than reality warranted), the safer direction of error, and
+n=8 — while the largest single signal found in this review — is still
+not being treated as grounds to retune the 0.167° threshold unilaterally,
+consistent with this file's own established "don't retune from a thin
+signal" convention (see the 3-case high-altitude watch-item logged during
+calibration pass #1). Flagged here as a slightly stronger version of
+that same watch-item, not acted on.
+
+**not_visible_obstruction is the most informative category, and exposes
+a real, concrete gap in the local-obstruction feature's own design, not
+just a data-volume problem.** Elevation angles across the 9 real cases
+range from 8.1° to 48.1° — only 3 of the 9 fall at or below
+`LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG` (12°), meaning even with perfect
+density data, today's feature could only ever have had a chance at
+addressing a third of the real logged misses. The one case with actual
+density data (2026-09-08, a helicopter at 16.6° elevation/1.2nm, scored
+"Certainly visible" — the model's maximum confidence — but logged as
+obstructed) sits *above* that 12° gate anyway, so the elevation cutoff
+alone would have excluded it regardless of density. That same record
+also caught the local-obstruction feature's own already-documented v1
+limitation in the wild for the first time: `vegetationFeatureCount: 6`
+but `vegetationDensity: 0` — real vegetation polygons were found within
+the query radius, but their centroids fell outside it, the exact
+"no true polygon clipping" simplification CLAUDE.md's own design notes
+for this feature already named as a deliberate, accepted v1 shortcut.
+Seeing it actually bite in a real case doesn't change that trade-off
+call, but is worth recording as the first real confirmation it happens
+in practice, not just in theory.
+
+**A real, previously-unflagged gap surfaced while investigating the
+localObstruction=null pattern: logged observations carry no `mode`
+field at all.** `observationLogger.js`'s `buildObservation()` snapshots
+user position/heading/speed, the aircraft, and the computed
+visibility/relevance/metar/localObstruction — but never which of
+RAW/Hybrid/AIR was active when the observation was logged. This matters
+for exactly the kind of question this review needed to answer (was a
+given `localObstruction: null` because the feature hadn't deployed yet,
+or because the map was in a state where the query legitimately couldn't
+run?) — confirmed by reading `navStyle.js`/`map.js` directly that mode
+itself isn't actually the cause here (AIR reuses the same day/night
+style and vector source Hybrid does; only RAW's own zero-opacity layers
+are a newer addition, and those were verified working back when the
+feature shipped), but the review had no way to rule that out from the
+data alone without that source-reading detour. Worth adding `mode` to
+the observation payload as a real, low-cost improvement for the next
+person who has to interpret this dataset — not done in this pass, since
+it's a logging-schema change and this pass was scoped to review only.
+
+**No `visible_lights` observations yet** — added 2026-08-27, zero uses
+across 108 real observations since. Not a bug, just unexercised so far
+(a night/low-light-specific outcome, and this dataset's logging has
+mostly happened in daylight hours per the timestamps).
+
+**Net assessment**: nothing in this pass crossed the bar for a code
+change on its own — every genuinely new signal (the airframe
+underconfidence pattern, the obstruction-gate elevation-coverage gap,
+the vegetation-centroid miss) is a real, worth-remembering data point at
+n=8/n=9/n=1 respectively, but this project's own established discipline
+is not to retune tuned constants from samples this thin (see pass #1's
+own "n=3 is too thin to retune anything from" precedent, and pass #2's
+own deliberate choice not to patch the "no upper-air data" gap without
+a real data source). The most useful outcome of this review is
+knowing what's still unconfirmed (the METAR/local-obstruction fixes
+themselves — real validation needs more logging volume in the days
+following 2026-09-05, not more analysis of what's already been pulled)
+and the one concrete, cheap follow-up worth doing whenever logging is
+next touched (add `mode` to the observation payload).
