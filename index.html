@@ -378,10 +378,15 @@
       <div id="overlay">
         <!-- Top bar -->
         <div id="top-bar">
+          <!-- The "DRIVING VIEW"/"RAW VIEW" text label (#mode-strip/
+               #mode-label) was removed 2026-09-08, direct instruction:
+               the top bar is now purely status (ADS-B/METAR) + settings —
+               current mode is already unambiguous from which bottom-bar
+               button reads active, so a second, redundant indicator here
+               was just crowding the status pills. UI.setModeLabel() still
+               runs (it also toggles the bottom-bar buttons' own
+               .active-mode class) but no-ops the now-absent text write. -->
           <div class="brand" id="brand-tap-target">V<span>CAS</span></div>
-          <div id="mode-strip">
-            <div id="mode-label">DRIVING VIEW</div>
-          </div>
           <div id="top-bar-right">
             <div id="top-right-controls">
               <!-- Data-source status pills, restyled (2026-09-08) to match
@@ -420,6 +425,14 @@
             <div class="ngc-action" id="ngc-action-text">Continue</div>
             <div class="ngc-dest" id="ngc-dest-text">towards Liverpool Airport</div>
           </div>
+          <!-- RAW-only (2026-09-08): the arrival clock, matching the design
+               draft's own "ETA {time}" placement on this same row next to
+               the turn instruction, not down in #route-card where Hybrid
+               keeps it. .ngc-body's flex:1 pushes this to the row's own
+               right edge for free. Written by app.js's _updateRouteCard()
+               (same calculation Hybrid's #route-eta-arrival already uses),
+               hidden by default, shown only under [data-nav-style="raw"]. -->
+          <div class="ngc-eta" id="ngc-eta-text"></div>
         </div>
 
         <div class="spacer"></div>
@@ -436,7 +449,7 @@
               <div class="mode-row-label mode-row-label-boxed">Screen</div>
               <div class="mode-bracket-stem"></div>
               <svg class="mode-bracket" viewBox="0 0 6 1.4" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0,0 L6,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4" stroke="var(--border)" stroke-width="0.12" fill="none"/>
+                <path d="M0,0 L6,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4" stroke="var(--raw-value-green)" stroke-width="0.12" fill="none"/>
               </svg>
               <div class="mode-toggle">
                 <button class="mode-btn active-mode" id="btn-raw">RAW</button>
@@ -464,12 +477,24 @@
         </div>
       </div>
 
-      <!-- ETA card (bottom — shown when a route is active) -->
+      <!-- ETA card (bottom — shown when a route is active). RAW hides
+           .route-eta-row/.route-eta-sub's own content (duration/arrival
+           moved to #ngc-eta-text above; destName already covered by
+           #nav-guidance-card's own .ngc-dest) and shows
+           .route-eta-row-raw instead — speed (left) + remaining distance
+           (right) on one row, matching the design draft. Both rows are
+           always populated by the same app.js writes regardless of mode
+           (no conditional-write branching in JS); which one is VISIBLE is
+           a pure CSS concern scoped to [data-nav-style="raw"]. -->
       <div id="route-card" class="hidden">
         <div class="route-eta-col">
           <div class="route-eta-row">
             <div class="route-eta-time" id="route-eta-text">—</div>
             <div class="route-eta-arrival" id="route-eta-arrival"></div>
+          </div>
+          <div class="route-eta-row-raw">
+            <span class="route-eta-speed" id="route-eta-speed"></span>
+            <span id="route-dist-text-raw"></span>
           </div>
           <div class="route-eta-sub">
             <span id="route-dist-text"></span>

@@ -200,20 +200,24 @@ const UI = (() => {
 
   // ---- Mode label ----
 
-  const MODE_LABELS = { hybrid: "DRIVING VIEW", raw: "RAW VIEW", air: "AIRSPACE VIEW" };
-
   /**
    * @param {"hybrid"|"raw"|"air"} displayMode  The active one of the three
    *   main-screen buttons — Hybrid/Raw are both NAV mode under the hood
    *   (see NavDisplayStyle), just different basemaps/cameras, but they're
    *   now surfaced as three peer choices rather than NAV/AIR plus a
    *   buried Settings sub-toggle.
+   *
+   * The top-bar "DRIVING VIEW"/"RAW VIEW" text label (#mode-strip/
+   * #mode-label, and the MODE_LABELS text it used to read from) was
+   * removed 2026-09-08 (direct instruction: the top bar is now
+   * status+settings only, current mode is indicated purely by which
+   * bottom-bar button reads active) — this function's only remaining job
+   * is toggling that active-mode highlight. Kept under its original
+   * name/call sites (app.js calls this in several places) rather than
+   * renamed, since renaming would be pure churn with no behavioural
+   * benefit.
    */
   function setModeLabel(displayMode) {
-    const el = document.getElementById("mode-label");
-    if (!el) return;
-    el.textContent = MODE_LABELS[displayMode] || MODE_LABELS.hybrid;
-
     document.getElementById("btn-hybrid")?.classList.toggle("active-mode", displayMode === "hybrid");
     document.getElementById("btn-raw")?.classList.toggle("active-mode", displayMode === "raw");
     document.getElementById("btn-air")?.classList.toggle("active-mode", displayMode === "air");
@@ -979,10 +983,22 @@ const UI = (() => {
    * apply PANEL_MARGIN_PX — this is a full-bleed backdrop filling the
    * whole rows rect, with the (smaller, margined) list panel drawing on
    * top of it.
+   *
+   * Hides under the exact same MIN_PANEL_WIDTH_PX/MIN_PANEL_HEIGHT_PX gate
+   * renderAircraftList() uses (declared below, but already initialised by
+   * the time this is ever actually called) — a real bug found on a real
+   * device (2026-09-08): this used to show unconditionally, so on a
+   * screen where the rows region was too small for the list panel itself
+   * to render, the result was a big empty slate rectangle with nothing in
+   * it instead of either a real list or nothing at all.
    */
   function renderRowsBackdrop(rowsRect) {
     const el = document.getElementById("raw-rows-backdrop");
     if (!el) return;
+    if (rowsRect.width < MIN_PANEL_WIDTH_PX || rowsRect.height < MIN_PANEL_HEIGHT_PX) {
+      el.classList.add("hidden");
+      return;
+    }
     el.style.left   = rowsRect.left + "px";
     el.style.top    = rowsRect.top + "px";
     el.style.width  = rowsRect.width + "px";

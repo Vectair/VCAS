@@ -1411,12 +1411,13 @@
     // real chrome instead of a magic number that happened to be close.
     if (isRawView) {
       // Compact speed strip below the heading tape — RAW's equivalent of a
-      // real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
-      // to the one figure always relevant regardless of routing. When a
-      // route IS active, destination/distance/ETA live in the merged top
-      // nav-status card (#nav-guidance-card + #route-card, see
-      // _rawChromeInsets()/VCAS.css) instead of a second copy here.
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, { speedMph: userSpeedMph });
+      // real ND's flight-data strip (GS/TAS/ILS APP/arrival time). Only
+      // shown passively (no active route): once a route exists, the exact
+      // same speed figure moves into the merged top nav-status card's own
+      // second row (#route-eta-speed, see _updateRouteCard()) alongside
+      // distance — showing it in both places at once would be a real
+      // duplicate readout, not two different pieces of information.
+      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph });
     } else {
       UI.clearCompassRing();
     }
@@ -1702,14 +1703,22 @@
 
     document.getElementById("route-dist-text").textContent = _fmtDistance(remainingDistanceMeters);
     document.getElementById("route-eta-text").textContent  = _fmtDuration(remainingDurationSeconds);
+    const arrivalClock = _fmtClock(Date.now() + remainingDurationSeconds * 1000);
     const arrivalEl = document.getElementById("route-eta-arrival");
-    if (arrivalEl) {
-      const arrivalMs = Date.now() + remainingDurationSeconds * 1000;
-      const d  = new Date(arrivalMs);
-      const hh = d.getHours().toString().padStart(2, "0");
-      const mm = d.getMinutes().toString().padStart(2, "0");
-      arrivalEl.textContent = hh + ":" + mm;
-    }
+    if (arrivalEl) arrivalEl.textContent = arrivalClock;
+
+    // RAW-only elements (2026-09-08) — always written alongside the
+    // Hybrid ones above regardless of which style is active; VCAS.css
+    // decides which set is actually visible (see #route-card's own
+    // comment in index.html). #ngc-eta-text lives inside #nav-guidance-
+    // card, not #route-card, but is populated here too since it's the
+    // exact same arrival-clock value, not a second calculation.
+    const ngcEtaEl = document.getElementById("ngc-eta-text");
+    if (ngcEtaEl) ngcEtaEl.textContent = arrivalClock;
+    const rawDistEl = document.getElementById("route-dist-text-raw");
+    if (rawDistEl) rawDistEl.textContent = _fmtDistance(remainingDistanceMeters);
+    const rawSpeedEl = document.getElementById("route-eta-speed");
+    if (rawSpeedEl) rawSpeedEl.textContent = "SPD " + Math.round(userSpeedMph) + " MPH";
   }
 
   /**
@@ -1943,6 +1952,14 @@
   function _fmtDuration(seconds) {
     const m = Math.round(seconds / 60);
     return m >= 60 ? Math.floor(m / 60) + " h " + (m % 60) + " m" : m + " min";
+  }
+
+  /** HH:MM wall-clock formatting for an arrival estimate — shared by
+   * _updateRouteCard()'s Hybrid ("route-eta-arrival") and RAW
+   * ("ngc-eta-text") readouts, which show the identical arrival time. */
+  function _fmtClock(ms) {
+    const d = new Date(ms);
+    return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
   }
 
   // Global scope bridge mappings

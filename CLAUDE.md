@@ -6801,3 +6801,179 @@ port is untouched (same standing "synced in dedicated passes" note as
 every prior round); no change to the plot's own compass tape/range
 ring/aircraft-dot colours, which were explicitly out of scope (already
 reference-matched against the real ND photo in earlier work).
+
+## RAW-mode redesign, round 5: real device follow-up — six small bugs plus one real structural fix (2026-09-08)
+
+A real device screenshot after round 4 shipped prompted a detailed
+comparison against the reference draft, then a follow-up message
+authorizing the fixes and adding several more specific, itemized
+corrections in one go. Handled as six targeted fixes plus one deeper
+investigation, not a second full redesign pass — round 4's actual
+structure (top bar, merged nav-status card, list panel, bottom bar) was
+already right; what shipped had several real bugs sitting on top of it.
+
+**1. Rows-backdrop showing as an empty slate box when the list panel
+itself is hidden.** `UI.renderRowsBackdrop()` (`ui.js`) had no size gate
+of its own, while `renderAircraftList()` already hides below
+`MIN_PANEL_WIDTH_PX`/`MIN_PANEL_HEIGHT_PX` — raising the latter to 100
+(for the new title bar) pushed some real device layouts just under that
+threshold, leaving the backdrop rendering alone with nothing on it.
+Fixed by applying the identical gate to the backdrop.
+
+**2. Bottom bar never actually got RAW's slate-blue chrome background.**
+Round 4's own plan said "top/bottom bar background" but only `#top-bar`
+was implemented — `#bottom-bar`/`#mode-row` were missed. Added the
+matching `body[data-mode="nav"][data-nav-style="raw"] #bottom-bar,
+...#mode-row { background: var(--raw-chrome-bg); }` rule.
+
+**3. Top-bar mode-label pill removed entirely, not just restyled.**
+Direct instruction: "there is no pill for the view at all in the top
+bar. that is now effectively status and settings. whichever button is
+highlighted blue in the bottom row is the active view." Removed
+`#mode-strip`/`#mode-label` from `index.html` and their CSS. **A real
+regression caught before shipping, not after**: `UI.setModeLabel()`'s
+original code had `if (!el) return;` guarding the text-write BEFORE the
+line that toggles `.active-mode` on the bottom-bar buttons — deleting
+`#mode-label` would have silently broken the ONLY remaining mode
+indicator the user was explicitly relying on. Restructured so the
+text-write is optional (a no-op once the element is gone) but the
+active-button toggling always runs regardless.
+
+**4. Bracket connector colour — confirmed intentional, not "pen
+colour."** Direct instruction: "assume all colours in the mockup are
+intentional." The bracket (`#mode-row`'s SVG connecting "Screen" down to
+the mode buttons) was drawn in a neutral `var(--border)` grey on the
+theory the draft's green was likely just incidental pen colour — wrong
+call, corrected to `var(--raw-value-green)` per direct instruction. This
+also surfaced a real cross-scope variable problem: `--raw-value-green`/
+`--raw-value-cyan` had only ever been defined inside the RAW-scoped
+palette block, but the bracket lives in globally-shared bottom-bar
+chrome (rendered in every mode, restyled for its RAW appearance via the
+same mechanism every other RAW-only override uses) — a RAW-only
+variable referenced there would simply resolve to nothing. Fixed by
+promoting both tokens to `:root` (globally available, same values) and
+removing the now-redundant RAW-scoped duplicate.
+
+**5. `#aircraft-count` removed from RAW's bottom bar — it duplicated the
+list panel's own new title.** Direct instruction: "the flight list...
+should be titled with the number of aircraft visible, you currently
+have this in the nav bar." Round 4 already added the "AIRCRAFT NEARBY
+{count}" title bar to the list panel itself (Part 3) — the bottom bar's
+own `#aircraft-count` readout became a second, redundant copy of
+essentially the same fact once that shipped, not a fact the user
+actually wanted in both places. Hidden in RAW via
+`body[data-mode="nav"][data-nav-style="raw"] #aircraft-count { display:
+none; }`, left untouched in Hybrid/AIR (which have no separate list
+panel to carry the count instead). Hiding a `flex:1` middle child broke
+`.mode-row-divider`'s positioning against `justify-content:space-
+between` — fixed with `margin-left: auto` on the divider, verified via
+Playwright that both the aircraft-count-visible (Hybrid) and -hidden
+(RAW) layouts still position the two button groups and the divider
+correctly.
+
+**6. Merged nav-status card restructured — ETA to row 1, speed+distance
+to row 2.** Direct instruction: "please double check the placement of
+all the different text sections as some of them definitely aren't
+reflective of where I want them." The arrival-clock time (`#ngc-eta-
+text`, new) now sits on the SAME row as the turn instruction, pushed to
+the row's right edge by `.ngc-body`'s own `flex:1` — matching the
+draft's "ETA {time}" placement next to the turn instruction, not down
+in the ETA card where Hybrid keeps it. `#route-card` gained a new
+`.route-eta-row-raw` (speed left/green, remaining distance right/cyan,
+one line, B612 Mono) replacing Hybrid's own duration+arrival row and
+distance+destName sub-line in RAW specifically (both of those are now
+covered elsewhere: duration/arrival by the new `.ngc-eta`, destName by
+`.ngc-dest` already on the guidance card). Both Hybrid's original rows
+and RAW's new one are always populated by the same `app.js` writes
+(`_updateRouteCard()`) regardless of which style is active — pure CSS
+decides which set is visible, the same "write to all DOM targets
+unconditionally, let CSS decide visibility" pattern this codebase
+already uses elsewhere. The compass tape's own "SPD X MPH" strip is now
+suppressed (`renderCompassRing(..., activeRoute ? null : {speedMph})`)
+whenever a route is active, since the same figure now lives in the
+merged card's row 2 — showing it in both places at once would be a
+duplicate readout, not two different pieces of information. **A real
+bug introduced mid-edit, caught before shipping**: the refactor that
+made the arrival-clock value reusable for both `#route-eta-arrival` and
+the new `#ngc-eta-text` introduced a call to `_fmtClock(...)`, a
+function that didn't exist anywhere in `app.js` — would have thrown
+`ReferenceError` on the very next tick with an active route. Caught by
+re-reading the diff (not by a failing test — `node --check` doesn't
+catch a valid-syntax undefined-reference error) before verification;
+fixed by adding a small `_fmtClock(ms)` helper next to the existing
+`_fmtDistance`/`_fmtDuration` utilities.
+
+### A deeper investigation: the real cause of "radar should push up to the top bar"
+
+The user's message also said: "the radar screen itself should be
+pushing right up to the top bar leaving space below it, between the
+bottom of the radar and the top of the nav bar for the flight list."
+Reproducing the ACTUAL current layout end-to-end (a real Playwright
+composite render using the real `index.html`/`ui.js`/`VCAS.css`/`geo.js`
+markup, not a hand-typed approximation, with a real active route and
+`Geo.computeSquarePlotLayout`'s own real math) — not just reasoning
+about the constants — showed the square/rings actually starting at
+y=365 on a 915px-tall device with an active route, and the rows region
+for the aircraft list computing out to a mere **13px tall** (invisible,
+below `MIN_PANEL_HEIGHT_PX`). This is exactly the reported symptom, and
+it was NOT a flaw in `computeSquarePlotLayout`'s "square pinned at top,
+remainder for rows" design (already established and correct per earlier
+work) — it was the merged nav-status card being far taller than it
+should be.
+
+**Root cause**: round 4/5's `.ngc-eta` addition put the arrival-clock
+figure on the SAME row as the turn-instruction text, but that text
+(`.ngc-action`) still carried Hybrid's own oversized banner scale — a
+44px direction icon and 26px action text, sized for a full-width
+Google-Maps-style banner with nothing else sharing its row — and RAW's
+own colour-coding pass (round 4, Part 2) had additionally forced
+`.ngc-action` onto `'B612 Mono'`, a WIDER monospace face, for what was
+meant as "a digital readout" but is actually a full prose sentence, not
+a short digit string. Once `.ngc-eta` claimed real horizontal room on
+that same row, a perfectly ordinary instruction ("Turn right onto Rice
+Lane — 200 m") wrapped to **three lines**, inflating the guidance card
+alone to ~150px tall and eating directly into the exact budget the user
+wanted reserved for the radar/list.
+
+**Fix**: added RAW-scoped overrides sizing `.ngc-maneuver`
+(22px icon, was inheriting Hybrid's 44px) and `.ngc-action` (16px text,
+was inheriting Hybrid's 26px) down to an actual compact instrument-
+readout scale, dropped the B612-Mono override on the action text
+entirely (kept on B612, the proportional display face — monospace stays
+reserved for the genuinely short digit-only readouts elsewhere in this
+row: SPD/DIST below, the digital heading tape above), and tightened
+`#nav-guidance-card`'s own RAW-scoped padding/gap to match. Verified
+with the same real-composite-render approach: the identical instruction
+that wrapped to 3 lines and produced a 151px-tall card before the fix
+now renders on ONE line at 56px — the square/rings now start at y=270
+instead of y=365, and the rows region grows from 13px (invisible) to
+108px (a real, visible list). In the passive (no active route) case —
+verified separately, since it takes a different code path entirely (no
+guidance/route card at all) — the square already started right below
+the top bar's compass tape with a generous 239px rows region; that case
+was never broken, only the active-route case was. Hybrid's own guidance
+card is completely unaffected — every new rule is scoped under
+`[data-nav-style="raw"]`, confirmed via a direct Playwright check that
+Hybrid still resolves to the original 44px/26px B612 (non-mono) sizing.
+
+**Lesson, in the same vein as this file's other "verify against real
+execution, don't extrapolate from the isolated piece" entries**: each
+of round 4/5's individual CSS additions (the `.ngc-eta` row, the
+colour-coding font-family change) was independently reasonable and
+individually verified in isolation — the interaction between the two
+(a new element claiming room on a row whose OTHER element was never
+resized to make space for it) only showed up once the whole card was
+rendered together with realistic content length, which is exactly why
+this investigation rebuilt the full composite render from the real
+files rather than trusting the per-piece screenshots already taken.
+
+Not done in this pass: no change to the native Android Auto port (same
+standing note as every prior round); the second aircraft-list row can
+still end up visually tight against the panel's bottom edge in the
+active-route case even after this fix (108px comfortably fits a title
+bar + one full row, a second row's meta line can crowd the edge) — a
+real device with more vertical headroom (a taller phone, or a shorter
+turn-instruction/destination string) will show more of it; not treated
+as a bug worth a separate fix in this pass, since it was not what was
+reported and the actual reported symptom (invisible list, huge gap) is
+resolved.

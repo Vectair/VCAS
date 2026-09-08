@@ -69,6 +69,14 @@
      of the chrome, resolved at each element's own cascade rather than
      baked in here. */
   --bar-bot-grad:   rgba(var(--bar-bg-rgb), .92);
+  /* Colour-coded readout values — defined globally (not just in the RAW
+     palette block below) since round 4's mode-toggle bracket connector
+     uses this same green as shared, all-modes chrome, not a RAW-only
+     instrument-readout concept. RAW's own block doesn't need to
+     redeclare these (same value either way), but could override them
+     independently in future without touching this global default. */
+  --raw-value-green: #22c55e;
+  --raw-value-cyan:  #38bdf8;
 }
 
 /* ---- Day theme ----
@@ -154,14 +162,10 @@ body[data-mode="nav"][data-nav-style="raw"] {
      the bottom bar all draw from the same source instead of three
      independently-typed hex literals that could drift apart. */
   --raw-chrome-bg: #465c74;
-  /* Colour-coded readout values (round 4, 2026-09-08) — also pixel-
-     sampled from the design draft's own nav-status text: a saturated
-     green for "good value" figures (turn direction, speed, ETA time) and
-     a saturated cyan-blue for distance figures, matching a real ND's own
-     convention of colour-coding different data types rather than leaving
-     everything one flat colour. */
-  --raw-value-green: #22c55e;
-  --raw-value-cyan:  #38bdf8;
+  /* --raw-value-green/--raw-value-cyan themselves now live in :root
+     (same values) since they're also used by shared, all-modes chrome
+     (the bottom bar's bracket connector) — not redeclared here, this
+     block would just be repeating the global default. */
 }
 
 html, body {
@@ -422,25 +426,6 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
   box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
 }
 
-/* ---- Mode label strip ---- */
-#mode-strip {
-  display: flex;
-  justify-content: center;
-  margin-top: 2px;
-}
-
-#mode-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2px 10px;
-}
-
 /* ---- Spacer ---- */
 .spacer { flex: 1; }
 
@@ -452,6 +437,16 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
   gap: 6px;
   padding: 8px 14px 16px;
   background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
+}
+
+/* RAW-only: solid slate chrome, matching the top bar and the aircraft-
+   list backdrop, instead of the near-black gradient every other mode
+   uses. Missed in round 4's own first pass — that only touched #top-bar,
+   leaving the bottom bar the one remaining near-black region against an
+   otherwise slate-chrome screen. */
+body[data-mode="nav"][data-nav-style="raw"] #bottom-bar,
+body[data-mode="nav"][data-nav-style="raw"] #mode-row {
+  background: var(--raw-chrome-bg);
 }
 
 /* Mode row: [Hybrid|Raw|Air toggle] | count | route */
@@ -584,6 +579,13 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
   width: 1px;
   flex-shrink: 0;
   background: var(--border);
+  /* Pushes itself + the NAV group after it to the row's right edge,
+     collecting whatever free space #aircraft-count's own flex:1 doesn't
+     claim first — this is what keeps SCREEN-left/NAV-right correct
+     whether or not #aircraft-count is present (it's hidden in RAW, see
+     that rule below) rather than needing two different #mode-row
+     layouts for the two cases. */
+  margin-left: auto;
 }
 
 #aircraft-count {
@@ -591,6 +593,15 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
   text-align: center;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* RAW's own aircraft-list panel already titles itself "AIRCRAFT NEARBY
+   {count}" (see .raw-list-title-bar) — direct instruction (2026-09-08):
+   that count shouldn't ALSO show here, redundantly, in the bottom bar.
+   Hybrid/AIR have no such list panel, so they keep this exactly as
+   before — it's their only "how many aircraft nearby" indicator. */
+body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
+  display: none;
 }
 
 #aircraft-count.clickable {
@@ -1615,24 +1626,60 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
    background, no seam) once it's there. Same rgba(14,17,23,.85)/
    rgba(240,240,240,.18) panel colours #raw-aircraft-list already uses, so
    every RAW-only panel reads as the same material. */
+/* 2026-09-08 (round 5): the Hybrid card's own scale — a 44px icon, 26px
+   monospace-forced action text, and generous padding, all sized for a
+   Google-Maps-style banner with nothing else sharing its row — badly
+   overflowed once .ngc-eta (added the same round) joined the same row:
+   a genuinely short instruction ("Turn right onto Rice Lane — 200 m")
+   wrapped to 3 lines and inflated the whole card to ~150px tall, eating
+   directly into the "radar should push up to the top bar" / rows-region
+   budget below it. Sized down to an actual compact instrument-readout
+   scale instead, and dropped the B612-Mono override on the full
+   sentence (monospace is for short digit-only readouts elsewhere in
+   this row — SPD/DIST below, the digital heading tape — not a whole
+   prose instruction, which only needs the extra width that costs). */
 body[data-mode="nav"][data-nav-style="raw"] #nav-guidance-card,
 body[data-mode="nav"][data-nav-style="raw"].route-active #nav-guidance-card {
   background: rgba(14,17,23,.85);
   border-bottom: none;
   box-shadow: none;
+  padding: 10px 14px 8px;
+  gap: 10px;
 }
 body[data-mode="nav"][data-nav-style="raw"] .ngc-maneuver,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-maneuver {
   color: #f0f0f0;
+  font-size: 22px;
+  min-width: 26px;
 }
 body[data-mode="nav"][data-nav-style="raw"] .ngc-action,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-action {
   color: #f0f0f0;
-  font-family: 'B612 Mono', monospace; /* a digital readout, same face the ETA row below it already uses */
+  font-size: 16px;
+  line-height: 1.3;
 }
 body[data-mode="nav"][data-nav-style="raw"] .ngc-dest,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dest {
   color: rgba(240,240,240,.75);
+  font-size: 12px;
+}
+
+/* .ngc-eta — the arrival clock, RAW-only (2026-09-08). Hidden by default
+   (Hybrid keeps its own #route-eta-arrival, unchanged, down in
+   #route-card); .ngc-body's own flex:1 pushes this to the row's right
+   edge automatically once it's a flex sibling, no extra positioning
+   needed. */
+.ngc-eta {
+  display: none;
+  flex-shrink: 0;
+  font-family: 'B612 Mono', monospace;
+  font-size: 20px;
+  font-weight: 800;
+  align-self: center;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-eta {
+  display: block;
+  color: var(--raw-value-green);
 }
 
 body[data-mode="nav"][data-nav-style="raw"] #route-card {
@@ -1643,23 +1690,43 @@ body[data-mode="nav"][data-nav-style="raw"] #route-card {
   animation: none; /* the slide-up-from-bottom entrance makes no sense once this lives at the top */
 }
 
+/* RAW's own one-row speed+distance readout (2026-09-08), replacing
+   Hybrid's duration+arrival row (moved to .ngc-eta above) and distance+
+   destName sub-line (destName already covered by .ngc-dest in the
+   guidance card) — see index.html's own comment on #route-card for why
+   both rows are always populated by the same app.js writes and only
+   CSS decides which one shows. */
+.route-eta-row-raw { display: none; }
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-row {
+  display: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-sub {
+  display: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-row-raw {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: 'B612 Mono', monospace;
+  font-size: 20px;
+  font-weight: 800;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-speed { color: var(--raw-value-green); }
+body[data-mode="nav"][data-nav-style="raw"] #route-dist-text-raw { color: var(--raw-value-cyan); }
+
 /* Colour-coded readout values, RAW only (round 4, 2026-09-08) — Hybrid's
    own guidance/route card keeps its plain text colours unchanged, this is
    specifically an ND-instrument-readout convention. .ngc-dist-value/
    .ngc-direction-value are new spans app.js's _updateGuidanceCard() wraps
    around the distance figure/direction word (see that function) rather
-   than writing the whole sentence as one flat textContent string; the
-   route-card fields were already separate elements, so no JS change was
-   needed for those. */
+   than writing the whole sentence as one flat textContent string. */
 body[data-mode="nav"][data-nav-style="raw"] .ngc-dist-value,
-body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dist-value,
-body[data-mode="nav"][data-nav-style="raw"] #route-dist-text {
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dist-value {
   color: var(--raw-value-cyan);
 }
 body[data-mode="nav"][data-nav-style="raw"] .ngc-direction-value,
-body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-direction-value,
-body[data-mode="nav"][data-nav-style="raw"] .route-eta-time,
-body[data-mode="nav"][data-nav-style="raw"] .route-eta-arrival {
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-direction-value {
   color: var(--raw-value-green);
 }
 
