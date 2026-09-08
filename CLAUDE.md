@@ -7230,3 +7230,85 @@ the ownship marker itself is drawn (still the real MapLibre marker, per
 the earlier direct explanation to the project owner about why that
 couples RAW's anchor to the live camera) — this pass closes the gap
 without needing that coupling to change at all.
+
+## Real-device investigation: the aircraft-list panel never appears, despite the code being correct (2026-09-08, later the same day)
+
+Three separate real-device screenshots across this and the prior round
+all showed the same thing: rings/dots/SPD render correctly (confirmed,
+by round 7, filling the plot box as designed), but the "AIRCRAFT NEARBY"
+list panel and its slate backdrop never appear anywhere below it — just
+solid black, confirmed via direct pixel analysis of the actual
+screenshots (average RGB in that region reads (0,0,0), not the panel's
+own `rgba(14,17,23,.85)` composited colour), not assumed from a casual
+look.
+
+**Static code review found nothing wrong** — `UI.renderRowsBackdrop()`/
+`UI.renderAircraftList()`'s gating (`MIN_PANEL_WIDTH_PX`/
+`MIN_PANEL_HEIGHT_PX`), the CSS (`z-index`, `position`, background), and
+every line of `app.js` between the rings-rendering block and the
+aircraft-list block were re-read multiple times with no discrepancy
+found — no missed rename from the `computeSquarePlotLayout` →
+`computePlotLayout` rework, no stale field reference, nothing that
+would silently skip or clear the render call.
+
+**Built a real, full end-to-end reproduction to settle it — not another
+isolated-markup harness.** This project's usual verification approach
+(extracted fragments of real markup + stubbed dependencies) can prove
+the CSS/layout math is right, but can't prove the actual `app.js`
+control flow reaches the render call on a real run — so this pass built
+a genuine local static file server for the real repo + a real headless
+Chromium via Playwright, driving the ACTUAL unmodified `index.html`
+through its real boot sequence (`onGpsSuccess` → `refreshIndicators()`
+→ `renderAircraftList()`), with only the unreachable-from-this-sandbox
+MapLibre CDN request stubbed out (a minimal fake `maplibregl` global,
+just enough surface not to throw) and the ADS-B/METAR relay endpoints
+mocked with real-shaped responses.
+
+**Result: the aircraft-list panel renders correctly** — real title bar
+("AIRCRAFT NEARBY 0"), real "No traffic" body, real computed position/
+size (`{left:8px, top:345.6px, width:396px, height:436.4px}`, matching
+round 7's much larger rows region), confirmed both via DOM state
+(`listHidden: false`, real `innerHTML`) AND a real screenshot of the
+actual running app — see the session's own delivered file for this
+exact render. **This is strong, direct evidence the list-rendering code
+itself is NOT the bug** — when `refreshIndicators()` genuinely reaches
+that point in a real browser, it works exactly as designed.
+
+**A real, separate sandbox-only artifact hit along the way, worth
+recording so it isn't mistaken for insight about the real bug**: this
+sandbox's own network egress proxy doesn't cleanly and quickly reject
+the blocked MapLibre CDN request — it stalls for ~20+ seconds before
+finally failing, during which the document's synchronous `<script>` tag
+blocks the whole page from reaching `readyState: "complete"`. This
+delayed the FIRST `onGpsSuccess`/`EosMap.init()` call long enough that,
+once it finally ran and threw (`maplibregl is not defined`, since the
+real CDN script never loaded and no route-interception attempt could
+intercept a request failing at the proxy/tunnel layer, below where
+Playwright's `page.route()` operates), `window._mapInitialised` was
+already permanently `true` — meaning `scheduleFetch()` (which starts the
+real ADS-B polling loop) never got called for the rest of the session.
+This is why the repro's own list shows "0"/"No traffic" rather than real
+aircraft — a sandbox-network artifact, not a finding about the real
+device, where MapLibre clearly loads fine (the user's own screenshots
+show real tiles-free-but-functional RAW rendering with real aircraft).
+A second harness quirk from the same investigation: a fresh browser
+context always shows VCAS's first-launch onboarding modal (empty
+localStorage), which fully covers the screen — pre-seeding the
+`vcas-onboarding-seen-v1` localStorage key and reloading did NOT
+reliably skip it in this harness (unclear why — not investigated
+further, low value); clicking the real `#btn-onboarding-dismiss` button
+directly after the page settled worked reliably instead.
+
+**Status: unresolved, root cause still unknown, flagged rather than
+quietly dropped.** The list-rendering code is now about as strongly
+verified as this project's own tools can manage without direct access
+to the failing device. What's left is something specific to the real
+device/session that a sandbox reproduction structurally can't surface —
+next steps, if this recurs, should probably be: (a) asking directly
+whether the panel has EVER appeared, even once, across any of the
+testing so far — establishes whether this is "never worked" vs. "works,
+then something clears it mid-session"; (b) whether it's worth adding a
+short-lived, low-noise console/log-endpoint breadcrumb specifically at
+the `renderAircraftList()` call site (e.g. logging `rowsRect` on every
+real-device RAW render) so the NEXT real-device report comes with actual
+runtime numbers instead of only a screenshot to infer from.
