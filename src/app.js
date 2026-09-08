@@ -102,9 +102,10 @@
   // instruction with an annotated screenshot: "the top of the radar should
   // be almost flush with the menu/status bar, essentially where the top of
   // the speed indication is." The compass tape itself (ticks/labels/
-  // lubber/digital heading, drawn by UI.renderCompassRing at safeInset =
-  // insets.chromeTopInset, entirely UNCHANGED by this value — see that
-  // call site) still starts at the same absolute Y it always has; only the
+  // lubber/digital heading, drawn by UI.renderCompassRing — its dead-ahead
+  // tick derived from insets.chromeTopInset, entirely UNCHANGED by this
+  // value — see that call site) still starts at the same absolute Y it
+  // always has; only the
   // plot's own top edge moves up to meet it, so the tape's tick labels and
   // the SPD readout now render ON TOP of the plot/rings' topmost edge
   // instead of in a separate reserved band above it — the same "tape
@@ -260,6 +261,8 @@
     _updateColorblindToggleBtn();
     AirRangeRingsOption.init();
     _updateAirRingsToggleBtn();
+    ModeButtonOrder.init();
+    _applyModeButtonOrder();
 
     DevMode.init();
     _initDevTools();
@@ -297,6 +300,11 @@
     
     UI.setModeLabel(_activeDisplayMode());
     UI.setAdsbStatus("error", "adsb.fi");
+    // "Configured" not "live health" — MapTiler has no per-request success/
+    // failure signal the way adsb.fi/METAR's own relays report; this just
+    // confirms a real key is present, set once here since it never changes
+    // at runtime (see UI.setMaptilerStatus's own doc comment).
+    UI.setMaptilerStatus(!!(CONFIG && CONFIG.MAPTILER_KEY));
     UI.setLoading(false);
 
     // Measure the real bottom-bar height immediately so the VIEW/SPD/LOG dev
@@ -409,8 +417,94 @@
       _refreshSettingsScreen();
     });
 
+    document.getElementById("btn-mode-order-reset")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      ModeButtonOrder.reset();
+      _applyModeButtonOrder();
+      _renderModeOrderList();
+    });
+
     _renderAltPresets();
+    _renderModeOrderList();
     _refreshSettingsScreen();
+  }
+
+  /** Moves the real #btn-raw/#btn-air/#btn-hybrid elements into
+   * ModeButtonOrder's current saved order — appendChild on a node that
+   * already has this same parent just MOVES it to the end rather than
+   * cloning/recreating it, so each button keeps its own already-bound
+   * click listener untouched (same "move, don't recreate" pattern
+   * ui.js's own indicator-diffing uses to keep DOM order in sync with a
+   * priority order — see CLAUDE.md's "Power efficiency pass" follow-up). */
+  function _applyModeButtonOrder() {
+    const container = document.querySelector("#mode-row .mode-toggle");
+    if (!container) return;
+    const idToBtn = {
+      raw: document.getElementById("btn-raw"),
+      air: document.getElementById("btn-air"),
+      hybrid: document.getElementById("btn-hybrid"),
+    };
+    ModeButtonOrder.get().forEach(id => {
+      const btn = idToBtn[id];
+      if (btn) container.appendChild(btn);
+    });
+  }
+
+  const MODE_ORDER_LABELS = { raw: "RAW", air: "AIR", hybrid: "HYBRID" };
+
+  /** Rebuilds the Settings screen's reorder rows from ModeButtonOrder's
+   * current order — full rebuild each call (same pattern _renderAltPresets()
+   * already uses), since this is a handful of rows, not the render-cost-
+   * sensitive NAV/RAW indicator layer. Tap-based move (▲/▼), not
+   * drag-to-reorder — see the CSS's own comment on why. */
+  function _renderModeOrderList() {
+    const container = document.getElementById("settings-mode-order-list");
+    if (!container) return;
+    container.innerHTML = "";
+    const order = ModeButtonOrder.get();
+    order.forEach((id, index) => {
+      const row = document.createElement("div");
+      row.className = "settings-order-row";
+
+      const label = document.createElement("span");
+      label.className = "settings-order-label";
+      label.textContent = MODE_ORDER_LABELS[id] || id.toUpperCase();
+
+      const moves = document.createElement("div");
+      moves.className = "settings-order-moves";
+
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "settings-order-move-btn";
+      upBtn.textContent = "▲";
+      upBtn.disabled = index === 0;
+      upBtn.title = "Move earlier";
+      upBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        ModeButtonOrder.move(index, -1);
+        _applyModeButtonOrder();
+        _renderModeOrderList();
+      });
+
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "settings-order-move-btn";
+      downBtn.textContent = "▼";
+      downBtn.disabled = index === order.length - 1;
+      downBtn.title = "Move later";
+      downBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        ModeButtonOrder.move(index, 1);
+        _applyModeButtonOrder();
+        _renderModeOrderList();
+      });
+
+      moves.appendChild(upBtn);
+      moves.appendChild(downBtn);
+      row.appendChild(label);
+      row.appendChild(moves);
+      container.appendChild(row);
+    });
   }
 
   function _renderAltPresets() {
@@ -1438,10 +1532,11 @@
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
-    // rotating road map already carries its own orientation cues. safeInset
-    // is the real top-bar(+guidance card) height here — not the default 60
-    // the function falls back to otherwise — so ticks start right below the
-    // real chrome instead of a magic number that happened to be close.
+    // rotating road map already carries its own orientation cues. Curved
+    // (round 8 follow-up, 2026-09-08) around the exact same anchor the
+    // range rings/route line use, radius derived from insets.chromeTopInset
+    // so the dead-ahead tick still starts right below the real chrome —
+    // see renderCompassRing's own doc comment for the full reasoning.
     if (isRawView) {
       // Compact speed strip below the heading tape — RAW's equivalent of a
       // real ND's flight-data strip (GS/TAS/ILS APP/arrival time). Only
@@ -1457,7 +1552,18 @@
       // now uses LOG's OLD left margin (square.plotLeft + 8, matching
       // LogPanel.setPosition's own former x) rather than sitting just to
       // its right.
-      UI.renderCompassRing(vw, userHeading, insets.chromeTopInset, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 8 });
+      // Curved along the exact same anchor renderRangeRingsOverlay/
+      // renderRouteLine use (round 8 follow-up, 2026-09-08) — tapeRadius
+      // is derived, not a second independently-chosen number, so the
+      // dead-ahead tick lands at the same y the old flat tape's tickTopY
+      // (insets.chromeTopInset) did, while the curve itself agrees with
+      // the rings' own dome by construction (same cx/cy, same
+      // fovHalfAngleDeg), not by two formulas that happen to currently
+      // match — see renderCompassRing's own doc comment.
+      const tapeCx = square.plotLeft + square.plotWidth * 0.5;
+      const tapeCy = square.plotTop + square.plotHeight * square.anchorY;
+      const tapeRadius = Math.max(0, tapeCy - insets.chromeTopInset);
+      UI.renderCompassRing(tapeCx, tapeCy, tapeRadius, userHeading, Indicators.FOV_HALF_ANGLE_DEG, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 8 });
     } else {
       UI.clearCompassRing();
     }
@@ -1899,6 +2005,18 @@
   };
   const DEFAULT_MANEUVER_ICON = { rotation: 0, glyph: "↑" };
 
+  /** RAW's abbreviated ND-instrument readout (round 8, 2026-09-08) reads
+   * "IN {dist} TURN {direction}" rather than Hybrid's full prose
+   * instruction — a real ND has no room for street names, just a
+   * compact digital-style direction word. Same maneuver `type` codes as
+   * MANEUVER_ICONS above. */
+  const MANEUVER_DIRECTION_WORD = {
+    0: "LEFT", 1: "RIGHT", 2: "LEFT", 3: "RIGHT", 4: "LEFT", 5: "RIGHT",
+    6: "STRAIGHT", 7: "ROUNDABOUT", 8: "ROUNDABOUT", 9: "U-TURN",
+    11: "DEPART", 12: "LEFT", 13: "RIGHT",
+  };
+  const DEFAULT_DIRECTION_WORD = "AHEAD";
+
   /**
    * The ManeuverTracker call itself, hoisted out of _updateGuidanceCard so
    * refreshIndicators() can compute it exactly once per tick and hand the
@@ -1943,18 +2061,33 @@
       return;
     }
 
+    const isRaw = NavDisplayStyle.isRaw();
+
     if (routeManeuver.exists) {
       const icon = MANEUVER_ICONS[routeManeuver.type] || DEFAULT_MANEUVER_ICON;
       const instruction = routeManeuver.instruction || (routeManeuver.isArrival ? "Arrive at destination" : "Continue");
-      // innerHTML (not textContent) so the distance figure can be wrapped
-      // in its own colour-coded span for RAW's instrument-readout look
-      // (see VCAS.css's .ngc-dist-value, RAW-scoped) — instruction is real
-      // ORS response text, so it's escaped before landing in innerHTML
-      // the same as any other interpolated string this codebase injects
-      // this way (see ui.js's own _escapeHtml precedent).
-      actionEl.innerHTML = routeManeuver.isArrival
-        ? _escapeHtml(instruction)
-        : `${_escapeHtml(instruction)} — <span class="ngc-dist-value">${_fmtDistance(routeManeuver.distanceMeters)}</span>`;
+      if (isRaw) {
+        // Abbreviated ND-instrument readout, matching the design draft:
+        // "IN {dist} TURN {direction}" (or bare "TURN ARRIVE" at the
+        // final step) — no street names, an ND has no room for prose.
+        // Reuses the same .ngc-dist-value/.ngc-direction-value colour
+        // classes the geometric fallback branch below already uses.
+        const directionWord = routeManeuver.isArrival
+          ? "ARRIVE"
+          : (MANEUVER_DIRECTION_WORD[routeManeuver.type] || DEFAULT_DIRECTION_WORD);
+        actionEl.innerHTML = routeManeuver.isArrival
+          ? `TURN <span class="ngc-direction-value">${directionWord}</span>`
+          : `IN <span class="ngc-dist-value">${_fmtDistance(routeManeuver.distanceMeters).toUpperCase()}</span> TURN <span class="ngc-direction-value">${directionWord}</span>`;
+      } else {
+        // innerHTML (not textContent) so the distance figure can be
+        // wrapped in its own colour-coded span — instruction is real ORS
+        // response text, so it's escaped before landing in innerHTML the
+        // same as any other interpolated string this codebase injects
+        // this way (see ui.js's own _escapeHtml precedent).
+        actionEl.innerHTML = routeManeuver.isArrival
+          ? _escapeHtml(instruction)
+          : `${_escapeHtml(instruction)} — <span class="ngc-dist-value">${_fmtDistance(routeManeuver.distanceMeters)}</span>`;
+      }
       iconEl.textContent = icon.glyph;
       iconEl.style.transform = `rotate(${icon.rotation}deg)`;
       return;
@@ -1962,7 +2095,9 @@
 
     if (fallbackManeuver && fallbackManeuver.exists) {
       const direction = fallbackManeuver.bearingDeltaDeg > 0 ? "right" : "left";
-      actionEl.innerHTML = `Turn <span class="ngc-direction-value">${direction}</span> in <span class="ngc-dist-value">${_fmtDistance(fallbackManeuver.distanceMeters)}</span>`;
+      actionEl.innerHTML = isRaw
+        ? `IN <span class="ngc-dist-value">${_fmtDistance(fallbackManeuver.distanceMeters).toUpperCase()}</span> TURN <span class="ngc-direction-value">${direction.toUpperCase()}</span>`
+        : `Turn <span class="ngc-direction-value">${direction}</span> in <span class="ngc-dist-value">${_fmtDistance(fallbackManeuver.distanceMeters)}</span>`;
       iconEl.textContent = "↑";
       const iconRotation = Math.max(-120, Math.min(120, fallbackManeuver.bearingDeltaDeg));
       iconEl.style.transform = `rotate(${iconRotation}deg)`;

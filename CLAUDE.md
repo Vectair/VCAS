@@ -7348,3 +7348,203 @@ and with an active route: SPD now sits alone at the top-left, LOG and
 respectively, directly above the aircraft-list panel's own title bar —
 matching the annotated screenshot's three arrows exactly (SPD moving
 left, LOG and range both moving down).
+
+## RAW-mode redesign, round 9: full mockup-vs-app comparison, ten remaining gaps closed (2026-09-08, later the same day)
+
+Direct instruction, once round 8 was confirmed working: "please now
+compare this screenshot of RAW and the Photoshop mockup to assess
+differences" — a real device screenshot against the project owner's
+Photoshop design mockup (distinct from the earlier hand-drawn draft
+rounds 1-8 worked from; this one is a polished digital mockup with
+precise, sampleable colours). Ten concrete differences were found and
+reported; the follow-up instruction was "make all of the changes for
+the differences you have found." Four of the ten involved a real
+trade-off against a standing decision elsewhere in this file, so those
+were confirmed via `AskUserQuestion` before implementing rather than
+guessed — answers below, then what shipped for all ten.
+
+**Four clarifying questions, and the answers that shaped the work:**
+1. *Fake status pills for Open-Meteo/MapTiler in the mockup?* — Answer:
+   "Pills for all of the services we're using. If they do nothing but
+   supply a service we can just show that we're connected to the
+   service." Resolved to: a real MapTiler pill (RAW's own style
+   genuinely loads MapTiler's vector source for the local-obstruction
+   feature — see "Local obstruction" above — so this is a real,
+   citable dependency), shown as configured-or-not rather than a live
+   health check MapTiler has no per-request signal for; no Open-Meteo
+   pill, since VCAS has no Open-Meteo integration anywhere (reviewed
+   once during the weather-calibration work, never adopted — a pill
+   for it would be citing a service that isn't real, exactly the
+   "half-finished/non-functional control" this project's conventions
+   already reject).
+2. *Mockup shows HYBRID/RAW/AIR button order vs. the app's deliberate
+   RAW/AIR/HYBRID default* — Answer: "Leave the organization like we
+   currently have but put the ability to customize the sequence in the
+   settings menu." The default stays exactly as it is (see "LOG button
+   overlap... RAW as default" above for why that default was chosen);
+   a new Settings control lets the user reorder it themselves instead.
+3. *LOG button absent from the mockup* — Answer: "Keep LOG
+   (Recommended)." No change — it's the spottability-logging tool every
+   tester uses (see "Central observation log" above), not optional
+   chrome a design mockup gets the final say on removing.
+4. *Aircraft-list row icon: mockup uses a chevron, app uses a coloured
+   dot* — Answer: "Use the Chevron and colour them in the same manner
+   as the colored dots." A straight swap, keeping the existing
+   per-aircraft colour logic.
+
+**MapTiler status pill** (`index.html`/`ui.js`/`app.js`) —
+`UI.setMaptilerStatus(configured)` (mirrors the existing
+`setAdsbStatus`/`setMetarStatus` dot-and-label pattern) called once in
+`init()` with `!!(CONFIG && CONFIG.MAPTILER_KEY)` — a configured/not-
+configured signal, not a fabricated live health check, per the direct
+answer above. `#status-pill-row` now shows three real pills:
+adsb.fi/METAR/MapTiler.
+
+**Merged nav-status card reformatted to abbreviated ND style**
+(`app.js`'s `_updateGuidanceCard()`) — RAW now reads "IN {dist} TURN
+{direction}" (e.g. "IN 2.0 KM TURN RIGHT"), matching the mockup's own
+compact instrument format, instead of Hybrid's full prose instruction
+with street names — a real ND has no room for prose. New
+`MANEUVER_DIRECTION_WORD` table maps `ManeuverTracker`'s existing
+maneuver `type` codes (the same ones `MANEUVER_ICONS` already keys off)
+to a direction word; arrival shows bare "TURN ARRIVE". Branches on
+`NavDisplayStyle.isRaw()` — safe to call unconditionally here since
+`_updateGuidanceCard()` only ever runs from `refreshIndicators()`,
+itself gated to `mode === "nav"`, so the known "`isRaw()` can still read
+true in AIR mode" gotcha (see "RAW mode fidelity" above) doesn't apply
+at this call site. Hybrid's own full-sentence format is completely
+unchanged; both branches reuse the same pre-existing `.ngc-dist-value`/
+`.ngc-direction-value` colour-coded spans, no new CSS needed.
+
+**Compass tape curved into a real arc, tick labels shortened to
+tens-shorthand** — the single largest piece of this round.
+`UI.renderCompassRing()`'s signature changed from
+`(viewportWidth, headingDeg, safeInset, vehicleInfo)` to
+`(cx, cy, tapeRadius, headingDeg, fovHalfAngleDeg, vehicleInfo)`: ticks
+now radiate outward from the SAME anchor point
+`renderRangeRingsOverlay`/`renderRouteLine` already use (clock-hand
+style — a tick at relative bearing 0 points straight up, one at +75°
+points off to the upper-right) rather than sliding along a flat
+horizontal line. This was a real, previously-unnoticed mismatch: the
+flat tape sat above a DOME-shaped set of rings (same "rings curve around
+the anchor" geometry documented at length elsewhere in this file), so at
+the FOV's edges the old flat ticks drifted visibly away from the rings'
+own curve — not obvious until compared side-by-side against the
+mockup's own genuinely curved tape. `app.js`'s call site derives
+`tapeRadius = tapeCy - insets.chromeTopInset`, keeping the dead-ahead
+tick at the exact same Y the old flat tape's `tickTopY` used, so nothing
+about the tape's overall vertical position moved — only its shape.
+Labels shortened from 3-digit (`"030"`) to tens-shorthand (`"3"`),
+matching the mockup's own compact digits (070° → "7", 140° → "14") — a
+curved tape this tight has no room for 3-digit headings. The digital
+heading readout/lubber line's own visibility (hidden behind the opaque
+top bar in the passive/no-route case, since there isn't enough chrome
+height above them to clear it) is a pre-existing characteristic,
+confirmed unchanged before/after this fix by checking the OLD flat-tape
+formula produced the identical Y values — not a regression from
+curving the tape, and matches a real device screenshot from earlier
+this session showing the same thing.
+
+**High-contrast black/white mode buttons, RAW-scoped only.**
+Pixel-sampled the mockup's own button colours (`#000` background, pure
+white border+text inactive, a bright cyan ~`#38bdf8` — reusing the
+existing `--raw-value-cyan` token, not a second hex — border+text for
+the active button) and added
+`body[data-mode="nav"][data-nav-style="raw"] .mode-toggle .mode-btn`
+overrides. Deliberately scoped to RAW, not applied globally — Hybrid/AIR
+keep the softer `--btn-bg`/`--accent` cockpit-panel look the 2026-08-22
+rebrand gave every mode button, since the mockup being matched is
+specifically RAW's own screen and this app's own established precedent
+is that RAW forces its own dark instrument look regardless of Day/Night
+without extending that forced look to the other modes.
+
+**Nav/route button icon recoloured to a real maroon, pixel-sampled not
+guessed.** The diamond+arrow icon's `#e8833a` (road-sign orange, a
+round-4 guess made before a precise mockup existed) is now `#9c3b42`,
+sampled from the mockup's own icon pixels (brightest cluster averaged
+~`rgb(92,38,43)`, nudged slightly for legibility at the icon's real
+small size) — `.route-btn-off`'s text colour was also updated to match
+(the mockup's "OFF" text shares the same maroon as the diamond; "ON"
+stays the existing dimmed/green-when-active treatment, unchanged).
+
+**Ownship marker glow removed in RAW.** The car icon's lime-green
+halo/drop-shadow (`.user-marker-halo`, `.user-marker-nav`'s filter) is
+now `display:none`/`filter:none` under RAW specifically — the mockup's
+own ownship car icon has no glow at all, reading as a flat instrument
+symbol rather than a highlighted map pin. Hybrid/AIR keep the glow
+unchanged; it's real, useful "this is you" emphasis on an actual map,
+just not appropriate for RAW's plain-black instrument background.
+
+**Aircraft-list rows: colored chevron, not a dot.** `UI.renderAircraftList()`'s
+`.rlr-dot` (a small filled circle) replaced with `.rlr-chevron` (a `❮`
+glyph), coloured via the exact same per-aircraft `_displayColor(ind.vis)`
+value the dot used — per the direct answer above, a straight visual
+swap with zero change to the underlying colour-selection logic
+(colourblind-safe → RAW's own `colorRaw` → plain `color`, unchanged).
+
+**"NAV" reverted to "NAVIGATION".** The round-3 shortening (see "LOG
+button row-alignment follow-up" above) was motivated by
+`#aircraft-count` sharing the row and nearly wrapping to 3 lines at
+360px — but `#aircraft-count` has been RAW-only hidden since round 6
+(see "radar flush with top bar, SPD moves left" above), so the crowding
+that justified shortening it no longer exists in RAW. Reverted, and
+verified — not assumed — at 360px in BOTH states: RAW (aircraft-count
+hidden) and Hybrid/AIR (aircraft-count still visible, the scenario the
+original round-3 shortening was actually protecting against) — neither
+overflows (`scrollWidth === clientWidth` in both, this project's
+standard check).
+
+**Settings control to customize the mode-button order** — new
+`src/modeButtonOrder.js` (mirrors `ColorblindMode`'s own tiny
+persisted-state module shape exactly: `init()`/`get()`, plus `move(index,
+direction)` and `reset()`), a new "RAW / AIR / HYBRID button order"
+row in Settings → Display & Accessibility with three tap-to-reorder rows
+(▲/▼ move buttons, not drag-to-reorder — this app's own established
+"no drag gestures on a driving-app control" convention, see the RAW
+range-selector interaction-design notes in the Pre-V1 checklist above,
+applies just as much to a settings-screen control as an on-screen one).
+`app.js`'s `_applyModeButtonOrder()` reorders the real `#btn-raw`/
+`#btn-air`/`#btn-hybrid` elements via `container.appendChild()` on
+already-existing nodes — the same "move, don't recreate" pattern this
+codebase already uses for indicator-layer DOM diffing — so each
+button's own click listener stays bound and untouched regardless of
+its position. Verified with a real `kotlinc`-equivalent-for-JS check
+(a plain Node script against the actual shipped `modeButtonOrder.js`,
+not a reimplementation): move/no-op-at-either-end/reset/persist-across-
+reload/malformed-storage-fallback all behave correctly, and a Playwright
+render confirmed the settings rows and the real bottom-bar buttons stay
+in sync after a move and after a page reload (persisted order correctly
+re-applied to the live DOM on load, not just remembered internally).
+
+**Brand icon badge added next to the "VCAS" wordmark.** `index.html`'s
+`.brand` div gained a small `<img>` using the existing
+`assets/icons/favicon-64.png` (the real app icon — no new asset
+created, this file was already exactly the right size and artwork) —
+kept alongside the existing "VCAS" text rather than replacing it, since
+the mockup's own crop didn't clearly show whether it dropped the text
+and the text costs nothing to keep as the app's real accessible name.
+
+**Verification, project-wide**: every touched `.js` file passed
+`node --check`. `ModeButtonOrder`'s pure logic was verified with real
+Node execution against the actual shipped file (this project's
+established "verify pure logic with real execution" discipline). Every
+visual change was verified with the real-markup Playwright composite-
+render harness this round's investigation (and rounds 5-8 before it)
+already established — both the passive (no route) and active-route RAW
+screens were rendered end-to-end with every round-9 change applied
+together, not just per-change in isolation, to catch any interaction
+between them a piecemeal check might miss (the same discipline the
+round-5 nav-status-card font-size bug was caught by, after a purely
+per-piece verification pass had missed it). Both composite renders
+match the mockup closely: brand icon, three real status pills, the
+curved compass tape, black/white/cyan mode buttons, chevron list rows,
+the maroon nav icon, and "NAVIGATION" all present and correctly
+positioned together on one screen.
+
+Not done in this pass, and not implied by it: the native Android Auto
+port is untouched (same standing "synced in dedicated passes" note as
+every prior round) — its own `RawPlotView.kt`/`MainActivity.kt` still
+implement the flat compass tape, the dot-based aircraft-list rows, the
+old `#e8833a` nav-icon orange, and have no MapTiler-pill or mode-order-
+customization equivalent; syncing the native port to this round's
+changes is real, separately-scoped follow-up work.

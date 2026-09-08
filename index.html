@@ -388,14 +388,20 @@
                was just crowding the status pills. UI.setModeLabel() still
                runs (it also toggles the bottom-bar buttons' own
                .active-mode class) but no-ops the now-absent text write. -->
-          <div class="brand" id="brand-tap-target">V<span>CAS</span></div>
+          <div class="brand" id="brand-tap-target">
+            <img class="brand-icon" src="assets/icons/favicon-64.png?v=__BUILD_ID__" alt="" width="24" height="24" />
+            V<span>CAS</span>
+          </div>
           <div id="top-bar-right">
             <div id="top-right-controls">
               <!-- Data-source status pills, restyled (2026-09-08) to match
                    a hand-drawn design draft's bolder pill row — real
-                   sources only (ADS-B, METAR), no fabricated MapTiler/
-                   Open-Meteo indicators for data VCAS doesn't actually
-                   track the health of; see CLAUDE.md.
+                   sources only, no fabricated indicators for anything
+                   VCAS doesn't actually depend on; see CLAUDE.md. No
+                   Open-Meteo pill — VCAS has no Open-Meteo integration
+                   anywhere (reviewed once, never adopted, see CLAUDE.md's
+                   "ADS-B data source" history) — a pill for it would be
+                   citing a service that isn't real.
 
                    2026-09-08 (round 6): #adsb-status's own label now reads
                    "adsb.fi" (was "ADS-B") and IS itself the real link
@@ -403,7 +409,20 @@
                    own comment in VCAS.css. This is what let the separate
                    #adsb-credit line below the settings cog be removed
                    outright rather than duplicating the same citation
-                   twice in the same top bar. -->
+                   twice in the same top bar.
+
+                   2026-09-08 (design-draft comparison, round 9): added
+                   #maptiler-status — MapTiler IS a real dependency (RAW's
+                   own style carries its vector source for the local-
+                   obstruction feature, see CLAUDE.md; Hybrid/AIR use it
+                   directly for tiles), just with no live per-request
+                   health signal the way adsb.fi/METAR have (both go
+                   through a relay that can report success/failure per
+                   poll). Direct instruction: "if they do nothing but
+                   supply a service we can just show that we're connected
+                   to the service" — so this shows configured-or-not
+                   (UI.setMaptilerStatus, keyed on CONFIG.MAPTILER_KEY
+                   being present), not a fabricated live check. -->
               <div id="status-pill-row">
                 <div id="adsb-status" class="status-pill error">
                   <div class="dot"></div>
@@ -412,6 +431,10 @@
                 <div id="metar-status" class="status-pill stale">
                   <div class="dot"></div>
                   <span class="label">METAR</span>
+                </div>
+                <div id="maptiler-status" class="status-pill stale">
+                  <div class="dot"></div>
+                  <span class="label">MapTiler</span>
                 </div>
               </div>
             </div>
@@ -443,9 +466,15 @@
         <div id="bottom-bar">
           <!-- Mode row — same buttons/behaviour as before, restyled
                (2026-09-07) to read as two labelled switch groups on a real
-               EFIS control panel ("SCREEN" for display mode, "NAV" for the
-               destination pin), per a hand-drawn design draft — a style
-               choice, not a functional change: see CLAUDE.md. -->
+               EFIS control panel ("SCREEN" for display mode, "NAVIGATION"
+               for the destination pin), per a hand-drawn design draft — a
+               style choice, not a functional change: see CLAUDE.md.
+               "Navigation" reverted from a round-3 "Nav" shortening
+               (2026-09-08, round 9) once #aircraft-count became RAW-only
+               hidden (see the #aircraft-count rule below) — the crowding
+               that motivated shortening it no longer applies in RAW,
+               verified against Hybrid/AIR (where aircraft-count is still
+               visible) at the same 360px width too. -->
           <div id="mode-row">
             <div class="mode-row-group">
               <div class="mode-row-label mode-row-label-boxed">Screen</div>
@@ -462,7 +491,7 @@
             <div id="aircraft-count">No aircraft in range</div>
             <div class="mode-row-divider"></div>
             <div class="mode-row-group">
-              <div class="mode-row-label">Nav</div>
+              <div class="mode-row-label">Navigation</div>
               <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">
                 <svg class="route-btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -535,6 +564,16 @@
               <span class="settings-label">Range rings in Air view</span>
               <button type="button" class="settings-toggle-btn" id="btn-air-rings-toggle">Off</button>
             </div>
+            <div class="settings-row">
+              <span class="settings-label">RAW / AIR / HYBRID button order</span>
+              <button type="button" class="settings-toggle-btn" id="btn-mode-order-reset">Reset</button>
+            </div>
+            <!-- Up/down move controls, not drag-to-reorder — this app's own
+                 established "no drag gestures, tap targets only" convention
+                 (see CLAUDE.md's RAW range-selector interaction-design
+                 notes) applies just as much to a settings-screen reorder
+                 control as it does to any on-screen driving control. -->
+            <div class="settings-order-list" id="settings-mode-order-list"></div>
           </section>
 
           <section class="settings-section">
@@ -651,6 +690,7 @@
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
   <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
+  <script src="src/modeButtonOrder.js?v=__BUILD_ID__"></script>
   <script src="src/airRangeRingsOption.js?v=__BUILD_ID__"></script>
   <script src="src/devMode.js?v=__BUILD_ID__"></script>
   <script src="src/navDisplayStyle.js?v=__BUILD_ID__"></script>

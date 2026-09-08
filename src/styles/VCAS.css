@@ -233,12 +233,17 @@ html, body {
    unchanged if the icon shape/element mix ever changes again (e.g. a future
    bike/pedestrian vehicle icon). The windshield keeps its own explicit dark
    fill either way, so it still reads as glass against the yellow body. */
+/* Round 9 (2026-09-08, design-draft comparison): the draft's own ownship
+   icon has no glow/halo behind it at all — a flat yellow silhouette on
+   black, unlike Hybrid/AIR's glowing marker over a real map (where the
+   glow helps it stand out against busy tile imagery; RAW's own pure-black
+   background needs no such help). Hides the halo outright and drops the
+   drop-shadow filter, RAW only — Hybrid/AIR keep the glow unchanged. */
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
-  background: rgba(255,255,0,.14);
-  border-color: rgba(255,255,0,.3);
+  display: none;
 }
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
-  filter: drop-shadow(0 0 6px rgba(255,255,0,.75));
+  filter: none;
   color: #ffff00;
 }
 
@@ -289,10 +294,29 @@ body[data-mode="nav"][data-nav-style="raw"] #top-bar {
 }
 
 #top-bar .brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: .05em;
   color: var(--text-primary);
+}
+
+/* Brand icon badge (round 9, 2026-09-08) — the real app icon
+   (assets/icons/favicon-64.png, the same TCAS-radar/car logo variant
+   used everywhere else this app appears, see CLAUDE.md's icon-redesign
+   history), matching the design draft's own top-left badge. Reuses the
+   existing favicon asset rather than a new export — it's already the
+   right small size and the right artwork, no reason to duplicate it.
+   Kept alongside the "VCAS" text rather than replacing it (the draft's
+   own crop doesn't clearly show whether it kept the text) — the text is
+   this app's real accessible name/branding and costs nothing to keep. */
+.brand-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  flex-shrink: 0;
 }
 
 #top-bar .brand span {
@@ -513,6 +537,28 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   box-shadow: var(--btn-shadow);
 }
 .mode-toggle .mode-btn.active-mode:active { box-shadow: var(--btn-shadow-active); }
+
+/* RAW: high-contrast black/white switch caps, pixel-sampled straight from
+   the design draft's own mode-toggle row (round 9, 2026-09-08) — solid
+   black buttons, bold white border+text when inactive, bold cyan border+
+   text (reusing --raw-value-cyan, the same token the merged nav-status
+   card's distance figures already use — one shared colour, not a second
+   independently-typed hex) for the active one. Scoped to RAW only, same
+   "RAW forces its own dark instrument look regardless of Day/Night"
+   precedent as every other body[data-mode="nav"][data-nav-style="raw"]
+   override in this file — Hybrid/AIR keep the softer --btn-bg/--accent
+   cockpit-panel look the 2026-08-22 rebrand gave every other mode button,
+   since the mockup this matches is specifically RAW's own screen. */
+body[data-mode="nav"][data-nav-style="raw"] .mode-toggle .mode-btn {
+  background: #000;
+  border-color: #fff;
+  color: #fff;
+}
+body[data-mode="nav"][data-nav-style="raw"] .mode-toggle .mode-btn.active-mode {
+  background: #000;
+  border-color: var(--raw-value-cyan);
+  color: var(--raw-value-cyan);
+}
 
 /* ---- Mode row switch-bank labels + divider (2026-09-07) ----
    Direct instruction, from the same hand-drawn RAW-mode design draft as
@@ -1210,11 +1256,18 @@ body[data-theme="day"] .air-label-box {
    list's row set differently — everything relevant IS in the list). */
 .raw-list-row.beyond-range { opacity: .5; }
 
-.rlr-dot {
+/* Chevron, not a round dot (round 9, 2026-09-08, direct instruction to
+   match a design draft) — coloured the exact same way the dot was
+   (per-aircraft visibility colour, _displayColor(ind.vis)), so the list
+   still carries the same at-a-glance colour-coding, just via a different
+   glyph. */
+.rlr-chevron {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  width: 12px;
+  text-align: center;
 }
 
 .rlr-info {
@@ -1413,7 +1466,9 @@ body[data-theme="day"] .air-label-box {
   width: 22px;
   height: 22px;
   flex-shrink: 0;
-  color: #e8833a; /* road-sign orange, matching the draft's diamond+arrow */
+  /* Dark red/maroon, pixel-sampled from the design draft's own diamond
+     icon (round 4's original amber guess predated a real sample). */
+  color: #9c3b42;
 }
 
 .route-btn-toggle {
@@ -1425,8 +1480,8 @@ body[data-theme="day"] .air-label-box {
   line-height: 1.3;
 }
 
-.route-btn-off, .route-btn-on { opacity: .4; transition: opacity .2s; }
-.route-btn-off { opacity: 1; }
+.route-btn-off, .route-btn-on { opacity: .4; transition: opacity .2s, color .2s; }
+.route-btn-off { opacity: 1; color: #9c3b42; /* matches the diamond icon, see .route-btn-icon */ }
 body.route-active .route-btn-off { opacity: .4; }
 body.route-active .route-btn-on  { opacity: 1; color: #4caf50; }
 
@@ -2267,6 +2322,61 @@ body[data-nav-state="turn_approach"] { }
   color: #fff;
   box-shadow: var(--btn-shadow-active);
 }
+
+/* Mode-button reorder control (round 9, 2026-09-08) — three rows, each
+   the mode's own name plus up/down move buttons, reflecting
+   ModeButtonOrder's current saved order top-to-bottom (same order the
+   real #mode-row buttons are in). Tap-based move, not drag-to-reorder —
+   this app's own established "no drag gestures on a driving-app control"
+   convention (see CLAUDE.md's RAW range-selector redesign notes) applies
+   here too. */
+.settings-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+}
+
+.settings-order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+}
+
+.settings-order-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-primary);
+}
+
+.settings-order-moves {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-order-move-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+.settings-order-move-btn:active:not(:disabled) { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+.settings-order-move-btn:disabled { opacity: .35; cursor: default; }
 
 /* ---- First-launch onboarding (index.html #onboarding-screen) ----
    Shown once, not on every open — see app.js's ONBOARDING_SEEN_KEY gate.

@@ -62,6 +62,17 @@ const UI = (() => {
     _setStatusPill("metar-status", state, text, "METAR");
   }
 
+  /**
+   * Round 9 (2026-09-08) — MapTiler has no live per-request health signal
+   * the way adsb.fi/METAR do (no relay reporting success/failure per
+   * poll), so this is a one-time "is it configured" check, not a live
+   * health check — same "active"/"stale" vocabulary, called once from
+   * app.js's init() with whatever CONFIG.MAPTILER_KEY resolves to.
+   */
+  function setMaptilerStatus(configured) {
+    _setStatusPill("maptiler-status", configured ? "active" : "stale", "MapTiler", "MapTiler");
+  }
+
   // ---- Config banner ----
 
   function showConfigBanner(show) {
@@ -688,21 +699,41 @@ const UI = (() => {
   // ---- NAV Raw-mode heading/compass tape ----
 
   /**
-   * ND-style heading tape across the top of the screen — Raw mode only
-   * (per the reference image), since Hybrid's rotating road map already
-   * carries its own orientation cues a bare basemap doesn't have. A fixed
-   * lubber line marks dead-ahead (the current heading, always centred,
-   * since Raw is heading-up); tick marks and 3-digit heading labels slide
-   * past it as the aircraft turns, same convention as a real EFIS heading
-   * tape. Minor ticks every 10°, labelled major ticks every 30°.
+   * ND-style heading tape — Raw mode only (per the reference image), since
+   * Hybrid's rotating road map already carries its own orientation cues a
+   * bare basemap doesn't have. Curved along an arc centred on the SAME
+   * anchor point the range rings/aircraft dots use (round 8 follow-up,
+   * 2026-09-08, matching the design draft directly: real ND tapes and this
+   * app's own range rings both curve around the ownship anchor, so a FLAT
+   * horizontal tape sitting above a domed ring was always a mismatch, just
+   * not a visually obvious one until compared side-by-side against the
+   * draft). Tick marks radiate outward from the anchor like clock hands —
+   * a tick at relative bearing 0 points straight up, one at +75° points
+   * off to the upper-right, etc. — rather than sliding along a straight
+   * line. A fixed lubber line still marks dead-ahead (current heading,
+   * always centred, since Raw is heading-up); ticks/labels rotate past it
+   * as the vehicle turns, same convention as a real EFIS heading tape.
+   * Minor ticks every 10°, labelled major ticks every 30°, labels shortened
+   * to tens-shorthand (e.g. 070° → "7", 140° → "14") matching the draft's
+   * own compact digit-only labels — a real ND has no room for 3-digit
+   * headings on a curved tape this tight.
    *
-   * @param {number} viewportWidth
-   * @param {number} headingDeg    Current true heading, any real number
+   * @param {number} cx, cy       The SAME anchor point renderRangeRingsOverlay/
+   *   renderRouteLine use (Geo.computePlotLayout's own plot centre/anchorY)
+   *   — sharing this exact point, not a second independently-derived one,
+   *   is what guarantees the tape's curve always agrees with the rings'
+   *   own curve, the same "one shared source" discipline this codebase
+   *   already applies to the rings-vs-dots scale.
+   * @param {number} tapeRadius   Arc radius the ticks are drawn along —
+   *   app.js derives this so the dead-ahead tick sits at the same y the
+   *   old flat tape's tickTopY did, just curving now rather than running
+   *   straight across.
+   * @param {number} headingDeg   Current true heading, any real number
    *   (wrapped to [0, 360) internally).
-   * @param {number} safeInset     Top clearance to draw below (matches the
-   *   same safe-area constant used for range rings/indicator plotting).
-   */
-  /**
+   * @param {number} fovHalfAngleDeg  Angular half-span either side of dead
+   *   ahead — the SAME Indicators.FOV_HALF_ANGLE_DEG the rings/dots are
+   *   restricted to, so the tape's own ends land exactly where the rings'
+   *   arc ends rather than over- or under-shooting it.
    * @param {object} [vehicleInfo]  { speedMph, leftX }. Drawn as a compact
    *   strip below the heading tape's own tick labels — RAW's equivalent of
    *   a real ND's flight-data strip (GS/TAS/ILS APP/arrival time), reduced
@@ -717,18 +748,19 @@ const UI = (() => {
    *   left column as the LOG button, per direct instruction that the
    *   speed readout should move left while staying on the same row.
    */
-  function renderCompassRing(viewportWidth, headingDeg, safeInset = 60, vehicleInfo = null) {
+  function renderCompassRing(cx, cy, tapeRadius, headingDeg, fovHalfAngleDeg, vehicleInfo = null) {
     const svg = document.getElementById("nav-compass-ring");
     if (!svg) return;
 
-    const cx = viewportWidth * 0.5;
-    const tickTopY = safeInset;
-    const PX_PER_DEG = 6;
-    const halfSpanDeg = Math.min(60, viewportWidth / (2 * PX_PER_DEG));
     const heading = ((headingDeg % 360) + 360) % 360;
-
+    const halfSpanDeg = fovHalfAngleDeg;
     const startDeg = Math.ceil((heading - halfSpanDeg) / 10) * 10;
     const endDeg = heading + halfSpanDeg;
+
+    // Topmost point of the arc (relative bearing 0, i.e. dead ahead) —
+    // where the lubber line/digital heading readout anchor, matching the
+    // old flat tape's "everything fixed above tickTopY, centred" layout.
+    const topX = cx, topY = cy - tapeRadius;
 
     // Only ever rendered while Raw is active (see app.js's call site) and
     // Raw's basemap is always forced near-black regardless of Day/Night/
@@ -739,24 +771,37 @@ const UI = (() => {
     let ticks = "";
     for (let deg = startDeg; deg <= endDeg; deg += 10) {
       const wrapped = ((deg % 360) + 360) % 360;
-      const x = cx + (deg - heading) * PX_PER_DEG;
+      const relDeg = deg - heading;
+      const theta = (relDeg * Math.PI) / 180;
+      const sinT = Math.sin(theta), cosT = Math.cos(theta);
       const isMajor = wrapped % 30 === 0;
       const tickH = isMajor ? 14 : 8;
-      ticks += `<line x1="${x}" y1="${tickTopY}" x2="${x}" y2="${tickTopY + tickH}"
+
+      // Ticks point outward (away from the anchor), same "radiating like
+      // clock hands" composition the range rings' own labels already use.
+      const innerX = cx + tapeRadius * sinT, innerY = cy - tapeRadius * cosT;
+      const outerR = tapeRadius + tickH;
+      const outerX = cx + outerR * sinT, outerY = cy - outerR * cosT;
+      ticks += `<line x1="${innerX}" y1="${innerY}" x2="${outerX}" y2="${outerY}"
                   style="stroke:#f0f0f0" stroke-width="1.5" opacity="0.7"/>`;
       if (isMajor) {
-        const label = String(wrapped).padStart(3, "0");
-        ticks += `<text x="${x}" y="${tickTopY + tickH + 14}" text-anchor="middle"
+        // Tens-shorthand (070° -> "7", 140° -> "14") — a real ND's curved
+        // tape has no room for 3-digit headings, matching the draft.
+        const label = String(wrapped / 10);
+        const labelR = outerR + 12;
+        const lx = cx + labelR * sinT, ly = cy - labelR * cosT;
+        ticks += `<text x="${lx}" y="${ly}" text-anchor="middle"
                     style="fill:#f0f0f0; font-size:12px" opacity="0.85">${label}</text>`;
       }
     }
 
-    // Fixed lubber line — points down at the tick baseline, always centred.
-    const pointer = `<path d="M ${cx - 7} ${tickTopY - 16} L ${cx + 7} ${tickTopY - 16} L ${cx} ${tickTopY - 2} Z"
+    // Fixed lubber line — points down at dead-ahead's own arc point,
+    // always centred (heading-up, so dead-ahead never moves).
+    const pointer = `<path d="M ${topX - 7} ${topY - 16} L ${topX + 7} ${topY - 16} L ${topX} ${topY - 2} Z"
                 fill="#ffff00" opacity="0.9"/>`;
 
     const hdgRounded = Math.round(heading) % 360;
-    const digital = `<text x="${cx}" y="${tickTopY - 22}" text-anchor="middle"
+    const digital = `<text x="${topX}" y="${topY - 22}" text-anchor="middle"
                 style="fill:#f0f0f0; font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
 
     let infoStrip = "";
@@ -771,7 +816,7 @@ const UI = (() => {
       // of what a ring label does around it, same reasoning the indicator
       // labels already use for the same "something else might be behind
       // this" problem.
-      const stripY = tickTopY + 14 + 14 + 20;
+      const stripY = topY + 14 + 14 + 20;
       const speedValue = String(Math.round(vehicleInfo.speedMph));
       const speedLabel = `SPD ${speedValue} MPH`;
 
@@ -784,16 +829,15 @@ const UI = (() => {
       // screen") when the caller supplies leftX (app.js passes the same
       // square-relative margin the LOG button already uses, so the two
       // sit on one visually-grouped left column); falls back to centred
-      // if omitted, for any caller that doesn't have a square to anchor
-      // against.
-      const x0 = vehicleInfo.leftX != null ? vehicleInfo.leftX : cx - boxW / 2;
+      // on the arc's own top point if omitted.
+      const x0 = vehicleInfo.leftX != null ? vehicleInfo.leftX : topX - boxW / 2;
       const bg = `<rect x="${x0}" y="${stripY - 17}" width="${boxW}" height="26" rx="4"
                   fill="rgba(14,17,23,.82)"/>`;
       // The numeric value alone gets its own <tspan> so it can be coloured
       // green (matching the design draft's own colour-coded readout —
       // see VCAS.css's --raw-value-green) independent of the "SPD"/"MPH"
       // labels around it, which stay the tape's usual near-white.
-      const textX = vehicleInfo.leftX != null ? x0 + 14 : cx;
+      const textX = vehicleInfo.leftX != null ? x0 + 14 : topX;
       const textAnchor = vehicleInfo.leftX != null ? "start" : "middle";
       const text = `<text x="${textX}" y="${stripY}" text-anchor="${textAnchor}"
                   style="fill:#f0f0f0; font-size:13px; font-weight:600; letter-spacing:0.5px">SPD <tspan style="fill:var(--raw-value-green)">${speedValue}</tspan> MPH</text>`;
@@ -1107,7 +1151,7 @@ const UI = (() => {
           const beyondRange = beyondRangeHexes && beyondRangeHexes.has(a.hex) ? " beyond-range" : "";
           return `
             <div class="raw-list-row${selected}${beyondRange}" data-hex="${_escapeHtml(a.hex)}">
-              <div class="rlr-dot" style="background:${color}"></div>
+              <div class="rlr-chevron" style="color:${color}">&#10094;</div>
               <div class="rlr-info">
                 <div class="rlr-callsign">${callsign}</div>
                 <div class="rlr-meta">${type} · ${altLabel} · ${rangeLabel}</div>
@@ -1313,6 +1357,7 @@ const UI = (() => {
   return {
     setAdsbStatus,
     setMetarStatus,
+    setMaptilerStatus,
     showConfigBanner,
     showGpsMessage,
     showCompassPermissionBanner,
