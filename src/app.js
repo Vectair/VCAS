@@ -1112,8 +1112,23 @@
     const top = insets.chromeTopInset + 12;
     toggle.style.top = top + "px";
     toggle.classList.remove("hidden");
-    reset.style.top = top + "px";
     panel.style.top = top + "px";
+
+    // Reset sits bottom-left instead of top-left (2026-09-09 follow-up,
+    // direct real-device report: "the camera reset looks like it covers or
+    // replaces the log button so maybe move this down to the bottom left
+    // like it is in raw mode"). LOG has no Hybrid-mode position of its own
+    // — LogPanel.setPosition() is only ever called from the isRawView
+    // branch above, so in Hybrid it's left sitting wherever it was last
+    // set in RAW (or its CSS default, left:14px/top:100px, if RAW was
+    // never entered this session) — right where Reset's old top-left spot
+    // collided with it. Anchored from insets.bottomInset, the same real
+    // bottom-chrome-height number _rawChromeInsets() already derives for
+    // everything else down there, not a second independently-guessed
+    // offset — the closest Hybrid equivalent to "bottom of the plot box"
+    // RAW itself uses, since Hybrid has no plot box of its own.
+    reset.style.top = "auto";
+    reset.style.bottom = (insets.bottomInset + 12) + "px";
 
     _syncManualTiltUI();
   }

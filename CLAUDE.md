@@ -8778,6 +8778,45 @@ has not been confirmed hands-on. Worth a real-device pass before
 considering this fully done, same standing caveat this file already
 carries for every UI feature verified this way.
 
+### Follow-up: Reset button moved bottom-left, off LOG (2026-09-09, same day)
+
+Real-device feedback, once the feature above was confirmed working:
+"my only moyre is that the camera reset looks like it covers or
+replaces the log button so maybe move this down to the bottom left
+like it is in raw mode." Confirmed the actual collision, not assumed:
+`#btn-manual-tilt-reset` was positioned top-left (`left: 14px`, same
+`top` as the toggle/panel), and LOG (`#lp-toggle`) has **no Hybrid-mode
+position of its own** — `LogPanel.setPosition()` is only ever called
+from `refreshIndicators()`'s `if (isRawView)` branch (see "LOG button
+row-alignment follow-up" above), so in Hybrid it's simply left sitting
+wherever it was last positioned during a RAW session, or at its plain
+CSS default (`#lp-toggle { left: 14px; top: 100px; }`) if RAW was never
+entered — right where Reset's own top-left spot landed.
+
+Fixed by anchoring Reset from the bottom instead:
+`_positionManualTiltControls()` (`app.js`) now sets `reset.style.top =
+"auto"` and `reset.style.bottom = (insets.bottomInset + 12) + "px"` —
+`insets.bottomInset` is the same real bottom-chrome-height number
+`_rawChromeInsets()` already derives for every other purpose (route
+card + bottom bar, or a 60px fallback), not a second independently-
+guessed offset. This is the closest Hybrid equivalent to "bottom of the
+plot box" the user asked for, since Hybrid has no plot box of its own
+the way RAW does (RAW's own LOG/range-selector row sits 40px up from
+the plot box's bottom edge — see round 8 of the RAW-mode-redesign
+history). The toggle and slider panel are untouched, still top-right —
+only Reset moved. `VCAS.css`'s `#btn-manual-tilt-reset` rule's
+`transition: top .2s` became `transition: bottom .2s` to match which
+property now actually animates.
+
+Verified by extending the same extracted-verbatim Playwright harness
+this feature's own build already established: re-ran all 34 original
+checks (still passing) plus 4 new ones — a real `#lp-toggle` element at
+its true CSS-default position (`left:14px, top:100px`) no longer
+overlaps `#btn-manual-tilt-reset`'s real rendered rect, Reset's own
+`top` now falls in the bottom half of the viewport, and the toggle
+stays exactly where it was (top-right, unaffected) — 38 checks total,
+all passing, zero page errors.
+
 ## 360°/planetarium "sky compass" view — scoped, not yet built (2026-09-09)
 
 Direct request, alongside the Hybrid tilt work above: "a free view where
