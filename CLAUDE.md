@@ -8962,3 +8962,286 @@ becomes a 4th mode button, a separate entry point, or something else
 entirely is also unresolved — the earlier AskUserQuestion on mode
 placement was only reached in the "build now" branch, which wasn't the
 answer given.
+
+## Sky View: the planetarium-style free-view mode, actually built (2026-09-09, same day)
+
+Direct follow-up to the scoping note immediately above, same day: "should
+it be alternate reality similar to Pokemon go or similar to a virtual
+planetarium." Two design questions confirmed via `AskUserQuestion` before
+writing any code (both previously left open by the scoping note itself):
+**planetarium-style, not AR/camera-passthrough** (no `getUserMedia()`,
+no live video — matches the scoping note's own "sensor-only" framing),
+and **a new 4th bottom-bar mode button** (not a sub-screen of AIR or a
+Settings entry).
+
+**Read the real current source before writing anything, per this
+project's own established discipline** — `compassHeading.js` (confirmed
+`userHeading` is ALREADY live via `CompassHeading` whenever the vehicle
+is stationary/slow, mode-independent — `onGpsSuccess`'s own start/stop
+toggle has nothing to do with which `mode` is active), `visibility.js`
+(confirmed `elevationDeg` is already computed per-aircraft by
+`Visibility.estimate()`, exactly the number this feature needed and had
+no reason to recompute), `indicators.js` (`Indicators.buildAll()` already
+returns `relativeBearing` + `vis.elevationDeg` per aircraft — the
+horizontal half of the "is this in the phone's pointing window" check
+falls straight out of data this app was already computing, not a new
+primitive), and `modeButtonOrder.js` (confirmed its own reorder
+validation is hardcoded to exactly the 3-entry RAW/AIR/HYBRID set — a
+real constraint that shaped the scope decision below, not assumed).
+
+### A deliberate architectural choice, made without re-asking: an overlay, not a real 4th `mode`
+
+The scoping note's own open question ("4th mode button, or something
+else") was resolved to "4th mode button" by the follow-up `AskUser
+Question` — but *how* that button behaves was still an implementation
+decision. `app.js`'s `mode` variable is a tight `"nav" | "air"` binary
+with NavDisplayStyle (Hybrid/Raw) as a sub-state of `"nav"` — genuinely
+adding a 3rd top-level value would mean touching every one of the
+dozens of `mode === "nav"` conditionals scattered through this file (the
+camera, the indicator pipeline, ADS-B rendering, WakeLock, route/
+guidance cards…), each one a real chance to reproduce the exact "forgot
+to clear/hide something at a mode-entry point" bug class this file's own
+history is full of (the LOG-button overlap, the range-rings-overlay
+leak into AIR, several others). Sky View doesn't need any of that
+machinery — it's a read-only, GPS-independent-of-camera display.
+**Implemented instead as a full-screen modal overlay** (`#sky-view-
+screen`, `z-index:220`), the exact same "toggle a `.hidden` class over
+whatever's already showing" pattern `#settings-screen`/`#onboarding-
+screen` already use — `mode`/`NavDisplayStyle` never change while Sky
+View is open, GPS/ADS-B polling keeps running underneath exactly as it
+already does behind Settings, and closing it returns to precisely
+whatever was showing before, with zero coordination needed with the
+RAW/AIR/HYBRID switch logic. `#btn-sky` sits as a genuine 4th button
+inside `.mode-toggle` (visually a peer of RAW/AIR/HYBRID, matching what
+was asked for) but is deliberately **not** added to `ModeButtonOrder`'s
+reorderable set — it isn't a persisted display mode the reorder feature
+was ever about, and extending that module's hardcoded 3-entry validation
+for a button that doesn't actually participate in "which mode is
+current" would be scope creep on an already-shipped, tested feature for
+no real benefit. Its own "active" look reuses the existing `.active-mode`
+CSS class, toggled purely on whether the overlay is currently open —
+completely independent of the other three buttons' own `.active-mode`
+state, both coexist without conflict since they're separate DOM elements.
+
+### Two sensor axes: one already existed, one genuinely didn't
+
+**Azimuth — already solved, just newly reused.** `userHeading` is kept
+live by `CompassHeading` (`src/sensors/compassHeading.js`) whenever
+`userSpeedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH`, regardless of `mode`
+— confirmed by reading `onGpsSuccess`'s own compass start/stop toggle,
+which checks only speed, never `mode`. Sky View reads this directly; no
+new azimuth sensor code was needed at all.
+
+**Elevation (device pitch) — the one genuinely new sensor axis**, exactly
+as the scoping note anticipated. New `src/sensors/devicePitch.js`
+(`DevicePitch`), a structural sibling of `compassHeading.js` — same
+`isSupported`/`start`/`stop` shape, same circular-smoothing-adjacent
+damping (`SMOOTH_FACTOR = 0.15`) and `MIN_UPDATE_INTERVAL_MS` throttle —
+but deliberately a SEPARATE module rather than folded into `CompassHeading`
+itself: a second `window.addEventListener` on the same
+`deviceorientation`/`deviceorientationabsolute` event type is completely
+safe (multiple listeners can subscribe to one DOM event), and Sky View's
+lifecycle (only listens while its own overlay is open) is genuinely
+different from `CompassHeading`'s (gated on vehicle speed) — reworking
+the latter's own already-verified event handling to carry a second
+payload would have been real, avoidable risk to working code for no
+benefit over a second small module.
+
+**The beta→elevation mapping is this project's own honest, unverified-
+against-real-hardware derivation** (`elevationDeg = beta - 90`, clamped
+to [-90, 90]) — documented inline with the same category of caveat
+`compassHeading.js`'s own screen-rotation correction already carries.
+Reasoning: per the W3C DeviceOrientation spec, `beta` is rotation around
+the device's own side-to-side axis, 0° when lying flat screen-up.
+Holding a phone vertically in front of your face — screen facing you,
+top edge toward the sky, the natural "look through it like a viewfinder"
+pose this feature is actually used in — is the commonly documented
+beta≈90° posture, and in that pose the phone's BACK (the direction
+"pointed at") faces roughly horizontally outward — the horizon — hence
+`beta - 90`. Portrait-only for v1, no landscape/`gamma` correction
+attempted (unlike `compassHeading.js`'s own, also field-unverified,
+landscape correction) — Sky View is a two-handed look-through-it
+interaction with no obvious landscape use case the way a dash-mounted
+nav screen has.
+
+**Permission**: both axes share the SAME iOS `DeviceOrientationEvent.
+requestPermission()` gate (a per-event-TYPE grant, not per-listener) —
+`CompassHeading` almost always already holds it by the time Sky View can
+even open (opening requires being stationary/slow, the exact condition
+that already starts `CompassHeading` in `onGpsSuccess`), but
+`openSkyView()` requests it defensively too, since opening the overlay
+is itself a real user gesture iOS will accept the prompt from if it
+somehow hasn't fired yet.
+
+### The angular-matching primitive — new, and genuinely new, not a repurposed one
+
+Confirmed by reading `geo.js` directly: `Geo.projectToPolarPosition`
+plots by bearing + BANDED DISTANCE, with no elevation axis anywhere in
+it — RAW's plot has no "how high in the sky" concept at all, so it
+structurally couldn't be reused or extended for this. New pure module
+`src/logic/skyCompassLogic.js` (`SkyCompassLogic.projectToSkyPosition`)
+instead: given an aircraft's bearing offset from the phone's current
+azimuth and elevation offset from the phone's current pitch, a plain
+small-angle LINEAR degrees-to-pixels mapping across a fixed window
+(`FOV_HALF_H_DEG = 40`, `FOV_HALF_V_DEG = 30` — genuinely new tuned
+constants, same honest "reasonable starting guess, not physically
+derived, pending real field calibration" provenance this file already
+carries for `CONTRAIL_MIN_ALTITUDE_FT`/`LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG`
+— deliberately wider than a real phone camera's ~30-35° half-angle FOV,
+since there's no live video to frame against, so a generous catch window
+matters more than pixel accuracy here). Returns `null` outside the
+window; `app.js`'s `refreshSkyView()` filters those out entirely — no
+suppressed-edge-dot concept the way RAW's range selector has, since
+there's no "beyond the selected range but still worth a bare dot"
+equivalent for a pointing-direction window.
+
+### Data: reuses `Indicators.buildAll()`, the AIR-mode shape, not `build()`
+
+`refreshSkyView()` (`app.js`) builds the exact same `userState` shape
+`refreshAirMode()` already does (`metar`/`localObstruction`/`upperAir`
+snapshots, `mode: _activeDisplayMode()`) and calls `Indicators.buildAll()`
+— unfiltered by `Relevance.evaluate()`, matching AIR's own "every tracked
+aircraft, not just what a driver should glance at" philosophy, which is
+the correct one here: Sky View is explicitly NOT a driving-relevance
+concept, it's "what's actually in the direction I'm physically pointing
+my phone," closer in spirit to AIR's unfiltered real-position view than
+to RAW/Hybrid's teardrop-gated one. Re-derives nothing `Indicators`
+doesn't already provide — `relativeBearing` (bearing minus `userHeading`,
+which IS the device azimuth whenever this view can be open at all) and
+`vis.elevationDeg` are read straight off `buildAll()`'s own per-aircraft
+result, with only `elevationDeg - devicePitchDeg` (the vertical offset)
+computed fresh, since nothing upstream had any reason to know the
+phone's own current pitch.
+
+### Rendering — plain colour-matched dots, no live camera, no decluttering
+
+`ui.js` gained `renderSkyView(items, onItemClick)`/`clearSkyView()`,
+modelled directly on `renderAircraftList()`'s own diff-by-hex-free,
+rebuild-every-call shape (Sky View has no extrapolation-tick-driven
+500ms cadence the way NAV/RAW's indicator layer does — see the "Power
+efficiency pass" section above for why THAT layer specifically needed
+diffing — Sky View only re-renders on a real sensor/GPS event, an
+inherently lower, bursty cadence with no equivalent cost to amortize).
+Each aircraft renders as a small colour-matched dot (reusing
+`_displayColor(vis)`, the same colourblind-safe-aware colour selection
+every other view already uses) plus a one-line callsign/hex label — no
+icon shape, no direction arrow, no label-decluttering machinery the way
+RAW's plot has; at this feature's actual expected density (a handful of
+aircraft in a ~80°×60° window) there's nothing to declutter, and adding
+that machinery preemptively would be exactly the kind of premature
+complexity this project's own conventions push back on elsewhere. A
+fixed centre crosshair (`#sky-view-crosshair`, pure CSS, `pointer-events:
+none`) marks "where the phone is pointing right now" — never moves; the
+dots move around it as azimuth/pitch change, the correct way around for
+a planetarium-style display (the reference Stellarium-style screenshot
+the project owner attached shows exactly this: a fixed viewing frame,
+the sky content moving underneath it as the device reorients). Tapping a
+dot reuses `UI.showAirPopup(aircraft, vis, null)` verbatim — the same
+plain read-only popup AIR mode's own markers already use, `onLogOutcome`
+passed as `null` since Sky View isn't wired to `ObservationLogger` (no
+ground-truth logging context here, same reasoning the native Android
+port's own AIR/HYBRID marker taps already documented for staying on a
+plain `Toast` instead of the full RAW popup's Suppress/log buttons).
+
+### Speed gating — the same 5mph distraction gate as everything else, no new mechanism
+
+A genuinely open design fork not resolved by the two `AskUserQuestion`
+answers (which covered visual style and entry point, not this) — decided
+by direct precedent rather than re-asking, given the system's explicit
+"continue without further questions" instruction for this turn: pointing
+a phone up to scan the sky is at least as much of a driving distraction
+as any of this app's other already-5mph-gated interactions (the LOG
+button, the RAW popup's log/Suppress buttons, Hybrid's manual-tilt
+override) — arguably more, since it requires taking a hand fully off the
+wheel and looking up rather than glancing at a fixed dash-mounted
+screen. Gated identically: `openSkyView()` refuses to open above
+`CONFIG.GPS_HEADING_MIN_SPEED_MPH`; if already open, `applySpeedOverride
+IfActive()` — the same convergence point `LogPanel.setSpeedMph()`/
+`UI.setSpeedMph()`/`ManualTilt.setSpeedMph()` already funnel through —
+force-closes it the instant speed crosses the threshold, mirroring
+`ManualTilt`'s own "reverts to the default position" behaviour rather
+than `LogPanel`'s "dims but stays open" one, since there's nothing
+useful left to show once the phone's own compass heading itself stops
+being trusted (GPS course takes over and `onCompassHeading` simply stops
+firing — Sky View would otherwise sit frozen on a stale azimuth, worse
+than closing outright). `#btn-sky` itself dims via a new `.sky-toggle-
+disabled` class, same visual language as `.manual-tilt-toggle-disabled`/
+`.lp-toggle-disabled`. Because gating happens at the mode-button level
+and Sky View is only ever reachable while already stationary/slow, this
+sidesteps the scoping note's own open question about whether
+`CompassHeading`'s existing speed-gated stop/start needed reworking —
+it doesn't: Sky View's own requirement (stationary) is a strict SUBSET
+of `CompassHeading`'s own "live" condition, so the sensor is already
+running by construction whenever this view can legitimately be open.
+
+### Verified with real execution throughout, this project's own established discipline, not skipped for a UI feature
+
+- `SkyCompassLogic.projectToSkyPosition()`: 14 real Node checks — dead-
+  centre, all four window edges (inclusive boundary, not exclusive),
+  outside-window rejection on both axes, default-constant fallback, and
+  a mixed-quadrant case.
+- `DevicePitch`: 11 real Playwright/Chromium checks against the actual
+  shipped module (synthetic `deviceorientation`/`deviceorientationabsolute`
+  events) — the beta=90/180/0/270 boundary cases (horizon/zenith/straight-
+  down/clamped), smoothing behaviour on a large jump, the
+  `MIN_UPDATE_INTERVAL_MS` throttle collapsing a rapid-fire burst to one
+  emission, a missing-`beta` event producing no emission, `stop()`
+  genuinely removing the listener, and `start()`'s idempotency. **One
+  real gotcha hit and fixed while writing this harness, not assumed
+  away**: `_lastEmitAt`'s throttle state persists across `start()`/
+  `stop()` cycles within one page session (mirroring `compassHeading.js`'s
+  own design) — an early draft's tests ran too close together in real
+  time and had their own emissions silently swallowed by the PREVIOUS
+  test's throttle window, not a bug in the module; fixed by spacing
+  independent test blocks >150ms apart.
+- `UI.renderSkyView`/`clearSkyView`: 11 real Playwright checks against
+  the actual shipped `ui.js` (not a retyped copy) — dot count/position/
+  colour/label correctness, callsign-null fallback to hex, the count-text
+  readout, real click-wiring firing the caller's callback with the right
+  item, `clearSkyView()` emptying the container, empty-array rendering
+  nothing, and — since this function builds `innerHTML` from real
+  aircraft-controlled text (`callsign`) — a genuine XSS-escaping check
+  (`_escapeHtml`) confirming a malicious callsign renders as inert text,
+  not a live `<img onerror>` element.
+- `app.js`'s Sky View wiring: 31 real Playwright checks against the
+  ACTUAL functions (`_syncSkyButtonState`/`openSkyView`/`closeSkyView`/
+  `refreshSkyView`/`applySpeedOverrideIfActive`), extracted verbatim via
+  brace-matching regex from the real, shipped `app.js` — not hand-copied
+  — into a harness stubbing only genuine external dependencies
+  (`CompassHeading`/`DevicePitch`/`Indicators`/`MetarProvider`/
+  `LocalObstruction`/`UpperAirProvider`/`UI`). Covers: initial state,
+  opening/closing at 0mph, `DevicePitch.start()`/`CompassHeading.start()`
+  being called on open, a dead-ahead aircraft at the device's own current
+  pitch plotting at screen centre, an aircraft outside the FOV window
+  being filtered out entirely, tapping a rendered item correctly opening
+  `showAirPopup` with that item's own aircraft/vis, the full 5mph
+  speed-gate cycle (can't open above threshold, force-closes mid-session,
+  exactly-at-threshold still allowed per `>` not `>=`, `DevicePitch.
+  stop()` called on auto-close), `refreshSkyView()` itself showing the
+  blocked banner and clearing dots if it ever sees a blocking speed
+  directly (not just via the convergence point), and no horizontal
+  overflow at this project's standard 360px check. **67 checks total
+  across all four harnesses, zero failures, zero page errors.**
+
+### Explicit v1 scope, not silently implied to be more
+
+No ground-truth logging integration (`onLogOutcome: null` — see above).
+No label/icon decluttering (not needed at this density, see above). No
+Suppress button or aircraft-list panel the way RAW has — Sky View is
+purely "what's currently in the window," nothing persists between
+frames. No landscape support for the pitch axis. No native Android Auto
+port sync — same standing "synced in dedicated passes, not every change"
+note this file already carries for every prior web-only feature; the
+native port has no Sky View equivalent, no `DevicePitch`/
+`SkyCompassLogic` Kotlin ports, and no 4th mode button.
+
+**Honest status**: verified at the logic/DOM-wiring level with real
+execution throughout, as documented above — what's NOT verified is
+real-device sensor behaviour (this sandbox has no magnetometer/
+gyroscope, the same limitation `compassHeading.js`'s own history has
+flagged repeatedly), and specifically whether the `beta - 90` elevation
+derivation actually matches how a real tester naturally holds their
+phone when trying to "look at" a specific aircraft — that's the real
+remaining check, same category as every compass-heading fix in this
+file's history that shipped "logic verified, hardware behaviour
+pending real-device field re-test."

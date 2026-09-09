@@ -2352,6 +2352,159 @@ body[data-nav-state="turn_approach"] { }
 
 .lp-btn:hover { background: rgba(255,255,255,.14); }
 
+/* ---- Sky View (planetarium-style free-view mode, 2026-09-09) ----
+   A full-screen modal overlay, same structural pattern as #settings-screen
+   below (fixed inset:0, z-index high enough to sit above the map/RAW
+   chrome, toggled purely via .hidden) — see index.html's own comment on
+   why this is a modal ON TOP of whatever mode was already active, not a
+   real 4th `mode`/NavDisplayStyle value. Always dark regardless of Day/
+   Night, same "no day mode for a cockpit-instrument-style readout"
+   reasoning --raw-chrome-bg already documents — Sky View is read purely by
+   pointing the phone at open sky, not something that benefits from a
+   bright daytime theme. */
+#sky-view-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+#sky-view-screen.hidden { display: none; }
+
+#sky-view-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raw-chrome-bg);
+}
+
+#sky-view-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: .04em;
+}
+
+#sky-view-count {
+  flex: 1;
+  font-size: 12px;
+  color: var(--raw-value-green);
+  font-family: 'B612 Mono', monospace;
+  text-align: right;
+}
+
+#btn-sky-view-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+}
+
+#sky-view-body {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Fixed at dead-centre — represents "where the phone is currently
+   pointing", the same anchor SkyCompassLogic.projectToSkyPosition()
+   measures every aircraft's offset against. Never moves; the aircraft
+   dots move around it as the phone's own azimuth/pitch change. */
+#sky-view-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+#sky-view-crosshair::before,
+#sky-view-crosshair::after {
+  content: "";
+  position: absolute;
+  background: var(--raw-value-cyan);
+}
+#sky-view-crosshair::before { left: 0; right: 0; top: 50%; height: 1.5px; transform: translateY(-50%); }
+#sky-view-crosshair::after  { top: 0; bottom: 0; left: 50%; width: 1.5px; transform: translateX(-50%); }
+
+#sky-view-items {
+  position: absolute;
+  inset: 0;
+}
+
+.sky-view-dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.sky-view-dot-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.85);
+  box-shadow: 0 0 6px rgba(0,0,0,.6);
+}
+
+.sky-view-dot-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,.6);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+#sky-view-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--text-muted, #9099a8);
+  text-align: center;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
+#sky-view-blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 32px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0,0,0,.92);
+}
+#sky-view-blocked.hidden { display: none; }
+
+/* SKY mode button — dimmed/unusable above the same speed threshold the
+   overlay itself is gated on, same visual language as
+   .manual-tilt-toggle-disabled/.lp-toggle-disabled elsewhere in this app. */
+#btn-sky.sky-toggle-disabled { opacity: .35; cursor: not-allowed; }
+
 /* ---- Settings screen ---- */
 #settings-screen {
   position: fixed;

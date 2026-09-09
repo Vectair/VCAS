@@ -20,6 +20,15 @@
   // permission gesture (see the power-efficiency note by CompassHeading.stop()
   // below for why this toggling exists at all).
   let compassPermissionGranted = false;
+  // Sky View (2026-09-09) — a full-screen overlay, not a real 4th `mode`
+  // value (see index.html's own comment on #sky-view-screen). skyViewOpen
+  // just gates whether refreshSkyView() actually does anything on each
+  // sensor/GPS tick; devicePitchDeg is the latest smoothed reading from
+  // DevicePitch (src/sensors/devicePitch.js), the phone's own current
+  // "elevation angle it's pointing at" — 0 (the horizon) until a real
+  // reading arrives.
+  let skyViewOpen = false;
+  let devicePitchDeg = 0;
   let fetchTimer = null;
   let renderTickTimer = null;
   let lastFetchTime = null;
@@ -273,6 +282,7 @@
     _applyModeButtonOrder();
     TrafficRules.init();
     ManualTilt.init();
+    _syncSkyButtonState();
 
     DevMode.init();
     _initDevTools();
@@ -865,6 +875,25 @@
       });
     }
 
+    // Sky View — planetarium-style free-view mode (2026-09-09). A modal
+    // overlay on top of whatever mode is already active, see
+    // openSkyView()'s own doc comment.
+    const btnSky = document.getElementById("btn-sky");
+    if (btnSky) {
+      btnSky.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (skyViewOpen) closeSkyView(); else openSkyView();
+      });
+    }
+
+    const btnSkyClose = document.getElementById("btn-sky-view-close");
+    if (btnSkyClose) {
+      btnSkyClose.addEventListener("click", (e) => {
+        e.preventDefault();
+        closeSkyView();
+      });
+    }
+
     // 3. Destination-pick arm/disarm — next map tap after arming supplies the target.
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
@@ -1273,6 +1302,7 @@
       if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
+    if (skyViewOpen) refreshSkyView();
   }
 
   // ---- Recenter (after a manual pan/zoom/rotate) ----
@@ -1316,6 +1346,14 @@
     // panel visibility in sync either way.
     ManualTilt.setSpeedMph(userSpeedMph);
     _syncManualTiltUI();
+    // Sky View (2026-09-09) — same convergence point, same reasoning as
+    // ManualTilt just above: pointing a phone up to scan the sky is at
+    // least as much of a driving distraction as any of this app's other
+    // 5mph-gated interactions, so the overlay force-closes the instant
+    // speed crosses the threshold rather than waiting for the user to
+    // notice and back out manually themselves.
+    if (skyViewOpen && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) closeSkyView();
+    _syncSkyButtonState();
   }
 
   function onSpeedSimChanged() {
@@ -1430,6 +1468,22 @@
       if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
+    // Sky View's azimuth axis — userHeading IS the device's own compass
+    // heading whenever this callback is even running at all (it's only
+    // ever consulted below GPS_HEADING_MIN_SPEED_MPH, the exact same
+    // stationary/slow condition Sky View itself requires to be open at
+    // all — see closeSkyView()'s own speed-gate). No separate azimuth
+    // reading needed for Sky View beyond what this app already tracks.
+    if (skyViewOpen) refreshSkyView();
+  }
+
+  /** DevicePitch's own callback (src/sensors/devicePitch.js) — the one
+   * genuinely new sensor axis Sky View needed, see that module's own doc
+   * comment for the beta->elevation derivation and its honest
+   * unverified-against-real-hardware caveat. */
+  function onDevicePitchChange(elevationDeg) {
+    devicePitchDeg = elevationDeg;
+    if (skyViewOpen) refreshSkyView();
   }
 
   // ---- Camera Padding Update Engine ----
@@ -2125,6 +2179,95 @@
     // keeps showing whatever NAV's relevance-filtered count last was until the
     // next poll tick, up to REFRESH_INTERVAL_SECONDS later.
     UI.setAircraftCount(allTracked.length);
+  }
+
+  // ---- Sky View — planetarium-style free-view mode (2026-09-09) ----
+  // See index.html's own comment on #sky-view-screen for why this is a
+  // modal overlay on top of whatever mode was already active, not a real
+  // 4th `mode`/NavDisplayStyle value.
+
+  /** Keeps #btn-sky's dimmed/active look in sync — called from the same
+   * applySpeedOverrideIfActive() convergence point every other speed-gated
+   * control in this app already uses (LogPanel/UI/ManualTilt), so it can't
+   * drift out of sync with the real speed the overlay itself is gated on. */
+  function _syncSkyButtonState() {
+    const btn = document.getElementById("btn-sky");
+    if (!btn) return;
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    btn.classList.toggle("sky-toggle-disabled", blocked);
+    btn.classList.toggle("active-mode", skyViewOpen);
+  }
+
+  async function openSkyView() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // can't even open while moving
+    skyViewOpen = true;
+    document.getElementById("sky-view-screen")?.classList.remove("hidden");
+    _syncSkyButtonState();
+
+    // Both sensors this view needs share the SAME iOS permission gate
+    // (DeviceOrientationEvent.requestPermission(), a per-event-type grant,
+    // not per-listener) — CompassHeading almost always already has it by
+    // the time Sky View can even be opened (the same stationary/slow
+    // condition already starts it in onGpsSuccess), but request it here
+    // too in case it hasn't, since opening Sky View is itself a real user
+    // gesture iOS will accept the prompt from.
+    if (!compassPermissionGranted && CompassHeading.needsPermission()) {
+      const granted = await CompassHeading.requestPermission();
+      if (granted) compassPermissionGranted = true;
+    } else if (!compassPermissionGranted) {
+      compassPermissionGranted = true;
+    }
+    if (compassPermissionGranted) CompassHeading.start(onCompassHeading); // idempotent if already running
+
+    DevicePitch.start(onDevicePitchChange);
+    refreshSkyView();
+  }
+
+  function closeSkyView() {
+    skyViewOpen = false;
+    document.getElementById("sky-view-screen")?.classList.add("hidden");
+    document.getElementById("sky-view-blocked")?.classList.add("hidden");
+    DevicePitch.stop();
+    UI.clearSkyView();
+    _syncSkyButtonState();
+  }
+
+  function refreshSkyView() {
+    if (!skyViewOpen || userLat === null) return;
+
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    document.getElementById("sky-view-blocked")?.classList.toggle("hidden", !blocked);
+    if (blocked) { UI.clearSkyView(); return; }
+
+    const bodyEl = document.getElementById("sky-view-body");
+    const vw = bodyEl ? bodyEl.clientWidth : window.innerWidth;
+    const vh = bodyEl ? bodyEl.clientHeight : window.innerHeight;
+
+    // Same userState shape refreshAirMode() builds — Sky View is, like
+    // AIR, an unfiltered real-position view (every tracked aircraft, not
+    // just what Relevance.evaluate() would show a driver), just re-
+    // projected by device pointing direction instead of plotted on a map.
+    const userState = {
+      lat: userLat, lon: userLon,
+      heading: userHeading, speedMph: userSpeedMph,
+      viewportWidth: vw, viewportHeight: vh,
+      metar: MetarProvider.getCached(),
+      localObstruction: LocalObstruction.getCached(),
+      upperAir: UpperAirProvider.getCached(),
+      mode: _activeDisplayMode(),
+    };
+    const allTracked = Indicators.buildAll(_currentAircraftList(), userState, CONFIG.STALE_THRESHOLD_SECONDS);
+
+    const items = [];
+    for (const item of allTracked) {
+      const elevationOffsetDeg = item.vis.elevationDeg - devicePitchDeg;
+      const pos = SkyCompassLogic.projectToSkyPosition(item.relativeBearing, elevationOffsetDeg, vw, vh);
+      if (pos) items.push({ aircraft: item.aircraft, vis: item.vis, x: pos.x, y: pos.y });
+    }
+
+    UI.renderSkyView(items, (skyItem) => {
+      UI.showAirPopup(skyItem.aircraft, skyItem.vis, null);
+    });
   }
 
   function onAirMarkerClick(item) {

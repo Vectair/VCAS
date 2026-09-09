@@ -526,13 +526,23 @@
             <div class="mode-row-group">
               <div class="mode-row-label mode-row-label-boxed">Screen</div>
               <div class="mode-bracket-stem"></div>
-              <svg class="mode-bracket" viewBox="0 0 6 1.4" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M0,0 L6,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4" stroke="var(--raw-value-green)" stroke-width="0.12" fill="none"/>
+              <svg class="mode-bracket" viewBox="0 0 8 1.4" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,0 L8,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4 M7,0 L7,1.4" stroke="var(--raw-value-green)" stroke-width="0.12" fill="none"/>
               </svg>
               <div class="mode-toggle">
                 <button class="mode-btn active-mode" id="btn-raw">RAW</button>
                 <button class="mode-btn" id="btn-air">AIR</button>
                 <button class="mode-btn" id="btn-hybrid">HYBRID</button>
+                <!-- Sky View is not part of ModeButtonOrder's reorderable
+                     RAW/AIR/HYBRID trio (see modeButtonOrder.js) — it's a
+                     transient overlay launcher, not a persisted display
+                     mode, so it's a fixed 4th button rather than a
+                     reorderable one. Its own "active" look (via
+                     .sky-view-open, not .active-mode) reflects only
+                     whether the overlay is currently open, not a
+                     persisted mode the way the other three's active-mode
+                     class does. -->
+                <button class="mode-btn" id="btn-sky">SKY</button>
               </div>
             </div>
             <div id="aircraft-count">No aircraft in range</div>
@@ -582,6 +592,37 @@
         </div>
         <button class="route-card-clear" id="btn-toggle-guidance-text" title="Hide turn-by-turn text">💬</button>
         <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
+      </div>
+
+      <!-- Sky View — the planetarium-style free-view mode (2026-09-09, see
+           CLAUDE.md's own "360°/planetarium 'sky compass' view" entry).
+           A full-screen overlay entered via the 4th bottom-bar mode button
+           (#btn-sky), NOT a real 4th `mode`/NavDisplayStyle value — whatever
+           was showing underneath (Hybrid/RAW/AIR) stays exactly as it was,
+           paused behind this overlay, same "modal on top of an unchanged
+           mode" pattern #settings-screen/#onboarding-screen already use.
+           Aircraft within the phone's current pointing window (device
+           azimuth ± half-FOV, device pitch ± half-FOV — see
+           skyCompassLogic.js) plot as plain colour-matched dots; the fixed
+           centre reticle marks "where the phone is pointing right now".
+           Gated to stationary/slow use only (same CONFIG.
+           GPS_HEADING_MIN_SPEED_MPH threshold every other point-and-read
+           interaction in this app already uses) — see app.js's
+           _syncSkyViewUI()/openSkyView()/closeSkyView(). -->
+      <div id="sky-view-screen" class="hidden">
+        <div id="sky-view-header">
+          <div id="sky-view-title">Sky View</div>
+          <div id="sky-view-count">0 aircraft in view</div>
+          <button type="button" id="btn-sky-view-close" title="Close Sky View">✕</button>
+        </div>
+        <div id="sky-view-body">
+          <div id="sky-view-crosshair"></div>
+          <div id="sky-view-items"></div>
+          <div id="sky-view-hint">Point your phone at the sky — aircraft
+          within view will appear here.</div>
+          <div id="sky-view-blocked" class="hidden">Sky View is only
+          available while stationary or moving slowly.</div>
+        </div>
       </div>
 
       <!-- Settings screen — "configure occasionally" preferences live here,
@@ -740,6 +781,14 @@
             </section>
 
             <section class="onboarding-section">
+              <h3>Sky View</h3>
+              <p>Tap SKY (only available while stationary or moving slowly)
+              and point your phone at the sky — aircraft in the direction
+              you're pointing appear on screen, planetarium-style. Tap one
+              for details.</p>
+            </section>
+
+            <section class="onboarding-section">
               <h3>Getting somewhere</h3>
               <p>Tap 📍 to search a destination by name, or tap the map
               directly — VCAS routes you there and keeps tracking traffic the
@@ -774,6 +823,7 @@
   <!-- App modules (order matters — dependencies first) -->
   <script src="src/wakeLock.js?v=__BUILD_ID__"></script>
   <script src="src/sensors/compassHeading.js?v=__BUILD_ID__"></script>
+  <script src="src/sensors/devicePitch.js?v=__BUILD_ID__"></script>
   <script src="src/routing/routingProvider.js?v=__BUILD_ID__"></script>
   <script src="src/routing/orsProvider.js?v=__BUILD_ID__"></script>
   <script src="src/routing/orsGeocoder.js?v=__BUILD_ID__"></script>
@@ -790,6 +840,7 @@
   <script src="src/logic/aircraftExtrapolation.js?v=__BUILD_ID__"></script>
   <script src="src/logic/relevance.js?v=__BUILD_ID__"></script>
   <script src="src/logic/indicators.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/skyCompassLogic.js?v=__BUILD_ID__"></script>
   <script src="src/logic/trafficRules.js?v=__BUILD_ID__"></script>
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>

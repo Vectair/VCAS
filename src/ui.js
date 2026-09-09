@@ -1211,6 +1211,49 @@ const UI = (() => {
     if (panel) { panel.classList.add("hidden"); panel.innerHTML = ""; }
   }
 
+  // ---- Sky View (planetarium-style free-view mode, 2026-09-09) ----
+  //
+  // Plots aircraft that fall within the phone's current pointing window
+  // (SkyCompassLogic.projectToSkyPosition, computed by app.js) as plain
+  // colour-matched dots + one-line labels over a dark background — no
+  // live camera feed (see CLAUDE.md's own "sensor-only, not AR" scoping
+  // decision), no icon/label decluttering machinery the way RAW's plot
+  // has (a genuinely simpler display: whatever's currently in the window
+  // just shows, nothing to declutter at this scale). Reuses _displayColor
+  // so a Sky View dot always matches the same colourblind-safe/plain
+  // colour choice every other view already makes for that aircraft.
+
+  function renderSkyView(items, onItemClick) {
+    const container = document.getElementById("sky-view-items");
+    if (!container) return;
+
+    container.innerHTML = items.length === 0 ? "" : items.map(item => {
+      const color = _displayColor(item.vis);
+      const label = _escapeHtml(item.aircraft.callsign || item.aircraft.hex);
+      const hex = _escapeHtml(item.aircraft.hex);
+      return `
+        <div class="sky-view-dot" data-hex="${hex}" style="left:${item.x}px;top:${item.y}px;">
+          <div class="sky-view-dot-marker" style="background:${color}"></div>
+          <div class="sky-view-dot-label">${label}</div>
+        </div>`;
+    }).join("");
+
+    container.querySelectorAll(".sky-view-dot[data-hex]").forEach(el => {
+      const hex = el.dataset.hex;
+      const item = items.find(it => it.aircraft.hex === hex);
+      if (!item) return;
+      el.addEventListener("click", () => onItemClick(item));
+    });
+
+    const countEl = document.getElementById("sky-view-count");
+    if (countEl) countEl.textContent = items.length + " aircraft in view";
+  }
+
+  function clearSkyView() {
+    const container = document.getElementById("sky-view-items");
+    if (container) container.innerHTML = "";
+  }
+
   // ---- Popup ----
 
   /**
@@ -1421,6 +1464,8 @@ const UI = (() => {
     clearAircraftList,
     renderRowsBackdrop,
     clearRowsBackdrop,
+    renderSkyView,
+    clearSkyView,
     showPopup,
     showAirPopup,
     hidePopup,
