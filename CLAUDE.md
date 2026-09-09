@@ -8338,6 +8338,64 @@ correctly, not just that the assertions passed blind.
   the app at all — a rule referencing them can simply never match live
   traffic, harmless rather than worth special-casing out of the list.
 
+### Follow-up: multi-value type matching, comma-separated OR (2026-09-09, same day)
+
+Prompted by the project owner describing their own real use case after
+the walkthrough above: "I am particularly interested in military
+aircraft and Soviet era aircraft so I would leave all aircraft as
+viewable but if one was showing up in VCAS that fell into either
+category I would want them highlighted." Military is already a single
+condition (`traffic: "military"`); "Soviet era" has no equivalent single
+axis — it's really "any of MiG/Su/Tu/An/Il/Yak/Mi/Ka/Be/...", which the
+original single-substring `typeQuery` condition could only express as
+one rule per manufacturer prefix. Confirmed via `AskUserQuestion`
+(over "several single-prefix rules" or a curated built-in preset list):
+extend `typeQuery` to accept a comma-separated list, OR'd together, as
+the minimal change that actually closes the gap.
+
+`TrafficRulesLogic.matchesConditions()` (`src/logic/trafficRules.js`)
+now splits `conditions.typeQuery` on `,`, trims/uppercases each term,
+drops blanks (a trailing comma, `"a,,b"`), and matches if the
+aircraft's type contains ANY term — a plain substring match per term,
+same semantics as the original single-value case, which is exactly the
+`terms.length === 1` case of the new code (verified explicitly, not just
+assumed, so every rule saved before this change keeps working
+unchanged). `index.html`'s `#tr-type-query` field's placeholder/
+`maxlength` updated (`12` → `120`) to actually fit a real list like
+"MiG,Su,Tu,An,Il,Yak,Mi,Ka,Be". `app.js`'s `_trConditionSummary()` reads
+back nicer for the multi-value case too — `Type is any of: MiG, Su, Tu`
+rather than the raw comma string wrapped in quotes — while a genuine
+single-value rule still reads exactly as it did before
+(`Type contains "A320"`).
+
+This is still one condition axis, ORed internally, then AND'd with the
+rule's other conditions exactly as before — so "Soviet types OR
+military" (two independent categories the user wants highlighted, not
+one combined condition) is still two separate highlight rules, not one:
+a type-list rule (`typeQuery: "MiG,Su,Tu,An,Il,Yak,Mi,Ka,Be"`) and a
+traffic rule (`traffic: "military"`), each can carry its own colour or
+share one — `evaluateHighlight()`'s existing first-match-wins-in-list-
+order semantics already handle two independent rules cleanly, no change
+needed there.
+
+Verified with a real Node check against the actual shipped
+`trafficRules.js` (this project's own "verify pure logic with real
+execution" discipline): a MiG-29 and Su-27 both match a Soviet-list
+rule, an F-16 and A320 don't; a spaced/trailing-comma list
+(`" MiG , Su ,, Tu "`) still matches correctly; the military-only
+condition remains a fully independent axis (an Su-27 with
+`military:false` still matches the Soviet-type rule but not a
+military-only rule, and vice versa for the F-16); two highlight rules
+together correctly assign each aircraft its own rule's colour via
+existing first-match-wins; and a genuine single-term rule (`"A320"`)
+still matches/excludes exactly as before the change. All checks passed.
+
+Not done: no curated "Soviet-bloc types" preset list (the project owner
+picks the actual manufacturer prefixes themselves) — deliberately the
+simpler of the two options offered, matching this project's own
+"don't build more than what's asked" convention; no native Android port
+sync, same standing note as every other Traffic Rules entry.
+
 ## Native Android port: RAW-mode/chrome design-sync pass (2026-09-09)
 
 Direct instruction: "the native port is still massively lagging in terms

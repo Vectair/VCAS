@@ -74,10 +74,12 @@ const TrafficRulesLogic = (() => {
 
     if (conditions.typeQuery) {
       const type = (aircraft.type || "").toUpperCase();
-      const query = conditions.typeQuery.trim().toUpperCase();
-      if (!query) {
-        // fall through — blank/whitespace-only query is the same as unset
-      } else if (!type.includes(query)) {
+      // Comma-separated list, OR'd — e.g. "MiG,Su,Tu,An,Il,Yak,Mi,Ka,Be" lets
+      // one rule cover "Soviet-era" without a separate rule per prefix. Each
+      // term is trimmed/uppercased independently; blank terms (a trailing
+      // comma, "a,,b") are dropped rather than matching everything.
+      const terms = conditions.typeQuery.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+      if (terms.length && !terms.some(t => type.includes(t))) {
         return false;
       }
     }

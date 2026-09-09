@@ -587,7 +587,12 @@
    * rule has no conditions set at all (matches everything). */
   function _trConditionSummary(conditions) {
     const parts = [];
-    if (conditions.typeQuery) parts.push(`Type contains "${conditions.typeQuery}"`);
+    if (conditions.typeQuery) {
+      const terms = conditions.typeQuery.split(",").map(t => t.trim()).filter(Boolean);
+      parts.push(terms.length > 1
+        ? `Type is any of: ${terms.join(", ")}`
+        : `Type contains "${conditions.typeQuery}"`);
+    }
     if (conditions.category && conditions.category !== "any") {
       const cats = TrafficRulesLogic.getCategories();
       parts.push(cats[conditions.category] || conditions.category);
