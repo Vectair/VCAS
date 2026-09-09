@@ -272,6 +272,7 @@
     ModeButtonOrder.init();
     _applyModeButtonOrder();
     TrafficRules.init();
+    ManualTilt.init();
 
     DevMode.init();
     _initDevTools();
@@ -853,6 +854,7 @@
         UI.clearRangeSelector(); // same bug pattern as the two clears above
         UI.clearRouteLine(); // same bug pattern again — see renderRouteLine's own call site
         UI.clearRowsBackdrop(); // and again — see renderRowsBackdrop's own call site
+        _hideManualTiltControls(); // and again — Hybrid-only, see that function's own comment
         UI.setRecenterVisible(false);
         WakeLock.disable(); // Only NAV (Hybrid/Raw) needs to keep the screen on, like a real nav app
         if (window._mapInitialised) EosMap.setTheme(_effectiveMapTheme(ThemeManager.getResolved()));
@@ -962,6 +964,29 @@
         onAirRingsToggleClick();
       });
     }
+
+    // 11. Hybrid-only manual camera-tilt override (2026-09-09) — see
+    // manualTilt.js / CLAUDE.md.
+    const btnManualTiltToggle = document.getElementById("btn-manual-tilt-toggle");
+    if (btnManualTiltToggle) {
+      btnManualTiltToggle.addEventListener("click", (e) => {
+        e.preventDefault();
+        onManualTiltToggleClick();
+      });
+    }
+    const btnManualTiltReset = document.getElementById("btn-manual-tilt-reset");
+    if (btnManualTiltReset) {
+      btnManualTiltReset.addEventListener("click", (e) => {
+        e.preventDefault();
+        onManualTiltResetClick();
+      });
+    }
+    const manualTiltSlider = document.getElementById("manual-tilt-slider");
+    if (manualTiltSlider) {
+      manualTiltSlider.addEventListener("input", (e) => {
+        onManualTiltSliderInput(parseFloat(e.target.value));
+      });
+    }
   }
 
   // ---- Theme ----
@@ -1054,6 +1079,120 @@
     const on = AirRangeRingsOption.isEnabled();
     btn.textContent = on ? "On" : "Off";
     btn.classList.toggle("active", on);
+  }
+
+  // ---- Hybrid-only manual camera-tilt override (2026-09-09) ---- //
+  // See manualTilt.js's own doc comment for the full design/rationale.
+
+  /** Positions/shows the toggle+reset+panel just below the real measured
+   * top chrome (top bar + guidance card) — the SAME chromeTopInset
+   * _rawChromeInsets() already computes for everything else up there (the
+   * square plot, the range selector, LOG), not a second independently-
+   * guessed offset. Called every refreshIndicators() tick, i.e. on every
+   * GPS/compass fix and the 500ms extrapolation tick, same cadence every
+   * other Hybrid/RAW-conditional floating control already re-positions on.
+   * Hidden entirely outside Hybrid — RAW has no tilt concept of its own
+   * (see cameraController.js's own comment on why the override is
+   * RAW-excluded) and AIR is handled separately by _hideManualTiltControls
+   * at the AIR-mode entry point, since refreshIndicators() never runs
+   * there for it to re-hide these on. */
+  function _positionManualTiltControls(insets) {
+    const toggle = document.getElementById("btn-manual-tilt-toggle");
+    const reset = document.getElementById("btn-manual-tilt-reset");
+    const panel = document.getElementById("manual-tilt-panel");
+    if (!toggle || !reset || !panel) return;
+
+    if (mode !== "nav" || NavDisplayStyle.isRaw()) {
+      toggle.classList.add("hidden");
+      reset.classList.add("hidden");
+      panel.classList.add("hidden");
+      return;
+    }
+
+    const top = insets.chromeTopInset + 12;
+    toggle.style.top = top + "px";
+    toggle.classList.remove("hidden");
+    reset.style.top = top + "px";
+    panel.style.top = top + "px";
+
+    _syncManualTiltUI();
+  }
+
+  /** Immediately hides every manual-tilt control, unconditionally — called
+   * once at the AIR-mode entry point (same bug class/fix pattern this
+   * codebase already applies there to UI.clearRangeRingsOverlay()/
+   * clearAircraftList()/etc.: refreshIndicators() never runs again once in
+   * AIR mode, so nothing else would ever re-hide a control left showing
+   * from a Hybrid session before the switch). Does NOT touch ManualTilt's
+   * own enabled/pitch state — only the DOM visibility — so returning to
+   * Hybrid resumes exactly where it was left, per the "position should
+   * persist" instruction. */
+  function _hideManualTiltControls() {
+    const toggle = document.getElementById("btn-manual-tilt-toggle");
+    const reset = document.getElementById("btn-manual-tilt-reset");
+    const panel = document.getElementById("manual-tilt-panel");
+    if (toggle) toggle.classList.add("hidden");
+    if (reset) reset.classList.add("hidden");
+    if (panel) panel.classList.add("hidden");
+  }
+
+  /** Keeps the toggle's dimmed/active state and the panel's own visibility/
+   * slider value in sync with ManualTilt's current state. Called after
+   * every speed update (applySpeedOverrideIfActive, so the toggle reads
+   * "temporarily unavailable" the instant speed crosses the 5mph gate —
+   * same LogPanel/UI.setSpeedMph convergence-point pattern this codebase
+   * already establishes for the identical reason) and after every direct
+   * action on these controls themselves. A no-op if the controls are
+   * currently hidden outright (RAW/AIR) — nothing to sync toward. */
+  function _syncManualTiltUI() {
+    const toggle = document.getElementById("btn-manual-tilt-toggle");
+    if (!toggle || toggle.classList.contains("hidden")) return;
+    const reset = document.getElementById("btn-manual-tilt-reset");
+    const panel = document.getElementById("manual-tilt-panel");
+    const slider = document.getElementById("manual-tilt-slider");
+    const valueLabel = document.getElementById("manual-tilt-value");
+
+    const disabledBySpeed = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    toggle.classList.toggle("manual-tilt-toggle-disabled", disabledBySpeed);
+    toggle.classList.toggle("active", ManualTilt.isEnabled());
+
+    const showPanel = ManualTilt.isEnabled();
+    if (reset) reset.classList.toggle("hidden", !showPanel);
+    if (panel) panel.classList.toggle("hidden", !showPanel);
+
+    const pitch = ManualTilt.getPitchDeg();
+    if (slider) slider.value = pitch;
+    if (valueLabel) valueLabel.textContent = Math.round(pitch) + "°";
+  }
+
+  /** Re-evaluates the camera immediately rather than waiting for the next
+   * GPS tick, so any manual-tilt action visibly takes effect right away —
+   * the same pattern onNavDisplayStyleChanged() already establishes for
+   * the identical reason. */
+  function _reapplyCameraNow() {
+    if (mode === "nav" && userLat !== null) {
+      CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
+    }
+  }
+
+  function onManualTiltToggleClick() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // can't even enable while moving
+    ManualTilt.setEnabled(!ManualTilt.isEnabled());
+    _syncManualTiltUI();
+    _reapplyCameraNow();
+  }
+
+  function onManualTiltSliderInput(value) {
+    ManualTilt.setPitchDeg(value);
+    const valueLabel = document.getElementById("manual-tilt-value");
+    if (valueLabel) valueLabel.textContent = Math.round(ManualTilt.getPitchDeg()) + "°";
+    _reapplyCameraNow();
+  }
+
+  function onManualTiltResetClick() {
+    ManualTilt.reset();
+    _syncManualTiltUI();
+    _reapplyCameraNow();
   }
 
   function showConfigWarningIfNeeded() {
@@ -1160,6 +1299,14 @@
     // could drift.
     LogPanel.setSpeedMph(userSpeedMph);
     UI.setSpeedMph(userSpeedMph);
+    // Hybrid's manual-tilt override (2026-09-09) — same convergence point,
+    // same reasoning: force-disables the override the instant speed
+    // crosses CONFIG.GPS_HEADING_MIN_SPEED_MPH (direct instruction: "if
+    // the user... go[es] over the 5mph limit it will automatically revert
+    // to the default position"), and keeps the toggle's dimmed state /
+    // panel visibility in sync either way.
+    ManualTilt.setSpeedMph(userSpeedMph);
+    _syncManualTiltUI();
   }
 
   function onSpeedSimChanged() {
@@ -1569,6 +1716,7 @@
     if (userLat === null) return;
     const insets = _rawChromeInsets();
     const vw = insets.viewportWidth, vh = insets.viewportHeight;
+    _positionManualTiltControls(insets);
 
     const userState = {
       lat: userLat, lon: userLon,

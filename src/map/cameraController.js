@@ -304,6 +304,26 @@ const CameraController = (() => {
       };
     }
 
+    // Hybrid-only manual tilt override (manualTilt.js, 2026-09-09) — a
+    // direct request, confirmed via AskUserQuestion as a HARD override:
+    // whatever pitch the evaluator just computed for the current driving
+    // state (idle/urban/highway/turn) is replaced outright the instant
+    // ManualTilt.isEnabled() is true, with zoom/anchorY/anchorX/bearing all
+    // left exactly as the evaluator computed them — only pitch is frozen.
+    // Deliberately RAW-excluded (evaluatorInput.navDisplayStyle, already
+    // resolved above) — RAW has no MapLibre-camera-driven tilt concept of
+    // its own (NAV_RAW's pitch is always flat 0, and its "camera" is really
+    // the screen-space square plot, see NavigationCameraEvaluator's own
+    // NAV_RAW doc comment) and was never part of what was asked for here.
+    // ManualTilt's own setSpeedMph() already force-disables the override
+    // above CONFIG.GPS_HEADING_MIN_SPEED_MPH (called from app.js's
+    // applySpeedOverrideIfActive() ahead of every followNav() call in the
+    // real GPS path), so no speed check is needed here — isEnabled() alone
+    // is already speed-aware by the time this runs.
+    if (typeof ManualTilt !== "undefined" && ManualTilt.isEnabled() && evaluatorInput.navDisplayStyle !== "raw") {
+      cameraState.pitch = ManualTilt.getPitchDeg();
+    }
+
     // Extract calculated, speed-smoothed metrics from the evaluator brain
     const pitch = cameraState.pitch;
     const zoom  = cameraState.zoom;

@@ -8629,3 +8629,270 @@ execution — the same distinction this project has drawn between
 pure-logic and platform/UI code in every prior native-port entry. The
 real remaining check for the platform/UI code is still opening this in
 Android Studio and building it.
+
+## Hybrid manual camera-tilt override (2026-09-09)
+
+Direct request: "since we spent some time refining the camera in Hybrid
+this is the screen it can be done in instead of making an entire new
+screen" — a small top-right toggle that opens a vertical slider letting
+the user set a fixed camera tilt, a top-left Reset button once it's open,
+the position persisting across sessions, and the whole thing locked to
+the same <5mph gate as the ground-truth log/popup buttons, auto-reverting
+above it. Confirmed via `AskUserQuestion` before building, across two
+real design forks: (1) pitch/tilt only, not zoom — zoom/anchor/bearing
+stay under the automatic camera's control; (2) a HARD override — whatever
+pitch `NavigationCameraEvaluator` would otherwise compute for the current
+driving state (NAV_IDLE/URBAN_GUIDANCE/HIGHWAY_GUIDANCE/TURN_APPROACH) is
+replaced outright the whole time the override is on — with the caveat the
+project owner added themselves in the same answer: it "reverts to the
+generic driving settings over 5mph."
+
+**A real, previously-latent gap found and fixed while building this, not
+assumed away**: `NavigationCameraEvaluator`'s own pitch clamp is `[0,85]`
+— but `map.js`'s `maplibregl.Map` constructor never set `maxPitch` at
+all, and MapLibre GL JS's own un-overridden default ceiling is 60
+(confirmed by downloading the real library from npm and reading its
+actual `Transform` class source, not assumed from memory — same
+discipline this project's Android work already established for reading
+real SDK source before trusting an API). Every existing preset pitch
+either sits comfortably under 60 or exactly at it (`HIGHWAY_GUIDANCE`),
+so this had never been visibly wrong before — but a slider genuinely
+meant to reach the evaluator's own stated 85° ceiling would have silently
+flattened out above 60 without this fix, a real UX bug in the making.
+Fixed by passing `maxPitch: 85` explicitly to the `Map` constructor —
+confirmed against the library's own `maxPitchThreshold` constant that 85
+is the real hard ceiling MapLibre itself allows, not an arbitrary new
+number.
+
+**`src/manualTilt.js`** (new) — a small persisted-state module, same
+shape as `ColorblindMode`/`ModeButtonOrder`: `init()`/`isEnabled()`/
+`getPitchDeg()`/`setEnabled()`/`setPitchDeg()`/`reset()`/`setSpeedMph()`.
+The PITCH VALUE persists in localStorage independent of whether the
+override is currently on (direct instruction: "if the slider is
+manipulated that position should persist") — turning the toggle back on
+later resumes wherever it was left, not a fresh default. Whether the
+override itself was ON does NOT persist across a reload — real speed
+isn't known yet at load time to check the 5mph gate against, and silently
+resuming an active override from a previous session read as more
+surprising than useful for a control this specialised. `reset()`
+deliberately does NOT disable the override — it puts the PITCH back to a
+single well-defined default (`DEFAULT_PITCH_DEG = 45`, duplicated from
+`NavigationCameraEvaluator.STATE_PRESETS.NAV_IDLE.pitch` — same
+"intentionally duplicated, keep in sync by hand" caveat this file already
+carries for `MAPTILER_KEY`/`LOG_ENDPOINT_KEY`) while leaving the slider
+usable — the toggle button is the only thing that turns the feature off.
+`setEnabled(true)` is refused outright (returns `false`, no state change)
+above the speed threshold — a hard "can't even turn it on while moving,"
+not just a later auto-revert; `setSpeedMph()` is the auto-revert half,
+called from the exact same `applySpeedOverrideIfActive()` convergence
+point `LogPanel.setSpeedMph()`/`UI.setSpeedMph()` already funnel through
+(both the real GPS path and the dev SPD override reach it from one line),
+force-disabling an already-active override the instant speed crosses
+`CONFIG.GPS_HEADING_MIN_SPEED_MPH`.
+
+**`cameraController.js`'s `followNav()`** applies the override in exactly
+one place: right after `NavigationCameraEvaluator.evaluate()` returns,
+`cameraState.pitch` is overwritten with `ManualTilt.getPitchDeg()` if
+`ManualTilt.isEnabled()` and the resolved `navDisplayStyle !== "raw"` —
+zoom/anchorY/anchorX/bearing are left exactly as the evaluator computed
+them, so only pitch is frozen, matching the confirmed "hard override, all
+states" design. Deliberately RAW-excluded: RAW's own camera state
+(`NAV_RAW`) already has a flat, always-0 pitch of its own with no tilt
+concept — the project owner's own framing was specifically about Hybrid,
+where the camera refinement work actually lives. No speed check needed
+inside `followNav()` itself — `ManualTilt.isEnabled()` is already
+speed-aware by the time this runs, since `applySpeedOverrideIfActive()`
+always calls `ManualTilt.setSpeedMph()` before any of the several
+`followNav()` call sites run later in the same handler (`onGpsSuccess`,
+`onSpeedSimChanged`) — the auto-revert takes effect on the very next
+camera update, not a frame late.
+
+**UI**: `#btn-manual-tilt-toggle` (a small floating circular button,
+top-right, positioned per-render from the SAME `chromeTopInset`
+`_rawChromeInsets()` already measures for every other Hybrid/RAW
+floating control in this app — one shared source, not a second
+independently-guessed offset, the same discipline this file documents at
+length for the rings-vs-dots/camera-anchor bug class), `#btn-manual-tilt-
+reset` (top-left, only shown once the override is on), and `#manual-
+tilt-panel` (a compact vertical strip: a live degrees readout in B612
+Mono, plus the slider itself). The slider is a standard horizontal
+`<input type="range" min="0" max="85">` rotated `-90deg` inside a
+fixed-footprint wrapper — a well-established cross-browser vertical-
+slider technique that doesn't depend on WebKit-only `-webkit-appearance:
+slider-vertical` (Firefox never implemented it). `rotate(-90deg)`
+specifically, not `90deg`, so the slider's own MAX end lands at the
+visual TOP (dragging up = more tilt, the intuitive reading for a vertical
+control) — derived from the actual CSS rotation math (a rightward point
+rotates to the 12-o'clock position under a -90°/CCW rotation), then
+independently confirmed with a real Playwright click test against a
+plain rotated range input (clicking near the visual top read back
+value=100, near the bottom read back value=0) rather than trusted on the
+derivation alone.
+
+**A real bug class this project has hit before, deliberately avoided
+here from the start**: switching to AIR mode never runs
+`refreshIndicators()` again (the same reason `UI.clearRangeRingsOverlay()`/
+`clearAircraftList()`/etc. all need their own explicit calls at the
+AIR-mode entry point, per the LOG-button-overlap and several other
+entries in this file) — so a Hybrid-only floating control needs an
+explicit hide call there too, or it would be left showing over the AIR
+map for as long as the user stayed there. `_hideManualTiltControls()`
+is called alongside those existing clears in the `btn-air` click handler,
+matching that established pattern exactly rather than reinventing a
+different fix. It only touches DOM visibility, not `ManualTilt`'s own
+enabled/pitch state, so returning to Hybrid resumes exactly where it was
+left. Switching between Hybrid and RAW needed no separate handling —
+`refreshIndicators()` runs for both, and `_positionManualTiltControls()`
+already re-hides the controls itself whenever `NavDisplayStyle.isRaw()`.
+
+**Verified two ways**: (1) a real Node check against the actual shipped
+`manualTilt.js` — default pitch/range, clamp behaviour at both ends,
+pitch-value persistence across a simulated reload (`init()` called
+again) while enabled-state does NOT persist, refusing to enable above the
+threshold, allowing exactly AT the threshold (`>` not `>=`) then
+auto-disabling just above it (5.1mph), reset restoring the default
+pitch without disabling, and disabling always being allowed regardless
+of speed — all passed. (2) A real, extracted-verbatim Playwright harness
+(this project's established fallback for UI wiring that lives inside
+`app.js`'s own large closure — the same technique the Traffic Rules
+feature's own verification used) driving the actual shipped
+`_positionManualTiltControls`/`_hideManualTiltControls`/
+`_syncManualTiltUI`/`onManualTiltToggleClick`/`onManualTiltSliderInput`/
+`onManualTiltResetClick`/`applySpeedOverrideIfActive` functions and the
+real button-wiring block, string-sliced verbatim out of `app.js`, against
+the real markup and `VCAS.css`: 34 checks, all passed, zero page errors —
+covering the full enable → drag → reset → auto-revert-above-5mph →
+refuse-to-re-enable → allowed-again-exactly-at-5mph cycle, hidden in both
+RAW and (via the explicit AIR-entry hide call) AIR, and no horizontal
+overflow at this project's standard 360px check.
+
+**Honest status**: never tested against a real touch drag on an actual
+device — the Playwright checks above exercise the underlying `<input
+type="range">` value/event model directly (setting `.value` and
+dispatching `input`, and a separate synthetic-click geometry test for the
+rotation direction), which is what actually drives the app's own logic
+regardless of how the browser's touch-to-thumb-position mapping renders
+visually, but a rotated range input's real-device touch feel (iOS Safari
+in particular has documented quirks with `-webkit-appearance` overrides)
+has not been confirmed hands-on. Worth a real-device pass before
+considering this fully done, same standing caveat this file already
+carries for every UI feature verified this way.
+
+## 360°/planetarium "sky compass" view — scoped, not yet built (2026-09-09)
+
+Direct request, alongside the Hybrid tilt work above: "a free view where
+the user uses the phone in a 360 manager, like planetarium style apps,
+so that the display shows which aircraft are in the 'camera' view point."
+Confirmed via `AskUserQuestion`, on both of the two real forks this
+needed resolving before any design could be committed to: **sensor-only
+"sky compass"**, not true camera-passthrough AR (no live video feed —
+use the phone's real compass heading + tilt to know which way it's
+pointing, and show whichever aircraft fall in that direction as icons
+over a plain/dark background, the same way RAW's plot works but oriented
+by the phone's real 3D attitude instead of GPS course); and **design/
+scope only for now, build later** — this entry is that scoping, not a
+built feature. Nothing described below has been implemented.
+
+**Why sensor-only, not AR — the real tradeoff, not just "simpler":** true
+camera-passthrough AR needs `getUserMedia()` camera access (this app has
+never used the camera anywhere, a real, deliberate first if adopted) plus
+accurate real-time 3D device ORIENTATION (azimuth + pitch + roll, not
+just the single compass heading `compassHeading.js` already extracts) to
+correctly place aircraft over live video. This project has already
+fought — and only partially resolved — DeviceOrientation API
+fragmentation for the much narrower 2D-heading-only case (`compassHeading.js`,
+see "Compass 'won't settle / settles wrong'" above: the
+`deviceorientationabsolute`-vs-plain-`deviceorientation` event-name/
+`absolute`-flag inconsistency across real Android implementations took
+two separate follow-up passes to get right, and is STILL flagged as
+needing real-device field re-test). A true-AR build needs that same
+fragile 3D sensor data to be accurate enough for visual alignment, which
+is a materially harder bar than "close enough to gate a fallback path" —
+a real risk worth naming up front rather than discovering after a much
+larger camera+AR build was already underway. Sensor-only sidesteps camera
+permission entirely and needs only azimuth (already fought for) plus one
+new axis (device pitch/inclination), a smaller, bounded extension of
+ground already covered rather than a new fragility class.
+
+### What already exists to build on
+
+- **Azimuth**: `compassHeading.js` already extracts and smooths a
+  real-world compass heading from `deviceorientationabsolute`/
+  `deviceorientation`/iOS's `webkitCompassHeading`, including the
+  `absolute`-flag fragmentation fix (2026-08-24 follow-up above). This
+  view needs that exact same heading — not a new sensor read, but this
+  module's speed-gated stop/start behaviour (`CONFIG.
+  GPS_HEADING_MIN_SPEED_MPH`, see "Power efficiency pass" above — it
+  currently STOPS above 5mph, GPS course wins there) would need to change
+  for this view specifically, since a sky-compass view is inherently a
+  stationary/handheld-pointing use case where GPS course is meaningless
+  and the compass must stay live regardless of vehicle speed. Needs a
+  real decision on how `CompassHeading.start()`/`stop()`'s existing speed
+  gate interacts with a second consumer that has different needs than the
+  main NAV heading did.
+- **Elevation angle**: already computed per-aircraft by both
+  `Relevance.evaluate()` (the overhead-detection `elevationDeg`) and
+  `Visibility.estimate()` (angular-size/contrail scoring) — this view
+  needs the identical number, not a new geometry formula, just a new
+  CONSUMER of a value that already flows through the pipeline.
+- **Device pitch/inclination**: the one genuinely new sensor axis. The
+  DeviceOrientation event's `beta` value (front-back tilt) is the
+  candidate — `compassHeading.js` never reads it today (heading only
+  needs `alpha`), so this is unexplored territory in this codebase, not
+  a small extension of already-verified logic the way azimuth is. Real
+  research needed: whether `beta`'s own 0°/90°/180° convention (phone
+  flat vs. phone vertical vs. phone upside-down) maps cleanly onto "how
+  far above/below the horizon is the phone pointing," and whether real
+  Android/iOS implementations agree on that convention as reliably as
+  they mostly do for `alpha` (not guaranteed — `alpha`'s own fragmentation
+  fight took two passes; `beta` has had no equivalent field-testing here
+  at all).
+
+### The real architectural question this needs before implementation: a NEW angular-matching primitive, not a reuse of RAW's plot
+
+RAW's existing polar plot (`Geo.projectToPolarPosition`) places a dot by
+**bearing + banded distance** — it has no elevation axis at all; every
+aircraft, regardless of altitude, plots purely by ground-track bearing
+and horizontal range. A sky-compass view is fundamentally different: it
+needs to know whether an aircraft's real **(bearing, elevation)** pair
+falls within the phone's current **(azimuth ± half-FOV, pitch ± half-FOV)**
+window — a genuine new 2D angular-matching function, not a parameter
+tweak on the existing one. This is closer in shape to `Relevance`'s own
+FOV-half-angle bearing check (`Indicators.FOV_HALF_ANGLE_DEG`) than to
+`Geo.projectToPolarPosition`, but needs a second, orthogonal FOV
+half-angle for elevation that nothing in this codebase currently
+computes or needs (a phone's camera/screen has a real, roughly-fixed
+vertical FOV very different from RAW's arbitrary 75° horizontal design
+choice — a real number to research, not invent, if AR/camera framing
+were ever added later, and still worth picking a deliberate value even
+for the sensor-only version).
+
+### Rendering — reuses `Indicators`' per-aircraft computation, not its polar-projection output
+
+Since this is explicitly NOT camera-passthrough AR, "showing which
+aircraft are in view" doesn't need real per-pixel screen placement
+matched to a live video feed — a simpler, honest rendering falls out of
+the sensor-only choice: aircraft within the phone's current pointing
+window get listed/highlighted (closer to AIR mode's unfiltered marker
+list crossed with RAW's tap-for-detail popup than to a literal
+"aircraft-shaped dot floating at its exact visual position over the
+sky"), with the phone's live azimuth/pitch driving which subset is
+currently "in view" rather than driving a precise on-screen coordinate.
+Exact visual treatment (a dedicated list, a crosshair-style center
+indicator, some hybrid) is real, unresolved design work for whenever
+this is picked up — not decided here.
+
+### Explicit non-scope for this scoping pass
+
+No camera permission, no `getUserMedia()`, no video compositing, no
+per-pixel AR overlay placement — all explicitly ruled out by the
+sensor-only answer above, not deferred-but-implied. No 4th mode-button
+UI, no settings-screen wiring, no new files — this entry is architecture
+notes for a future session to start from, matching this project's own
+established pattern for scoped-but-not-started work (see the "Long-term
+destination" Android Auto scoping note at the top of this file, which sat
+untouched for a real stretch before Phase 1 actually began). Whether this
+becomes a 4th mode button, a separate entry point, or something else
+entirely is also unresolved — the earlier AskUserQuestion on mode
+placement was only reached in the "build now" branch, which wasn't the
+answer given.

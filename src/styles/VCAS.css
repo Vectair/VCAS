@@ -828,6 +828,154 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
 #btn-raw-range:active { background: rgba(240,240,240,.15); box-shadow: inset 0 1px 3px rgba(0,0,0,.6); }
 #btn-raw-range.hidden { display: none; }
 
+/* ---- Hybrid-only manual camera-tilt override (2026-09-09) ---- */
+/* Toggle — a small floating circular button at the top-right, positioned
+   per-render by app.js's _positionManualTiltControls() (same "measure the
+   real chrome once, position from that" pattern #btn-recenter and every
+   other floating Hybrid/RAW control in this file already use — see that
+   function's own comment). Dark panel look at rest (not filled --accent
+   like #btn-recenter, so it doesn't read as equally "always-on" chrome),
+   filling solid --accent only once the override is actually engaged. */
+#btn-manual-tilt-toggle {
+  position: fixed;
+  right: 14px;
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow), var(--btn-shadow);
+  -webkit-appearance: none;
+  transition: top .2s, opacity .15s, transform .15s, background .15s;
+}
+#btn-manual-tilt-toggle:active { transform: scale(.94); box-shadow: var(--shadow), var(--btn-shadow-active); }
+#btn-manual-tilt-toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (distraction/safety) — dimmed and
+   inert, same treatment #lp-toggle.lp-toggle-disabled already establishes
+   for the identical reason, so it reads as "temporarily unavailable," not
+   broken or gone. */
+#btn-manual-tilt-toggle.manual-tilt-toggle-disabled { opacity: .35; cursor: not-allowed; }
+#btn-manual-tilt-toggle.hidden { display: none; }
+
+/* Reset — only shown alongside the panel below, top-left so it never
+   collides with the toggle's own top-right corner. A word, not a digit
+   readout, so it stays on the app's regular display face rather than
+   B612 Mono (matching this project's own "digits get mono, words don't"
+   convention already established for e.g. #btn-raw-range vs. its
+   surrounding labels). */
+#btn-manual-tilt-reset {
+  position: fixed;
+  left: 14px;
+  z-index: 30;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--shadow), var(--btn-shadow);
+  transition: top .2s;
+}
+#btn-manual-tilt-reset:active { box-shadow: var(--shadow), var(--btn-shadow-active); }
+#btn-manual-tilt-reset.hidden { display: none; }
+
+/* Slider panel — a compact vertical strip under the toggle. The actual
+   <input type="range"> is a normal HORIZONTAL slider rotated -90deg inside
+   a fixed-footprint wrapper (a well-established cross-browser technique
+   for a vertical slider that doesn't depend on WebKit-only
+   `-webkit-appearance: slider-vertical`, which Firefox never implemented)
+   — rotate(-90deg) specifically, not 90deg, so the slider's own MAX end
+   (right, at rest) lands at the visual TOP: dragging the thumb UP
+   increases tilt (more oblique/dashcam-like), matching the intuitive
+   "up = more" reading of a vertical control, confirmed by working through
+   the actual rotation math (a rightward point rotates to the 12 o'clock
+   position under a -90deg/CCW rotation) rather than assumed. */
+#manual-tilt-panel {
+  position: fixed;
+  right: 14px;
+  z-index: 29;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-alt);
+  box-shadow: var(--shadow);
+  transition: top .2s;
+}
+#manual-tilt-panel.hidden { display: none; }
+
+.manual-tilt-value {
+  /* A real digital readout (degrees), not a label — B612 Mono per this
+     project's established "digital readout vs. display label" split. */
+  font-family: 'B612 Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.manual-tilt-slider-wrap {
+  position: relative;
+  width: 36px;
+  height: 160px;
+}
+.manual-tilt-slider-wrap input[type="range"] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 28px;
+  margin: 0;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center center;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.manual-tilt-slider-wrap input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.manual-tilt-slider-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+.manual-tilt-slider-wrap input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.manual-tilt-slider-wrap input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+
 /* ---- Destination-pick hint ---- */
 #dest-pick-banner {
   position: fixed;

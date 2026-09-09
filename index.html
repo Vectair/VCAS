@@ -377,6 +377,24 @@
            cycle through the same 5 boundaries the range rings use. -->
       <button type="button" id="btn-raw-range" class="hidden" title="Tap to change ND range"></button>
 
+      <!-- Hybrid-only manual camera-tilt override (2026-09-09) — see
+           CLAUDE.md and src/manualTilt.js. Positioned/shown by app.js's
+           _positionManualTiltControls() (called from refreshIndicators(),
+           the same place every other Hybrid/RAW-conditional floating
+           control already gets positioned from), not fixed CSS coordinates
+           — RAW/AIR both hide these outright. The toggle is gated to
+           CONFIG.GPS_HEADING_MIN_SPEED_MPH, same as the LOG button; the
+           reset button and slider panel only ever show once the override
+           is actually on. -->
+      <button type="button" id="btn-manual-tilt-toggle" class="hidden" title="Adjust camera angle">🎚</button>
+      <button type="button" id="btn-manual-tilt-reset" class="hidden" title="Reset camera angle">RESET</button>
+      <div id="manual-tilt-panel" class="hidden">
+        <div class="manual-tilt-value" id="manual-tilt-value">45°</div>
+        <div class="manual-tilt-slider-wrap">
+          <input type="range" id="manual-tilt-slider" min="0" max="85" step="1" value="45" aria-label="Camera tilt angle">
+        </div>
+      </div>
+
       <!-- Main overlay (top/bottom chrome) -->
       <div id="overlay">
         <!-- Top bar -->
@@ -780,6 +798,7 @@
   <script src="src/airRangeRingsOption.js?v=__BUILD_ID__"></script>
   <script src="src/devMode.js?v=__BUILD_ID__"></script>
   <script src="src/navDisplayStyle.js?v=__BUILD_ID__"></script>
+  <script src="src/manualTilt.js?v=__BUILD_ID__"></script>
   <script src="src/navigation/navigationCameraEvaluator.js?v=__BUILD_ID__"></script>
   <script src="src/map/cameraController.js?v=__BUILD_ID__"></script>
   <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>

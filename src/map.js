@@ -43,6 +43,16 @@ const EosMap = (() => {
       attributionControl: false,
       pitchWithRotate:  true,
       touchPitch:       false,
+      // MapLibre GL JS's own un-overridden default pitch ceiling is 60
+      // (confirmed by reading the library's actual Transform source, not
+      // assumed) — silently swallowing anything NavigationCameraEvaluator's
+      // own [0,85] clamp allows above that, though nothing had ever
+      // actually asked for more than 60 until the manual-tilt override
+      // (manualTilt.js) did. 85 matches MapLibre's own hard ceiling
+      // (`maxPitchThreshold`) for this option, so this unlocks the full
+      // range the evaluator's clamp always intended rather than picking an
+      // arbitrary new number.
+      maxPitch:         85,
     });
 
     _map.addControl(
