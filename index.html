@@ -617,6 +617,18 @@
           <button type="button" id="btn-3d-view-close" title="Close 3D View">✕</button>
         </div>
         <div id="view3d-body">
+          <!-- World building (2026-09-09 follow-up) — a lightweight
+               procedural sky/ground split at the real horizon (elevation
+               0°), NOT a real 3D map: MapLibre's own camera has a hard
+               pitch ceiling (85°, see the Hybrid manual-tilt entry in
+               CLAUDE.md) and structurally cannot render the near-zenith
+               views this mode needs for a high-elevation aircraft, so a
+               real map was ruled out in favour of this — see
+               View3DLogic.horizonScreenY() and UI.render3DWorld(). Sized/
+               positioned every refresh() from the phone's own current
+               pitch; painted behind the crosshair/items/hint below. -->
+          <div id="view3d-sky"></div>
+          <div id="view3d-ground"></div>
           <div id="view3d-crosshair"></div>
           <div id="view3d-items"></div>
           <div id="view3d-hint">Point your phone at the sky — aircraft

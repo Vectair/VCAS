@@ -2235,13 +2235,24 @@
   function refresh3DView() {
     if (!view3DOpen || userLat === null) return;
 
-    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
-    document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);
-    if (blocked) { UI.clear3DView(); return; }
-
     const bodyEl = document.getElementById("view3d-body");
     const vw = bodyEl ? bodyEl.clientWidth : window.innerWidth;
     const vh = bodyEl ? bodyEl.clientHeight : window.innerHeight;
+
+    // World building (2026-09-09 follow-up) — the sky/ground split at the
+    // real horizon, kept live regardless of the blocked state below (the
+    // "stationary only" banner sits on top of it either way, and there's
+    // no reason to freeze the world mid-transition). isNight reuses the
+    // same ThemeManager Day/Night resolution the rest of the app already
+    // derives its own chrome from — no new signal, see UI.render3DWorld's
+    // own doc comment for why this screen specifically DOES follow real
+    // Day/Night unlike RAW's fixed-dark instrument look.
+    const horizonY = View3DLogic.horizonScreenY(devicePitchDeg, vh);
+    UI.render3DWorld(horizonY, vh, ThemeManager.getResolved() === "night");
+
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);
+    if (blocked) { UI.clear3DView(); return; }
 
     // Same userState shape refreshAirMode() builds — 3D View is, like
     // AIR, an unfiltered real-position view (every tracked aircraft, not

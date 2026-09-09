@@ -9245,3 +9245,139 @@ phone when trying to "look at" a specific aircraft — that's the real
 remaining check, same category as every compass-heading fix in this
 file's history that shipped "logic verified, hardware behaviour
 pending real-device field re-test."
+
+## Sky View renamed to 3D View; a "world building" backdrop added (2026-09-09, same day)
+
+Direct feedback, same day the feature shipped: "we need a better name than
+Sky since that's very close to Air which we already have. does 3D work?"
+— confirmed and adopted. Mechanical rename across every touched file:
+`btn-sky` → `btn-3d`, `#sky-view-*` → `#view3d-*`, `openSkyView`/
+`closeSkyView`/`refreshSkyView`/`_syncSkyButtonState` →
+`open3DView`/`close3DView`/`refresh3DView`/`_sync3DButtonState`,
+`SkyCompassLogic` → `View3DLogic` (file renamed `skyCompassLogic.js` →
+`view3dLogic.js`), `renderSkyView`/`clearSkyView` → `render3DView`/
+`clear3DView`. No behaviour change — re-verified with the same Playwright
+harnesses the feature originally shipped with, rebuilt against the
+renamed identifiers (33 checks across 4 harnesses, all still passing).
+
+**Second piece of the same message: "there needs to be more world
+building, currently it's just black. can the maptiler be used within
+this mode to generate a horizon and a basic 3d world or would something
+else be needed?"**
+
+**Answer, confirmed via `AskUserQuestion` before building: something
+else — a lightweight procedural sky, not MapLibre.** Real reason, not
+just "simpler": MapLibre's own camera model has a hard pitch ceiling —
+confirmed directly against the locally-installed `maplibre-gl` package's
+own compiled source (`maxPitch:60` default, `maxPitch>85` as the
+absolute hard cap enforced internally) — the exact same constraint
+already documented in this file's own Hybrid manual-tilt entry above. A
+tilted MapLibre map fundamentally cannot represent looking near straight
+up (elevation approaching 90°), which is precisely the range 3D View
+exists to cover for a high-elevation aircraft — a real MapLibre "sky"
+layer and `fill-extrusion` 3D buildings do exist in MapLibre's style spec
+(confirmed present in the compiled bundle) and would look genuinely
+better for LOW-elevation, near-horizon views, but they don't solve the
+part of the problem that actually motivated this mode. Offered three
+options (procedural sky / real MapLibre horizon-only / both staged);
+project owner picked the lightweight procedural sky outright.
+
+**Implementation — a sky/ground split at the real horizon, not a flat
+black void.** New `View3DLogic.horizonScreenY(devicePitchDeg,
+viewportHeight, fovHalfVDeg)`: the exact same linear degrees-to-pixels
+mapping `projectTo3DPosition` already uses for a single aircraft dot,
+applied to the horizon's own fixed real-world elevation (0°) — if the
+phone points `devicePitchDeg` above the true horizon, the horizon itself
+sits `devicePitchDeg` below wherever the phone is currently centred.
+Deliberately UNCLAMPED (unlike `projectTo3DPosition`, which returns
+`null` outside the window) — a horizon is always "somewhere," even
+off-screen at a steep tilt, never a single point that can meaningfully
+fall "outside" the frame the way one aircraft dot can.
+
+New `UI.render3DWorld(horizonY, viewportHeight, isNight)` (`ui.js`) sizes
+two new divs, `#view3d-sky` (0 to `horizonY`) and `#view3d-ground`
+(`horizonY` to the bottom), each with its own top-to-bottom CSS gradient
+— day: dark blue zenith fading to a lighter horizon-blue, brown ground
+fading darker with depth; night: near-black zenith fading to a faint
+navy horizon glow, with a fixed set of small `radial-gradient` "stars"
+(a real starfield would need real celestial-mechanics data this project
+has no source for; a static decorative texture reads as "night sky" at
+a glance for a fraction of the cost). **A deliberate v1 simplification,
+named rather than silently accepted**: each gradient is anchored to its
+own DIV's current height, not to a fixed true-elevation range — so the
+sky doesn't get physically "stretched" or "squished" in a perfectly
+continuous way as the horizon (and therefore the sky div's own height)
+moves with tilt. What actually matters for reading the scene at a glance
+— which side of the horizon a given pixel is on, and a rough sense of
+"further from the horizon reads darker" — holds regardless; a fully
+continuous physically-anchored gradient was judged not worth the added
+complexity for what's explicitly a lightweight backdrop, not a
+simulation.
+
+**`isNight` is a real reversal of this screen's own prior styling
+decision, not an oversight.** The CSS section that originally shipped
+this screen stated "3D View is read purely by pointing the phone at open
+sky, not something that benefits from a bright daytime theme" (mirroring
+RAW's own "no day mode for a cockpit instrument" precedent). That
+reasoning doesn't actually transfer here: RAW is an abstract instrument
+readout with no real-world equivalent to "look like daytime," while 3D
+View depicts the literal real sky the user is pointing at — a genuine
+blue day sky vs. a dark night sky is more honest, not less, once the
+screen actually renders a world instead of pure black. Reuses the
+already-existing `ThemeManager.getResolved()` signal (`"day"`/`"night"`,
+the same one every other themed surface in this app already derives
+from) — no new time-of-day/sun-position calculation added. The CHROME
+(header bar, close button) is untouched by this and stays on the fixed
+`--raw-chrome-bg` slate background every top/bottom bar in this app now
+uses regardless of theme (round 11's chrome unification) — only the
+WORLD content inside `#view3d-body` follows Day/Night, a real, deliberate
+scope line between "instrument-panel chrome" and "the sky being
+depicted," not a blanket "make everything theme-aware" change.
+
+Wired into `refresh3DView()` (`app.js`), called unconditionally on every
+refresh (including while the speed-gate "blocked" banner is showing —
+the banner sits visually on top of it either way, and there's no reason
+to freeze the world mid-transition) — `horizonY` from
+`View3DLogic.horizonScreenY(devicePitchDeg, vh)`, `isNight` from
+`ThemeManager.getResolved() === "night"`.
+
+**Verified with real execution, this project's own established
+discipline, applied to a purely visual feature same as any logic
+one**: 5 real Node checks on `horizonScreenY()` itself (level pitch →
+horizon at exact centre; pitched to the edge of the FOV window in either
+direction → horizon at the very bottom/top of the viewport; a pitch
+beyond the window still returns a real, correctly-computed off-screen
+value rather than clamping or nulling; the default half-V constant
+applies when omitted). 8 real Playwright checks against the actual
+shipped `UI.render3DWorld()` (height/position math, day/night class
+toggling, clamping a horizon position outside `[0, viewportHeight]`,
+graceful no-throw handling if the DOM elements are ever missing). 6 more
+Playwright checks against the real `app.js` wiring (extracted verbatim,
+same technique this feature's own original build already established)
+confirming `render3DWorld()` is actually called on open with the correct
+horizon position for a level pitch, that tilting up via the real
+`onDevicePitchChange` callback moves the horizon down as expected, that
+a live theme change is reflected on the next refresh, and that the world
+keeps rendering through the speed-gate's blocked state rather than
+freezing. **A real, visual end-to-end check too, not just DOM
+assertions**: a Playwright harness loading the actual `ui.js`/
+`view3dLogic.js`/`VCAS.css` (not stubs) rendered three real screenshots
+— night/level with two aircraft plotted against a starlit sky and dark
+ground, night/tilted-up-20° (horizon visibly lower, more sky, fewer
+stars below it), and day/tilted-down-15° (blue sky band shrinks, brown
+ground fills most of the frame) — confirming the whole system reads as
+a coherent scene, not just individually-correct numbers.
+
+**Explicit scope, not silently implied to be more**: no real sun/moon
+position (would need actual solar-position astronomy this project has
+no other use for and no existing dependency to lean on); no terrain,
+skyline silhouette, or MapLibre map content of any kind — this remains
+deliberately map-free, per the "sensor-only, no camera/AR, no new heavy
+dependency" discipline the feature's own original scoping note already
+established; no true continuously-anchored sky gradient across tilts
+(see the v1-simplification note above); no landscape-orientation
+handling (matches `DevicePitch`'s own existing portrait-only scope). If
+a real 3D map ever becomes worth the added complexity for the
+near-horizon case specifically, that's the "both, staged" option that
+was offered and not taken this round — a real, separately-scoped follow-
+up, not an implied next step here.

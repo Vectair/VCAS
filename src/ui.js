@@ -1254,6 +1254,31 @@ const UI = (() => {
     if (container) container.innerHTML = "";
   }
 
+  /**
+   * "World building" for 3D View (2026-09-09 follow-up, direct report:
+   * "currently it's just black") — a lightweight procedural sky/ground
+   * split at the real horizon, not a real 3D map (see index.html's own
+   * comment on why MapLibre can't do this — its camera has an ~85° hard
+   * pitch ceiling and can't render the near-zenith views this mode needs
+   * for a high-elevation aircraft). horizonY comes from
+   * View3DLogic.horizonScreenY(), the same linear degrees-to-pixels
+   * mapping the aircraft dots themselves use, applied to the horizon's
+   * own fixed elevation (0°) — so as the phone tilts, the sky/ground
+   * split moves exactly the way a dot at true elevation 0 would.
+   */
+  function render3DWorld(horizonY, viewportHeight, isNight) {
+    const sky = document.getElementById("view3d-sky");
+    const ground = document.getElementById("view3d-ground");
+    if (!sky || !ground) return;
+
+    const clampedY = Math.max(0, Math.min(viewportHeight, horizonY));
+    sky.style.height = clampedY + "px";
+    ground.style.top = clampedY + "px";
+
+    sky.classList.toggle("night", !!isNight);
+    ground.classList.toggle("night", !!isNight);
+  }
+
   // ---- Popup ----
 
   /**
@@ -1466,6 +1491,7 @@ const UI = (() => {
     clearRowsBackdrop,
     render3DView,
     clear3DView,
+    render3DWorld,
     showPopup,
     showAirPopup,
     hidePopup,

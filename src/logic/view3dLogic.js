@@ -55,7 +55,30 @@ const View3DLogic = (() => {
     return { x, y };
   }
 
-  return { projectTo3DPosition, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
+  /**
+   * Screen Y for the true horizon (elevation 0), given where the phone is
+   * currently pointing — the "world building" backdrop behind the aircraft
+   * dots (see CLAUDE.md's own note on why this is a lightweight procedural
+   * sky/ground split, not a real 3D map: MapLibre's camera model has a
+   * hard pitch ceiling — 85° in this project's own build, see the Hybrid
+   * manual-tilt entry — so it structurally cannot render the near-zenith
+   * views this mode needs for a high-elevation aircraft).
+   *
+   * Same linear degrees-to-pixels mapping projectTo3DPosition uses for a
+   * single aircraft, applied to the horizon's own fixed elevation (0°):
+   * if the phone points `devicePitchDeg` above the true horizon, the
+   * horizon itself sits `devicePitchDeg` below wherever the phone is
+   * currently centred. Deliberately UNCLAMPED, unlike projectTo3DPosition
+   * — a horizon is always "somewhere" (even off-screen, tilted steeply
+   * enough), not a single point that can fall meaningfully "outside the
+   * window" the way one aircraft dot can.
+   */
+  function horizonScreenY(devicePitchDeg, viewportHeight, fovHalfVDeg) {
+    const halfV = fovHalfVDeg != null ? fovHalfVDeg : FOV_HALF_V_DEG;
+    return viewportHeight / 2 + (devicePitchDeg / halfV) * (viewportHeight / 2);
+  }
+
+  return { projectTo3DPosition, horizonScreenY, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
 })();
 
 if (typeof module !== "undefined") module.exports = View3DLogic;
