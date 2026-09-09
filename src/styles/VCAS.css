@@ -872,10 +872,11 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
    convention already established for e.g. #btn-raw-range vs. its
    surrounding labels). */
 #btn-manual-tilt-reset {
-  /* Bottom-left, not top-left (2026-09-09 follow-up) — see
-     _positionManualTiltControls()'s own comment in app.js for why: LOG has
-     no Hybrid-mode position of its own, and was left sitting right where
-     this button's old top-left spot collided with it. */
+  /* Top-left, same row as the toggle/panel (2026-09-09 clarification) —
+     LOG itself is what moved, into Hybrid/AIR's own bottom-left position
+     mirroring RAW; see _positionManualTiltControls()'s own comment in
+     app.js and refreshIndicators()/refreshAirMode() in app.js for where
+     LOG is now positioned instead. */
   position: fixed;
   left: 14px;
   z-index: 30;
@@ -890,7 +891,7 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   cursor: pointer;
   -webkit-appearance: none;
   box-shadow: var(--shadow), var(--btn-shadow);
-  transition: bottom .2s;
+  transition: top .2s;
 }
 #btn-manual-tilt-reset:active { box-shadow: var(--shadow), var(--btn-shadow-active); }
 #btn-manual-tilt-reset.hidden { display: none; }

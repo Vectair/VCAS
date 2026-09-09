@@ -8778,44 +8778,71 @@ has not been confirmed hands-on. Worth a real-device pass before
 considering this fully done, same standing caveat this file already
 carries for every UI feature verified this way.
 
-### Follow-up: Reset button moved bottom-left, off LOG (2026-09-09, same day)
+### Follow-up: LOG itself moves to RAW's own position, not the Reset button (2026-09-09, same day)
 
 Real-device feedback, once the feature above was confirmed working:
 "my only moyre is that the camera reset looks like it covers or
 replaces the log button so maybe move this down to the bottom left
-like it is in raw mode." Confirmed the actual collision, not assumed:
-`#btn-manual-tilt-reset` was positioned top-left (`left: 14px`, same
-`top` as the toggle/panel), and LOG (`#lp-toggle`) has **no Hybrid-mode
-position of its own** — `LogPanel.setPosition()` is only ever called
-from `refreshIndicators()`'s `if (isRawView)` branch (see "LOG button
-row-alignment follow-up" above), so in Hybrid it's simply left sitting
-wherever it was last positioned during a RAW session, or at its plain
-CSS default (`#lp-toggle { left: 14px; top: 100px; }`) if RAW was never
-entered — right where Reset's own top-left spot landed.
+like it is in raw mode." First attempt (superseded within the same
+day, see below) anchored `#btn-manual-tilt-reset` from the bottom
+instead of touching LOG at all — the wrong fix, corrected by the
+project owner immediately after: "I meant move the log button on the
+hybrid screen to the same position it occupies on the raw screen. if
+there is a log button on air mode move it to the same position as
+well. move the hybrid reset button to where the log button currently
+is." I.e. LOG itself needed to move, not Reset — and Reset should
+*take over* LOG's old top-left spot rather than vacate it.
 
-Fixed by anchoring Reset from the bottom instead:
-`_positionManualTiltControls()` (`app.js`) now sets `reset.style.top =
-"auto"` and `reset.style.bottom = (insets.bottomInset + 12) + "px"` —
-`insets.bottomInset` is the same real bottom-chrome-height number
-`_rawChromeInsets()` already derives for every other purpose (route
-card + bottom bar, or a 60px fallback), not a second independently-
-guessed offset. This is the closest Hybrid equivalent to "bottom of the
-plot box" the user asked for, since Hybrid has no plot box of its own
-the way RAW does (RAW's own LOG/range-selector row sits 40px up from
-the plot box's bottom edge — see round 8 of the RAW-mode-redesign
-history). The toggle and slider panel are untouched, still top-right —
-only Reset moved. `VCAS.css`'s `#btn-manual-tilt-reset` rule's
-`transition: top .2s` became `transition: bottom .2s` to match which
-property now actually animates.
+Confirmed the actual collision first: `#btn-manual-tilt-reset` was
+positioned top-left (`left: 14px`, same `top` as the toggle/panel), and
+LOG (`#lp-toggle`) has **no Hybrid-mode position of its own** —
+`LogPanel.setPosition()` was only ever called from
+`refreshIndicators()`'s `if (isRawView)` branch (see "LOG button
+row-alignment follow-up" above), so in Hybrid it was simply left
+sitting wherever it was last positioned during a RAW session, or at
+its plain CSS default (`#lp-toggle { left: 14px; top: 100px; }`) if
+RAW was never entered — right where Reset's own top-left spot landed.
+Confirmed the same gap exists in AIR: `refreshAirMode()` already calls
+`LogPanel.update()` (LOG is live and functional there, per "Power
+efficiency pass" above — it's not gated to NAV mode), but never
+`LogPanel.setPosition()`, so it was equally stuck wherever it was last
+left.
 
-Verified by extending the same extracted-verbatim Playwright harness
-this feature's own build already established: re-ran all 34 original
-checks (still passing) plus 4 new ones — a real `#lp-toggle` element at
-its true CSS-default position (`left:14px, top:100px`) no longer
-overlaps `#btn-manual-tilt-reset`'s real rendered rect, Reset's own
-`top` now falls in the bottom half of the viewport, and the toggle
-stays exactly where it was (top-right, unaffected) — 38 checks total,
-all passing, zero page errors.
+**Fix, matching the corrected instruction exactly**: reverted the
+Reset-anchoring change entirely — `_positionManualTiltControls()`
+(`app.js`) puts Reset back on the SAME top row as the toggle/panel
+(`reset.style.top = top + "px"`, `reset.style.bottom = "auto"`;
+`VCAS.css`'s `#btn-manual-tilt-reset` transition back to
+`transition: top .2s`). New shared helper `_nonRawLogPosition(insets)`
+mirrors RAW's own LOG formula (`square.plotLeft + 8, square.plotTop +
+square.plotHeight - 40` — round 8 of the RAW-mode-redesign history: 8px
+in from the plot's left edge, 40px up from the plot's own bottom edge,
+where the aircraft-list panel begins) against the real bottom-chrome
+edge in place of the plot's own bottom edge, since Hybrid/AIR have no
+plot box to measure from: `{ x: 8, y: insets.viewportHeight -
+insets.bottomInset - 40 }`. Called from `refreshIndicators()`'s Hybrid
+(`else`, non-RAW) branch with the already-computed `insets`, and from
+`refreshAirMode()` with a fresh `_rawChromeInsets()` call — safe to
+reuse there too since that function is a pure DOM-measurement helper
+(real `topBar`/`bottomBar`/`routeCard` `offsetHeight`s), unaffected by
+which mode is currently active, not a second independently-written
+AIR-specific inset calculation.
+
+Verified two ways: (1) re-ran the same extracted-verbatim Playwright
+harness this feature's own build established, updated to match the
+reverted Reset behaviour — Reset and Panel both confirmed back on the
+exact same top row as the toggle (`Math.abs(top delta) < 1px`), 38
+checks total, all passing, zero page errors; (2) a direct Node check
+against the real, extracted `_nonRawLogPosition()` source (not a
+retyped copy) confirming its formula: `x` is always 8 (matching RAW's
+own left margin), `y` is exactly 40px above the real bottom-chrome edge
+for both a normal and a zero-`bottomInset` case. Not verified: the
+actual real-device visual result in Hybrid/AIR (this sandbox's own
+MapLibre-CDN flakiness makes a full live boot of `refreshIndicators()`/
+`refreshAirMode()` unreliable here, same standing caveat as the
+"Real-device investigation" entry above) — the formula itself is
+verified correct, but seeing LOG actually land bottom-left on a real
+phone is the real remaining check.
 
 ## 360°/planetarium "sky compass" view — scoped, not yet built (2026-09-09)
 

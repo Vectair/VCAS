@@ -1114,21 +1114,15 @@
     toggle.classList.remove("hidden");
     panel.style.top = top + "px";
 
-    // Reset sits bottom-left instead of top-left (2026-09-09 follow-up,
-    // direct real-device report: "the camera reset looks like it covers or
-    // replaces the log button so maybe move this down to the bottom left
-    // like it is in raw mode"). LOG has no Hybrid-mode position of its own
-    // — LogPanel.setPosition() is only ever called from the isRawView
-    // branch above, so in Hybrid it's left sitting wherever it was last
-    // set in RAW (or its CSS default, left:14px/top:100px, if RAW was
-    // never entered this session) — right where Reset's old top-left spot
-    // collided with it. Anchored from insets.bottomInset, the same real
-    // bottom-chrome-height number _rawChromeInsets() already derives for
-    // everything else down there, not a second independently-guessed
-    // offset — the closest Hybrid equivalent to "bottom of the plot box"
-    // RAW itself uses, since Hybrid has no plot box of its own.
-    reset.style.top = "auto";
-    reset.style.bottom = (insets.bottomInset + 12) + "px";
+    // Reset stays top-left, same row as the toggle/panel (2026-09-09
+    // clarification, correcting the same day's own earlier "move Reset to
+    // the bottom-left" fix): the real request was to move LOG itself into
+    // Hybrid/AIR at the same position it occupies in RAW, and let Reset
+    // take over the top-left spot LOG used to sit in — not to move Reset
+    // away from it. See refreshIndicators()'s Hybrid branch and
+    // refreshAirMode() for where LOG now gets repositioned instead.
+    reset.style.bottom = "auto";
+    reset.style.top = top + "px";
 
     _syncManualTiltUI();
   }
@@ -1727,6 +1721,26 @@
     };
   }
 
+  /**
+   * LOG's own position outside RAW (Hybrid and AIR) — 2026-09-09,
+   * clarifying an earlier same-day fix that moved the manual-tilt Reset
+   * button instead of this: "move the log button on the hybrid screen to
+   * the same position it occupies on the raw screen [and] if there is a
+   * log button on air mode move it to the same position as well." RAW
+   * itself positions LOG at `square.plotLeft + 8, square.plotTop +
+   * square.plotHeight - 40` (round 8 of the RAW-mode-redesign history) —
+   * 8px in from the plot's own left edge, 40px up from the plot's own
+   * bottom edge (where the aircraft-list panel begins). Hybrid/AIR have
+   * no plot box of their own to measure from, so this mirrors the same
+   * formula against the real bottom-chrome edge instead — the plot's own
+   * left edge is effectively 0 in portrait anyway (see Geo.
+   * computePlotLayout's own "primary axis uses the full available
+   * width" doc comment), so the left margin carries over unchanged.
+   */
+  function _nonRawLogPosition(insets) {
+    return { x: 8, y: insets.viewportHeight - insets.bottomInset - 40 };
+  }
+
   function refreshIndicators() {
     if (userLat === null) return;
     const insets = _rawChromeInsets();
@@ -1956,6 +1970,10 @@
       UI.clearRangeRingsOverlay();
       UI.clearRangeSelector();
       UI.clearRouteLine();
+      // LOG moves to the same bottom-left position it occupies in RAW —
+      // see _nonRawLogPosition()'s own doc comment above.
+      const logPos = _nonRawLogPosition(insets);
+      LogPanel.setPosition(logPos.x, logPos.y);
     }
 
     // ND-style heading tape — Raw only, matching the reference image; Hybrid's
@@ -2084,6 +2102,13 @@
 
     EosMap.renderAirMarkers(allTracked, onAirMarkerClick);
     LogPanel.update(allTracked, userState);
+    // LOG moves to the same bottom-left position it occupies in RAW/Hybrid
+    // — see _nonRawLogPosition()'s own doc comment. _rawChromeInsets() is
+    // a pure DOM-measurement helper (top bar/bottom bar/route card real
+    // offsetHeights), unaffected by which mode is active, so it's safe to
+    // reuse here too rather than a second, AIR-specific inset calculation.
+    const logPos = _nonRawLogPosition(_rawChromeInsets());
+    LogPanel.setPosition(logPos.x, logPos.y);
 
     // Range rings in AIR are opt-in (see settings) — at AIR's real map
     // scale a true nm circle is a much bigger, more legitimate reference
