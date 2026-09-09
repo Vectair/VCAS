@@ -20,14 +20,14 @@
   // permission gesture (see the power-efficiency note by CompassHeading.stop()
   // below for why this toggling exists at all).
   let compassPermissionGranted = false;
-  // Sky View (2026-09-09) — a full-screen overlay, not a real 4th `mode`
-  // value (see index.html's own comment on #sky-view-screen). skyViewOpen
-  // just gates whether refreshSkyView() actually does anything on each
+  // 3D View (2026-09-09) — a full-screen overlay, not a real 4th `mode`
+  // value (see index.html's own comment on #view3d-screen). view3DOpen
+  // just gates whether refresh3DView() actually does anything on each
   // sensor/GPS tick; devicePitchDeg is the latest smoothed reading from
   // DevicePitch (src/sensors/devicePitch.js), the phone's own current
   // "elevation angle it's pointing at" — 0 (the horizon) until a real
   // reading arrives.
-  let skyViewOpen = false;
+  let view3DOpen = false;
   let devicePitchDeg = 0;
   let fetchTimer = null;
   let renderTickTimer = null;
@@ -282,7 +282,7 @@
     _applyModeButtonOrder();
     TrafficRules.init();
     ManualTilt.init();
-    _syncSkyButtonState();
+    _sync3DButtonState();
 
     DevMode.init();
     _initDevTools();
@@ -875,22 +875,22 @@
       });
     }
 
-    // Sky View — planetarium-style free-view mode (2026-09-09). A modal
+    // 3D View — planetarium-style free-view mode (2026-09-09). A modal
     // overlay on top of whatever mode is already active, see
-    // openSkyView()'s own doc comment.
-    const btnSky = document.getElementById("btn-sky");
-    if (btnSky) {
-      btnSky.addEventListener("click", (e) => {
+    // open3DView()'s own doc comment.
+    const btn3D = document.getElementById("btn-3d");
+    if (btn3D) {
+      btn3D.addEventListener("click", (e) => {
         e.preventDefault();
-        if (skyViewOpen) closeSkyView(); else openSkyView();
+        if (view3DOpen) close3DView(); else open3DView();
       });
     }
 
-    const btnSkyClose = document.getElementById("btn-sky-view-close");
-    if (btnSkyClose) {
-      btnSkyClose.addEventListener("click", (e) => {
+    const btn3DClose = document.getElementById("btn-3d-view-close");
+    if (btn3DClose) {
+      btn3DClose.addEventListener("click", (e) => {
         e.preventDefault();
-        closeSkyView();
+        close3DView();
       });
     }
 
@@ -1302,7 +1302,7 @@
       if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
-    if (skyViewOpen) refreshSkyView();
+    if (view3DOpen) refresh3DView();
   }
 
   // ---- Recenter (after a manual pan/zoom/rotate) ----
@@ -1346,14 +1346,14 @@
     // panel visibility in sync either way.
     ManualTilt.setSpeedMph(userSpeedMph);
     _syncManualTiltUI();
-    // Sky View (2026-09-09) — same convergence point, same reasoning as
+    // 3D View (2026-09-09) — same convergence point, same reasoning as
     // ManualTilt just above: pointing a phone up to scan the sky is at
     // least as much of a driving distraction as any of this app's other
     // 5mph-gated interactions, so the overlay force-closes the instant
     // speed crosses the threshold rather than waiting for the user to
     // notice and back out manually themselves.
-    if (skyViewOpen && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) closeSkyView();
-    _syncSkyButtonState();
+    if (view3DOpen && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) close3DView();
+    _sync3DButtonState();
   }
 
   function onSpeedSimChanged() {
@@ -1468,22 +1468,22 @@
       if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
-    // Sky View's azimuth axis — userHeading IS the device's own compass
+    // 3D View's azimuth axis — userHeading IS the device's own compass
     // heading whenever this callback is even running at all (it's only
     // ever consulted below GPS_HEADING_MIN_SPEED_MPH, the exact same
-    // stationary/slow condition Sky View itself requires to be open at
-    // all — see closeSkyView()'s own speed-gate). No separate azimuth
-    // reading needed for Sky View beyond what this app already tracks.
-    if (skyViewOpen) refreshSkyView();
+    // stationary/slow condition 3D View itself requires to be open at
+    // all — see close3DView()'s own speed-gate). No separate azimuth
+    // reading needed for 3D View beyond what this app already tracks.
+    if (view3DOpen) refresh3DView();
   }
 
   /** DevicePitch's own callback (src/sensors/devicePitch.js) — the one
-   * genuinely new sensor axis Sky View needed, see that module's own doc
+   * genuinely new sensor axis 3D View needed, see that module's own doc
    * comment for the beta->elevation derivation and its honest
    * unverified-against-real-hardware caveat. */
   function onDevicePitchChange(elevationDeg) {
     devicePitchDeg = elevationDeg;
-    if (skyViewOpen) refreshSkyView();
+    if (view3DOpen) refresh3DView();
   }
 
   // ---- Camera Padding Update Engine ----
@@ -2181,35 +2181,35 @@
     UI.setAircraftCount(allTracked.length);
   }
 
-  // ---- Sky View — planetarium-style free-view mode (2026-09-09) ----
-  // See index.html's own comment on #sky-view-screen for why this is a
+  // ---- 3D View — planetarium-style free-view mode (2026-09-09) ----
+  // See index.html's own comment on #view3d-screen for why this is a
   // modal overlay on top of whatever mode was already active, not a real
   // 4th `mode`/NavDisplayStyle value.
 
-  /** Keeps #btn-sky's dimmed/active look in sync — called from the same
+  /** Keeps #btn-3d's dimmed/active look in sync — called from the same
    * applySpeedOverrideIfActive() convergence point every other speed-gated
    * control in this app already uses (LogPanel/UI/ManualTilt), so it can't
    * drift out of sync with the real speed the overlay itself is gated on. */
-  function _syncSkyButtonState() {
-    const btn = document.getElementById("btn-sky");
+  function _sync3DButtonState() {
+    const btn = document.getElementById("btn-3d");
     if (!btn) return;
     const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
-    btn.classList.toggle("sky-toggle-disabled", blocked);
-    btn.classList.toggle("active-mode", skyViewOpen);
+    btn.classList.toggle("view3d-toggle-disabled", blocked);
+    btn.classList.toggle("active-mode", view3DOpen);
   }
 
-  async function openSkyView() {
+  async function open3DView() {
     if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // can't even open while moving
-    skyViewOpen = true;
-    document.getElementById("sky-view-screen")?.classList.remove("hidden");
-    _syncSkyButtonState();
+    view3DOpen = true;
+    document.getElementById("view3d-screen")?.classList.remove("hidden");
+    _sync3DButtonState();
 
     // Both sensors this view needs share the SAME iOS permission gate
     // (DeviceOrientationEvent.requestPermission(), a per-event-type grant,
     // not per-listener) — CompassHeading almost always already has it by
-    // the time Sky View can even be opened (the same stationary/slow
+    // the time 3D View can even be opened (the same stationary/slow
     // condition already starts it in onGpsSuccess), but request it here
-    // too in case it hasn't, since opening Sky View is itself a real user
+    // too in case it hasn't, since opening 3D View is itself a real user
     // gesture iOS will accept the prompt from.
     if (!compassPermissionGranted && CompassHeading.needsPermission()) {
       const granted = await CompassHeading.requestPermission();
@@ -2220,30 +2220,30 @@
     if (compassPermissionGranted) CompassHeading.start(onCompassHeading); // idempotent if already running
 
     DevicePitch.start(onDevicePitchChange);
-    refreshSkyView();
+    refresh3DView();
   }
 
-  function closeSkyView() {
-    skyViewOpen = false;
-    document.getElementById("sky-view-screen")?.classList.add("hidden");
-    document.getElementById("sky-view-blocked")?.classList.add("hidden");
+  function close3DView() {
+    view3DOpen = false;
+    document.getElementById("view3d-screen")?.classList.add("hidden");
+    document.getElementById("view3d-blocked")?.classList.add("hidden");
     DevicePitch.stop();
-    UI.clearSkyView();
-    _syncSkyButtonState();
+    UI.clear3DView();
+    _sync3DButtonState();
   }
 
-  function refreshSkyView() {
-    if (!skyViewOpen || userLat === null) return;
+  function refresh3DView() {
+    if (!view3DOpen || userLat === null) return;
 
     const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
-    document.getElementById("sky-view-blocked")?.classList.toggle("hidden", !blocked);
-    if (blocked) { UI.clearSkyView(); return; }
+    document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);
+    if (blocked) { UI.clear3DView(); return; }
 
-    const bodyEl = document.getElementById("sky-view-body");
+    const bodyEl = document.getElementById("view3d-body");
     const vw = bodyEl ? bodyEl.clientWidth : window.innerWidth;
     const vh = bodyEl ? bodyEl.clientHeight : window.innerHeight;
 
-    // Same userState shape refreshAirMode() builds — Sky View is, like
+    // Same userState shape refreshAirMode() builds — 3D View is, like
     // AIR, an unfiltered real-position view (every tracked aircraft, not
     // just what Relevance.evaluate() would show a driver), just re-
     // projected by device pointing direction instead of plotted on a map.
@@ -2261,12 +2261,12 @@
     const items = [];
     for (const item of allTracked) {
       const elevationOffsetDeg = item.vis.elevationDeg - devicePitchDeg;
-      const pos = SkyCompassLogic.projectToSkyPosition(item.relativeBearing, elevationOffsetDeg, vw, vh);
+      const pos = View3DLogic.projectTo3DPosition(item.relativeBearing, elevationOffsetDeg, vw, vh);
       if (pos) items.push({ aircraft: item.aircraft, vis: item.vis, x: pos.x, y: pos.y });
     }
 
-    UI.renderSkyView(items, (skyItem) => {
-      UI.showAirPopup(skyItem.aircraft, skyItem.vis, null);
+    UI.render3DView(items, (view3DItem) => {
+      UI.showAirPopup(view3DItem.aircraft, view3DItem.vis, null);
     });
   }
 

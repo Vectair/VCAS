@@ -1,16 +1,18 @@
 /**
- * SkyCompassLogic — pure angular-matching primitive for the "Sky" free-view
- * mode (CLAUDE.md's "360°/planetarium 'sky compass' view"). Given an
- * aircraft's real angular offset from the phone's current pointing
- * direction (bearing offset from device azimuth, elevation offset from
- * device pitch), decides whether it falls inside the phone's current
- * "pointing window" and, if so, where to plot it on screen.
+ * View3DLogic — pure angular-matching primitive for the "3D" free-view
+ * mode (CLAUDE.md's "360°/planetarium sky view" scoping note; renamed
+ * from "Sky View" to "3D" to avoid confusion with the existing AIR mode
+ * name). Given an aircraft's real angular offset from the phone's
+ * current pointing direction (bearing offset from device azimuth,
+ * elevation offset from device pitch), decides whether it falls inside
+ * the phone's current "pointing window" and, if so, where to plot it on
+ * screen.
  *
  * Deliberately a NEW primitive, not a reuse of Geo.projectToPolarPosition —
  * that function plots by bearing + banded DISTANCE with no elevation axis
  * at all (RAW's plot has no concept of "how high in the sky", every
  * aircraft regardless of altitude plots purely by ground-track bearing and
- * horizontal range). Sky View needs a genuinely different 2D angular
+ * horizontal range). 3D View needs a genuinely different 2D angular
  * window check: does (bearing offset, elevation offset) fall inside
  * (±fovHalfHDeg, ±fovHalfVDeg) of where the phone is pointing right now.
  *
@@ -19,7 +21,7 @@
  * visually fine at this scale and doesn't need a true gnomonic/stereographic
  * projection the way a wide-FOV star chart would.
  */
-const SkyCompassLogic = (() => {
+const View3DLogic = (() => {
   // Genuinely new tuned constants, same honest "reasonable starting guess,
   // not physically derived" provenance this project already carries for
   // CONTRAIL_MIN_ALTITUDE_FT/LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG etc. —
@@ -40,7 +42,7 @@ const SkyCompassLogic = (() => {
    * @returns {{x:number,y:number}|null}  Screen position, or null if the
    *   aircraft falls outside the phone's current pointing window.
    */
-  function projectToSkyPosition(relativeBearingDeg, elevationOffsetDeg, viewportWidth, viewportHeight, fovHalfHDeg, fovHalfVDeg) {
+  function projectTo3DPosition(relativeBearingDeg, elevationOffsetDeg, viewportWidth, viewportHeight, fovHalfHDeg, fovHalfVDeg) {
     const halfH = fovHalfHDeg != null ? fovHalfHDeg : FOV_HALF_H_DEG;
     const halfV = fovHalfVDeg != null ? fovHalfVDeg : FOV_HALF_V_DEG;
 
@@ -53,7 +55,7 @@ const SkyCompassLogic = (() => {
     return { x, y };
   }
 
-  return { projectToSkyPosition, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
+  return { projectTo3DPosition, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
 })();
 
-if (typeof module !== "undefined") module.exports = SkyCompassLogic;
+if (typeof module !== "undefined") module.exports = View3DLogic;
