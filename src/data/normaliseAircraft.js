@@ -59,6 +59,19 @@ function normaliseAircraft(raw) {
   const registration = (raw.r || raw.registration || "").trim() || null;
   const isGroundVehicleOrObstacle = category != null && NON_AIRCRAFT_CATEGORIES.has(category);
 
+  // dbFlags — a readsb/tar1090-family bitfield (bit0=military, bit1=
+  // "interesting", bit2=PIA, bit3=LADD; confirmed against readsb's own
+  // source, wiedehopf/readsb's README-json.md + api.c/track.c). Only bit0
+  // (military) is used anywhere in this app, for the OAT-vs-GAT traffic-
+  // rules condition (see src/logic/trafficRules.js). adsb.fi runs the same
+  // readsb server software this bitfield comes from, but whether ITS
+  // specific v3 API actually passes dbFlags through was NOT verified
+  // against a live response (this sandbox can't reach opendata.adsb.fi) —
+  // tri-state on purpose: `null` ("unknown") when the field is simply
+  // absent from a response, never defaulted to `false`/civil, so a traffic
+  // rule can't silently misclassify traffic the API gave no signal about.
+  const military = typeof raw.dbFlags === "number" ? (raw.dbFlags & 1) === 1 : null;
+
   return {
     hex,
     callsign,
@@ -74,6 +87,7 @@ function normaliseAircraft(raw) {
     category,
     registration,
     isGroundVehicleOrObstacle,
+    military,
   };
 }
 

@@ -8146,6 +8146,198 @@ Android Auto port (same standing "synced in dedicated passes" note as
 every RAW-mode-redesign round above) — it has no METAR/Open-Meteo status
 pills at all today, so there's nothing there to remove or relink.
 
+## Traffic Rules — user-defined filter/highlight by type, category, altitude, military-vs-civil (2026-09-09)
+
+Direct request: "adding a function that allows the user to specify the
+type of aircraft... either following the system so it only shows certain
+categories like: type, altitude above/below, OAT vs GAT etc. and a
+highlight capability where the user requests aircraft with certain traits
+are simply highlighted... all aircraft remain visible but ones the user
+has a particular interest in get a highlight." Two clarifying questions
+confirmed the design before building: (1) whether adsb.fi's specific API
+actually carries a military/civil signal at all — answered "I don't know
+if .fi specifically supports it but I assume they do since it's built on
+the same tar1090 as other ADSB platforms," so this was researched rather
+than assumed (see below); (2) filter and highlight share ONE rule-
+building UI with a per-rule mode, not two separately-built settings
+sections — confirmed, and this is how it was built.
+
+### The military/civil (OAT/GAT) signal — researched, not guessed
+
+adsb.fi's own GitHub repo (`adsbfi/opendata`) documents only usage
+examples, not a field-by-field schema, and doesn't mention `dbFlags`
+anywhere — so whether their specific v3 API passes it through could NOT
+be confirmed live (this sandbox can't reach `opendata.adsb.fi`).
+What COULD be confirmed, directly against `wiedehopf/readsb`'s own real
+source (the server software both adsb.fi and adsb.lol run) — not
+assumed from hobbyist recollection alone, cross-checked against
+`README-json.md`, `api.c`'s `filter_dbFlags()`, and `track.c`'s own
+`dbFlags & (1 << 0)` military-bit read: `dbFlags` is a bitfield
+(`military = dbFlags & 1`), and `json_out.c` only emits the key at all
+when non-zero (`if (a->dbFlags) ...`) — a record with no flags omits it
+entirely, it's never sent as a literal `0`.
+
+Given the project owner's own reasonable assumption that adsb.fi
+inherits this from the shared readsb codebase, `normaliseAircraft.js`
+now reads it — but deliberately **tri-state**, not a boolean defaulted
+to `false`: `military: typeof raw.dbFlags === "number" ? (raw.dbFlags &
+1) === 1 : null`. `null` means "unknown," not "civil" — if adsb.fi
+turns out not to send `dbFlags` at all, every aircraft reads `military:
+null` and a rule asking specifically for military OR civil traffic
+correctly matches nothing (see `TrafficRulesLogic.matchesConditions`'s
+own guard: `if (aircraft.military == null) return false` for either
+specific value), rather than silently misclassifying real military
+traffic as civil. This is the same honest "unverified against a live
+response" caveat this file already carries for METAR/Open-Meteo parsing
+— the transport/plumbing is real and correct, the live data shape isn't
+independently confirmed from this sandbox.
+
+### Shared rule engine — `src/logic/trafficRules.js` (pure) + `src/trafficRules.js` (state)
+
+Same split this project already uses for MetarProvider/LocalObstruction
+vs. `visibility.js`: `TrafficRulesLogic` is a pure evaluator (no DOM, no
+storage) — `matchesConditions(aircraft, conditions)`,
+`evaluateFilter(aircraft, rules)` (OR across enabled filter-mode rules),
+`evaluateHighlight(aircraft, rules)` (first enabled highlight-mode rule
+to match wins its colour, in list order — deliberately not "layer every
+matching rule's colour," since one icon can only usefully carry one
+highlight ring). `TrafficRules` is the persisted CRUD/state module
+(`init`/`list`/`add`/`update`/`remove`/`toggleEnabled`, localStorage-
+backed, mirrors `ModeButtonOrder`'s own shape exactly).
+
+Four condition axes on a rule, AND'd together when more than one is set
+(an unset condition never excludes a match — "empty conditions match
+everything" is the deliberate base case, letting a rule start broad and
+get narrowed):
+- **Type** — free-text substring match against the aircraft's ICAO type
+  code (`A320`, `B738`, …), case-insensitive.
+- **Category** — the ADS-B DO-260B emitter category (`A1`–`C5`), the
+  same axis `normaliseAircraft.js`'s own `NON_AIRCRAFT_CATEGORIES`
+  (C1-C5) already reads — `TrafficRulesLogic.getCategories()` is the one
+  source of category labels for both matching and the settings dropdown,
+  so the two can't drift apart the way a hand-copied second table would.
+  Cross-validated the label table against the existing code's own
+  C1-C5-are-never-aircraft choice (Emergency/Service Vehicle/Point/
+  Cluster/Line Obstacle) before trusting it — a real, corroborating
+  signal, not just recalled from memory.
+- **Altitude** — above/below a threshold in feet; an aircraft with
+  unknown altitude can't satisfy either direction (matches the same
+  "unknown never satisfies a specific numeric condition" discipline
+  `AltitudeSuppressPanel`'s own low-altitude suppression already uses).
+- **Traffic type** — Any / Military (OAT) / Civil (GAT), the direct
+  request's own aviation terminology (Operational Air Traffic vs.
+  General Air Traffic), reading the new `military` field above.
+
+### Filter — the single existing filtering point, not a second one
+
+`app.js`'s `aircraftList = result.aircraft.filter(...)` — already the
+one place both NAV and AIR read from (ground-vehicle exclusion, stale
+removal, ground-hide, altitude suppression) — gained one more check:
+`if (TrafficRulesLogic.evaluateFilter(a, TrafficRules.list())) return
+false;`. Highlight-mode rules are explicitly NOT applied here — they
+never remove an aircraft from this list, only mark it at render time.
+
+### Highlight — a per-rule-coloured ring, threaded as a CSS custom property
+
+`ui.js`'s `renderIndicators()`/`renderSuppressedDots()` (NAV/RAW) and
+`map.js`'s `_airMarkerHtml()` (AIR) each call
+`TrafficRulesLogic.evaluateHighlight(aircraft, TrafficRules.list())` and,
+when it returns a colour, add a `.rule-highlight` class plus
+`--rule-highlight-color` inline custom property to the element — new
+`VCAS.css` rules (`.indicator.rule-highlight`, `.suppressed-dot.rule-
+highlight`, `.air-marker-inner.rule-highlight`) draw the same glow-ring
+shape `.selected`'s own tap-highlight already uses (`filter: drop-
+shadow(...)`/`box-shadow: 0 0 0 2px ...`), just reading the colour from
+the custom property instead of a hardcoded yellow — a real user-chosen
+colour needs to be per-element, not a fixed CSS class, and a custom
+property avoids duplicating the whole drop-shadow syntax inline per
+aircraft. `.air-icon`'s own existing drop-shadow is combined into ONE
+`filter` declaration with the highlight glow (a later `filter` rule
+replaces, doesn't merge with, an earlier one) rather than accidentally
+dropping the marker's existing shadow. Independent of `.selected` — an
+aircraft can be both tap-selected and rule-highlighted at once, the two
+rings simply stack.
+
+### Settings screen — one shared rule list + one shared rule-builder form
+
+New "Traffic Rules" section (`index.html`, between the existing "Traffic
+Filtering" and "Data & Logging" sections): a compact row per rule
+(swatch — a colour dot for highlight rules, ✕ for filter rules — plus a
+one-line condition summary, an enable/disable dot, edit, and delete),
+"+ Filter rule"/"+ Highlight rule" buttons, and one shared inline form
+(type/category/altitude/traffic fields, plus a colour picker shown only
+for highlight-mode rules) used for both adding and editing.
+
+**A real footgun caught and fixed before it could ship, not after**: a
+freshly-added rule's conditions are all unset by design (the "empty
+conditions match everything" base case above) — meaning a brand-new
+FILTER rule, if left live even for a moment, would instantly hide the
+ENTIRE aircraft list until the user finished configuring it.
+`TrafficRules.add()` therefore starts every new rule **disabled**, and
+the settings-screen form only actually enables it on Save (once real
+conditions have been set) — Cancel on a still-unsaved new rule deletes
+it outright instead, tracked via `_trPendingNewRuleId` (`app.js`), rather
+than leaving a dead disabled orphan in storage. Editing an EXISTING
+rule's Cancel button does NOT delete anything — only discards the
+in-form edits — since `_trPendingNewRuleId` is only ever set for a
+just-created rule, not an edit of one that already existed. Closing the
+whole Settings screen while a new-rule form is still open is treated as
+the same implicit Cancel, for the same reason.
+
+Move controls are tap-based (`▲`/`▼`-style row list, matching the
+existing mode-order reorder rows), not drag — same established
+"no drag gestures on a driving-app control" convention this file already
+documents for the RAW range selector and mode-order settings.
+
+### Verified with a real, extracted-verbatim Playwright harness — not a live end-to-end run
+
+The settings screen only initializes from inside `app.js`'s own `init()`,
+which also brings up GPS/MapLibre — this sandbox's own documented
+MapLibre-CDN flakiness (see "Real-device investigation" above) made a
+full live boot unreliable for this specific check. Followed this
+project's own established fallback instead: a Node script extracted the
+real `#settings-screen` markup verbatim from `index.html` and the real
+Traffic Rules functions/wiring verbatim from `app.js` (string-sliced
+between exact markers, not retyped), assembled into a standalone
+Playwright harness alongside the real, unmodified `trafficRules.js`
+files and real `VCAS.css`. 24 checks against the real, shipped code:
+empty-state hint text; the +Filter/+Highlight buttons opening the form
+with the colour row correctly hidden/shown per mode; a freshly-added
+rule existing but disabled; Cancel-on-a-new-rule deleting it outright
+and re-showing the empty state; a saved rule persisting enabled with its
+real typed condition, its row summary text matching; `evaluateFilter`
+actually hiding a matching synthetic aircraft and not a non-matching
+one; the row's own enable-toggle flipping `enabled` and disabling the
+filter live, with the `.disabled` row class applying; editing an
+EXISTING (not new) rule and hitting Cancel correctly preserving the
+rule while discarding the in-form edit; a highlight rule's real chosen
+colour round-tripping through `evaluateHighlight()` and the row swatch's
+own computed background colour; delete removing exactly one rule; and
+no horizontal overflow at this project's standard 360px narrow-width
+check. All 24 passed, zero page errors. A real screenshot (400×900,
+three rules shown together — one highlight, one saved filter, one still-
+open draft filter being edited below) confirms the row/form layout reads
+correctly, not just that the assertions passed blind.
+
+### Explicit v1 scope, not silently implied to be more
+
+- No true weight-class/wake-turbulence axis beyond the existing DO-260B
+  category codes — there's no separate field for it anywhere in the
+  ADS-B schema this app already reads (confirmed while researching the
+  category table: no `wtc` field exists in the readsb schema at all).
+- Highlight is single-colour, first-match-wins — no per-rule priority
+  ordering UI beyond "rules earlier in the list win," and no way to
+  layer multiple simultaneous highlight rings on one icon.
+- No native Android port sync — same standing "synced in dedicated
+  passes, not every change" note this file already carries for every
+  RAW-mode-redesign round; the native app has no settings-screen
+  equivalent for this feature yet, and no `military`/`dbFlags` field in
+  `NormaliseAircraft.kt` either.
+- The category dropdown includes C1-C5 (surface vehicles/obstacles) even
+  though `normaliseAircraft.js` already excludes them from ever reaching
+  the app at all — a rule referencing them can simply never match live
+  traffic, harmless rather than worth special-casing out of the list.
+
 ## Native Android port: RAW-mode/chrome design-sync pass (2026-09-09)
 
 Direct instruction: "the native port is still massively lagging in terms

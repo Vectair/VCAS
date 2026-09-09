@@ -76,6 +76,14 @@
   let _destSearchDebounceTimer = null;
   let _destSearchToken = 0;
 
+  // Traffic Rules settings-screen form state — which rule the form is
+  // currently editing, and (only when the form was opened for a rule just
+  // created via "+ Filter rule"/"+ Highlight rule") the id to delete
+  // outright on Cancel rather than leave as an orphaned disabled rule.
+  // See _openTrafficRuleForm()/_cancelTrafficRuleForm().
+  let _trEditingId = null;
+  let _trPendingNewRuleId = null;
+
   // Turn-by-turn text visibility — persisted, so "route line only" sticks across reloads.
   const GUIDANCE_TEXT_KEY = "vcas-guidance-text-enabled";
   let guidanceTextEnabled = true;
@@ -263,6 +271,7 @@
     _updateAirRingsToggleBtn();
     ModeButtonOrder.init();
     _applyModeButtonOrder();
+    TrafficRules.init();
 
     DevMode.init();
     _initDevTools();
@@ -402,6 +411,11 @@
 
     document.getElementById("btn-settings-close")?.addEventListener("click", (e) => {
       e.preventDefault();
+      // Closing the whole screen with the rule-builder form still open on a
+      // just-added, never-saved rule is treated as an implicit Cancel — see
+      // _cancelTrafficRuleForm()'s own comment on why that rule shouldn't
+      // be left behind as an orphaned disabled entry.
+      if (_trPendingNewRuleId) _cancelTrafficRuleForm();
       screen?.classList.add("hidden");
     });
 
@@ -424,8 +438,33 @@
       _renderModeOrderList();
     });
 
+    document.getElementById("btn-add-filter-rule")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const rule = TrafficRules.add("filter");
+      _renderTrafficRulesList();
+      _openTrafficRuleForm(rule.id, true);
+    });
+
+    document.getElementById("btn-add-highlight-rule")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const rule = TrafficRules.add("highlight");
+      _renderTrafficRulesList();
+      _openTrafficRuleForm(rule.id, true);
+    });
+
+    document.getElementById("btn-traffic-rule-save")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      _saveTrafficRuleForm();
+    });
+
+    document.getElementById("btn-traffic-rule-cancel")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      _cancelTrafficRuleForm();
+    });
+
     _renderAltPresets();
     _renderModeOrderList();
+    _renderTrafficRulesList();
     _refreshSettingsScreen();
   }
 
@@ -535,6 +574,200 @@
       });
       container.appendChild(btn);
     });
+  }
+
+  // ---- Traffic Rules (settings screen) — hide (filter) or mark
+  // (highlight) aircraft by type/category/altitude/military-vs-civil.
+  // Rendering/CRUD wiring only; the actual match logic lives in
+  // TrafficRulesLogic (src/logic/trafficRules.js), the persisted list in
+  // TrafficRules (src/trafficRules.js). ----
+
+  /** One-line human-readable summary of a rule's conditions, e.g.
+   * `Type contains "A320" · Above 10,000ft` — or "Any aircraft" if the
+   * rule has no conditions set at all (matches everything). */
+  function _trConditionSummary(conditions) {
+    const parts = [];
+    if (conditions.typeQuery) parts.push(`Type contains "${conditions.typeQuery}"`);
+    if (conditions.category && conditions.category !== "any") {
+      const cats = TrafficRulesLogic.getCategories();
+      parts.push(cats[conditions.category] || conditions.category);
+    }
+    if (conditions.altitude && conditions.altitude.enabled) {
+      const dir = conditions.altitude.direction === "below" ? "Below" : "Above";
+      parts.push(`${dir} ${Math.round(conditions.altitude.ft).toLocaleString()}ft`);
+    }
+    if (conditions.traffic && conditions.traffic !== "any") {
+      parts.push(conditions.traffic === "military" ? "Military (OAT)" : "Civil (GAT)");
+    }
+    return parts.length ? parts.join(" · ") : "Any aircraft";
+  }
+
+  /** Full rebuild each call — a handful of rows, not the render-cost-
+   * sensitive NAV/RAW indicator layer (same reasoning already established
+   * for _renderModeOrderList()/_renderAltPresets()). */
+  function _renderTrafficRulesList() {
+    const container = document.getElementById("traffic-rules-list");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const rules = TrafficRules.list();
+    if (rules.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.style.margin = "0 0 10px";
+      empty.textContent = "No rules yet — every tracked aircraft shows normally.";
+      container.appendChild(empty);
+      return;
+    }
+
+    rules.forEach(rule => {
+      const row = document.createElement("div");
+      row.className = "traffic-rule-row" + (rule.enabled ? "" : " disabled");
+
+      const swatch = document.createElement("span");
+      swatch.className = "traffic-rule-swatch";
+      if (rule.mode === "highlight") {
+        swatch.style.background = rule.color;
+      } else {
+        swatch.textContent = "✕";
+      }
+
+      const summary = document.createElement("span");
+      summary.className = "traffic-rule-summary";
+      summary.textContent = (rule.mode === "highlight" ? "Highlight: " : "Filter: ") + _trConditionSummary(rule.conditions);
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "traffic-rule-row-btn";
+      toggleBtn.title = rule.enabled ? "Disable rule" : "Enable rule";
+      toggleBtn.textContent = rule.enabled ? "●" : "○";
+      toggleBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        TrafficRules.toggleEnabled(rule.id);
+        _renderTrafficRulesList();
+      });
+
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "traffic-rule-row-btn";
+      editBtn.title = "Edit rule";
+      editBtn.textContent = "✎";
+      editBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        _openTrafficRuleForm(rule.id, false);
+      });
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "traffic-rule-row-btn";
+      deleteBtn.title = "Delete rule";
+      deleteBtn.textContent = "🗑";
+      deleteBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        TrafficRules.remove(rule.id);
+        if (_trEditingId === rule.id) _closeTrafficRuleForm();
+        _renderTrafficRulesList();
+      });
+
+      row.appendChild(swatch);
+      row.appendChild(summary);
+      row.appendChild(toggleBtn);
+      row.appendChild(editBtn);
+      row.appendChild(deleteBtn);
+      container.appendChild(row);
+    });
+  }
+
+  /** Built once — TrafficRulesLogic.getCategories() is a fixed static
+   * table, no reason to rebuild the <option> list on every form open. */
+  function _populateTrafficCategoryOptions() {
+    const select = document.getElementById("tr-category");
+    if (!select || select.options.length > 0) return;
+    const anyOpt = document.createElement("option");
+    anyOpt.value = "any";
+    anyOpt.textContent = "Any";
+    select.appendChild(anyOpt);
+    const cats = TrafficRulesLogic.getCategories();
+    Object.keys(cats).forEach(code => {
+      const opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = `${cats[code]} (${code})`;
+      select.appendChild(opt);
+    });
+  }
+
+  /** Opens the shared rule-builder form pre-filled from `ruleId`'s current
+   * (or, for a just-added rule, still-default) conditions. `isNew` marks
+   * the rule as a not-yet-saved draft — see _trPendingNewRuleId's own
+   * comment for why Cancel needs to know this. */
+  function _openTrafficRuleForm(ruleId, isNew) {
+    const rule = TrafficRules.list().find(r => r.id === ruleId);
+    if (!rule) return;
+    _trEditingId = ruleId;
+    _trPendingNewRuleId = isNew ? ruleId : null;
+
+    _populateTrafficCategoryOptions();
+
+    document.getElementById("tr-type-query").value = rule.conditions.typeQuery || "";
+    document.getElementById("tr-category").value = rule.conditions.category || "any";
+    const altEnabled = !!(rule.conditions.altitude && rule.conditions.altitude.enabled);
+    document.getElementById("tr-alt-enabled").value = altEnabled ? rule.conditions.altitude.direction : "off";
+    document.getElementById("tr-alt-ft").value = (rule.conditions.altitude && rule.conditions.altitude.ft) || 10000;
+    document.getElementById("tr-traffic").value = rule.conditions.traffic || "any";
+
+    const colorRow = document.getElementById("tr-color-row");
+    if (rule.mode === "highlight") {
+      colorRow.classList.remove("hidden");
+      document.getElementById("tr-color").value = rule.color || TrafficRules.DEFAULT_HIGHLIGHT_COLOR;
+    } else {
+      colorRow.classList.add("hidden");
+    }
+
+    const form = document.getElementById("traffic-rule-form");
+    form.classList.remove("hidden");
+    form.scrollIntoView({ block: "nearest" });
+  }
+
+  function _closeTrafficRuleForm() {
+    document.getElementById("traffic-rule-form")?.classList.add("hidden");
+    _trEditingId = null;
+    _trPendingNewRuleId = null;
+  }
+
+  function _saveTrafficRuleForm() {
+    if (!_trEditingId) return;
+
+    const altMode = document.getElementById("tr-alt-enabled").value;
+    const altFtRaw = parseFloat(document.getElementById("tr-alt-ft").value);
+
+    const conditions = {
+      typeQuery: document.getElementById("tr-type-query").value.trim(),
+      category: document.getElementById("tr-category").value,
+      altitude: {
+        enabled: altMode !== "off",
+        direction: altMode === "below" ? "below" : "above",
+        ft: isNaN(altFtRaw) ? 10000 : altFtRaw,
+      },
+      traffic: document.getElementById("tr-traffic").value,
+    };
+    const color = document.getElementById("tr-color").value;
+
+    // Saving is what actually turns a brand-new rule "live" — see
+    // TrafficRules.add()'s own comment on why it starts disabled.
+    TrafficRules.update(_trEditingId, { enabled: true, conditions, color });
+    _trPendingNewRuleId = null;
+    _closeTrafficRuleForm();
+    _renderTrafficRulesList();
+  }
+
+  /** A rule that was just created (never saved) is deleted outright rather
+   * than left behind as an orphaned disabled rule — see
+   * TrafficRules.add()'s own comment. Editing an EXISTING rule and hitting
+   * Cancel just discards the in-form edits; the rule itself is untouched. */
+  function _cancelTrafficRuleForm() {
+    if (_trPendingNewRuleId) TrafficRules.remove(_trPendingNewRuleId);
+    _closeTrafficRuleForm();
+    _renderTrafficRulesList();
   }
 
   /** Re-syncs every dynamic bit of the settings screen with current state —
@@ -1219,6 +1452,15 @@
           && a.altitudeFt < AltitudeSuppressPanel.getThresholdFt()) {
         return false;
       }
+
+      // User-defined traffic rules (src/logic/trafficRules.js /
+      // src/trafficRules.js) — a "filter" rule hides matching traffic, same
+      // single filtering point both NAV and AIR read from as every other
+      // exclusion above. Highlight-mode rules are NOT applied here — they
+      // never remove an aircraft from this list, only mark it at render
+      // time (see ui.js's renderIndicators / map.js's _airMarkerHtml).
+      if (TrafficRulesLogic.evaluateFilter(a, TrafficRules.list())) return false;
+
       return true;
     });
 

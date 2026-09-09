@@ -617,6 +617,61 @@
             <div class="settings-preset-row" id="settings-alt-presets"></div>
           </section>
 
+          <!-- Traffic Rules — direct request: hide (filter) or mark (highlight)
+               aircraft by type/category/altitude/military-vs-civil, sharing
+               one rule-building UI with a per-rule mode (confirmed via
+               AskUserQuestion). See src/logic/trafficRules.js (the pure
+               evaluator) and src/trafficRules.js (persisted state) — this
+               markup is just the container; every row/field is built by
+               app.js's _renderTrafficRulesList()/_renderTrafficRuleForm(). -->
+          <section class="settings-section">
+            <h3>Traffic Rules</h3>
+            <p class="settings-hint">Hide or highlight aircraft by type, category, altitude, or military/civil traffic.</p>
+            <div class="traffic-rules-list" id="traffic-rules-list"></div>
+            <div class="settings-row">
+              <button type="button" class="settings-preset-btn" id="btn-add-filter-rule">+ Filter rule</button>
+              <button type="button" class="settings-preset-btn" id="btn-add-highlight-rule">+ Highlight rule</button>
+            </div>
+            <div class="traffic-rule-form hidden" id="traffic-rule-form">
+              <div class="settings-row">
+                <span class="settings-label">Aircraft type contains</span>
+                <input type="text" id="tr-type-query" class="traffic-rule-input" placeholder="e.g. A320" maxlength="12">
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Category</span>
+                <select id="tr-category" class="traffic-rule-select"></select>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Altitude</span>
+                <div class="traffic-rule-altitude">
+                  <select id="tr-alt-enabled" class="traffic-rule-select">
+                    <option value="off">Any</option>
+                    <option value="above">Above</option>
+                    <option value="below">Below</option>
+                  </select>
+                  <input type="number" id="tr-alt-ft" class="traffic-rule-input traffic-rule-input-narrow" min="0" step="500">
+                  <span class="settings-label">ft</span>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Traffic type</span>
+                <select id="tr-traffic" class="traffic-rule-select">
+                  <option value="any">Any</option>
+                  <option value="military">Military (OAT)</option>
+                  <option value="civil">Civil (GAT)</option>
+                </select>
+              </div>
+              <div class="settings-row" id="tr-color-row">
+                <span class="settings-label">Highlight colour</span>
+                <input type="color" id="tr-color" class="traffic-rule-color">
+              </div>
+              <div class="settings-row">
+                <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-save">Save</button>
+                <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-cancel">Cancel</button>
+              </div>
+            </div>
+          </section>
+
           <section class="settings-section">
             <h3>Data &amp; Logging</h3>
             <div class="settings-row">
@@ -717,6 +772,7 @@
   <script src="src/logic/aircraftExtrapolation.js?v=__BUILD_ID__"></script>
   <script src="src/logic/relevance.js?v=__BUILD_ID__"></script>
   <script src="src/logic/indicators.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/trafficRules.js?v=__BUILD_ID__"></script>
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
   <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
@@ -729,6 +785,7 @@
   <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>
   <script src="src/dev/speedSimPanel.js?v=__BUILD_ID__"></script>
   <script src="src/altitudeSuppressPanel.js?v=__BUILD_ID__"></script>
+  <script src="src/trafficRules.js?v=__BUILD_ID__"></script>
   <script src="src/dev/observationLogger.js?v=__BUILD_ID__"></script>
   <script src="src/dev/logPanel.js?v=__BUILD_ID__"></script>
   <script src="src/aircraftSymbol.js?v=__BUILD_ID__"></script>

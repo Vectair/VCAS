@@ -990,6 +990,15 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
 .indicator.selected .indicator-shape { filter: drop-shadow(0 0 4px #ffff00) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
 .indicator.selected .indicator-label { box-shadow: 0 0 0 2px #ffff00; }
 
+/* User-defined highlight rules (src/logic/trafficRules.js) — same glow-ring
+   shape as .selected above, but the colour is per-rule and user-chosen, so
+   it's threaded through as a CSS custom property set inline per-element
+   (--rule-highlight-color) rather than a second hardcoded colour. Applied
+   independently of .selected — an aircraft can be both selected (tapped)
+   and rule-highlighted at once, and both rings simply stack. */
+.indicator.rule-highlight .indicator-shape { filter: drop-shadow(0 0 5px var(--rule-highlight-color)) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.indicator.rule-highlight .indicator-label { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
+
 /* "Something's out there" edge marker (RAW range selector, ui.js's
    renderSuppressedDots) — traffic beyond the currently-selected ND range
    but still relevant/tracked, matching how a real ND shows out-of-range-
@@ -1008,6 +1017,7 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   box-shadow: 0 0 2px rgba(0,0,0,.7);
 }
 .suppressed-dot.selected { box-shadow: 0 0 0 2px #ffff00; }
+.suppressed-dot.rule-highlight { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
 
 /* Leader line — the 8-point candidate label placement's backup tier
    (ui.js's declutterRenderedIndicators): only appears for an aircraft
@@ -1154,6 +1164,16 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude
   padding: 1px 5px;
   text-align: center;
 }
+
+/* User-defined highlight rules (src/logic/trafficRules.js) — AIR mode's
+   equivalent of .indicator.rule-highlight above. .air-icon already carries
+   its own drop-shadow, so the override combines both into one filter value
+   rather than replacing it (a later `filter` declaration doesn't merge with
+   an earlier one the way box-shadow's comma-list does). */
+.air-marker-inner.rule-highlight .air-icon {
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.8)) drop-shadow(0 0 5px var(--rule-highlight-color));
+}
+.air-marker-inner.rule-highlight .air-label-box { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
 
 body[data-theme="day"] .air-label-box {
   background: rgba(245,243,238,.88);
@@ -2383,6 +2403,114 @@ body[data-nav-state="turn_approach"] { }
 
 .settings-order-move-btn:active:not(:disabled) { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 .settings-order-move-btn:disabled { opacity: .35; cursor: default; }
+
+/* ---- Traffic Rules (settings screen) — hide (filter) or mark (highlight)
+   aircraft by type/category/altitude/military-vs-civil, one shared rule
+   list + one shared rule-builder form, per-rule mode toggle. Rows/form
+   fields built by app.js's _renderTrafficRulesList()/_renderTrafficRuleForm();
+   this is just the styling. ---- */
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: -4px 0 10px;
+}
+
+.traffic-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.traffic-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+}
+
+.traffic-rule-row.disabled { opacity: .5; }
+
+.traffic-rule-swatch {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+}
+
+.traffic-rule-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traffic-rule-row-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+.traffic-rule-row-btn:active { background: var(--btn-hover); }
+
+.traffic-rule-form {
+  padding: 4px 0 0;
+}
+#traffic-rule-form.hidden { display: none; }
+#tr-color-row.hidden { display: none; }
+
+.traffic-rule-input, .traffic-rule-select {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 13px;
+  -webkit-appearance: none;
+}
+
+.traffic-rule-input { width: 130px; }
+.traffic-rule-input-narrow { width: 80px; }
+
+.traffic-rule-altitude {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.traffic-rule-color {
+  flex-shrink: 0;
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
 
 /* ---- First-launch onboarding (index.html #onboarding-screen) ----
    Shown once, not on every open — see app.js's ONBOARDING_SEEN_KEY gate.

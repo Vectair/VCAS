@@ -349,9 +349,18 @@ const UI = (() => {
           ${altitudeLabel ? `<div class="indicator-altitude">${altitudeLabel}</div>` : ""}
         </div>`;
 
+      // User-defined highlight rules (src/logic/trafficRules.js) — a real
+      // ring colour per matching rule, threaded through as a CSS custom
+      // property (see VCAS.css's own .rule-highlight comment for why) so
+      // this stays a one-line lookup rather than needing a second colour
+      // constant to keep in sync.
+      const highlightColor = TrafficRulesLogic.evaluateHighlight(ind.aircraft, TrafficRules.list());
+
       let el = _indicatorEls.get(hex);
       if (el) {
         el.classList.toggle("stale", !!ind.isStale);
+        el.classList.toggle("rule-highlight", !!highlightColor);
+        if (highlightColor) el.style.setProperty("--rule-highlight-color", highlightColor);
         el.style.left = ind.x + "px";
         el.style.top  = ind.y + "px";
         el.innerHTML = innerHtml;
@@ -364,7 +373,8 @@ const UI = (() => {
         el._clickState.onClickFn = onClickFn;
       } else {
         el = document.createElement("div");
-        el.className = "indicator" + (ind.isStale ? " stale" : "") + (hex === _selectedHex ? " selected" : "");
+        el.className = "indicator" + (ind.isStale ? " stale" : "") + (hex === _selectedHex ? " selected" : "") + (highlightColor ? " rule-highlight" : "");
+        if (highlightColor) el.style.setProperty("--rule-highlight-color", highlightColor);
         el.dataset.hex = hex;
         el.style.left = ind.x + "px";
         el.style.top  = ind.y + "px";
@@ -434,8 +444,15 @@ const UI = (() => {
       const hex = ind.aircraft.hex;
       seenHexes.add(hex);
 
+      // Same highlight-rule lookup renderIndicators() uses — a suppressed
+      // edge dot is still real tracked traffic, so a matching highlight
+      // rule should still ring it.
+      const highlightColor = TrafficRulesLogic.evaluateHighlight(ind.aircraft, TrafficRules.list());
+
       let el = _suppressedDotEls.get(hex);
       if (el) {
+        el.classList.toggle("rule-highlight", !!highlightColor);
+        if (highlightColor) el.style.setProperty("--rule-highlight-color", highlightColor);
         el.style.left = ind.x + "px";
         el.style.top  = ind.y + "px";
         el.style.background = _displayColor(ind.vis);
@@ -443,7 +460,8 @@ const UI = (() => {
         el._clickState.onClickFn = onClickFn;
       } else {
         el = document.createElement("div");
-        el.className = "suppressed-dot" + (hex === _selectedHex ? " selected" : "");
+        el.className = "suppressed-dot" + (hex === _selectedHex ? " selected" : "") + (highlightColor ? " rule-highlight" : "");
+        if (highlightColor) el.style.setProperty("--rule-highlight-color", highlightColor);
         el.dataset.hex = hex;
         el.style.left = ind.x + "px";
         el.style.top  = ind.y + "px";

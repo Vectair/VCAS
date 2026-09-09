@@ -598,8 +598,15 @@ const EosMap = (() => {
       ? `<div class="direction-arrow" style="transform:translate(-50%,-50%) rotate(${aircraft.trackDeg}deg) translateY(-16px)">${_directionArrowSvg(displayColor)}</div>`
       : "";
     const altitudeLabel = aircraft.altitudeFt != null ? `${Math.round(aircraft.altitudeFt).toLocaleString()}ft` : "";
+    // User-defined highlight rules (src/logic/trafficRules.js) — same
+    // lookup ui.js's renderIndicators()/renderSuppressedDots() already use
+    // for NAV/RAW, applied here for AIR's own markers (see VCAS.css's
+    // .air-marker-inner.rule-highlight rules).
+    const highlightColor = TrafficRulesLogic.evaluateHighlight(aircraft, TrafficRules.list());
+    const innerClass = "air-marker-inner" + (highlightColor ? " rule-highlight" : "");
+    const innerStyle = highlightColor ? ` style="--rule-highlight-color:${highlightColor}"` : "";
     return `
-      <div class="air-marker-inner">
+      <div class="${innerClass}"${innerStyle}>
         <div class="air-icon">${arrowSvg}${shapeSvg}</div>
         <div class="air-label-box">
           <div class="callsign" style="color:${displayColor}">${callsign}</div>
