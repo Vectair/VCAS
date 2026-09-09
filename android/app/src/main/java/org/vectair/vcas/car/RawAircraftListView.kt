@@ -11,55 +11,66 @@ import org.vectair.vcas.car.logic.Indicators
 import kotlin.math.roundToInt
 
 /**
- * RAW mode's sortable aircraft-list panel (PWA "Stage 3") — a faithful
- * port of `ui.js`'s `renderAircraftList()` markup/behaviour, built as a
- * real Android view (a header row of sort buttons + a scrollable list of
- * rows) rather than Canvas-drawn, since this is genuinely a scrolling
- * list widget — the same reasoning `MainActivity.kt`'s own doc comment
- * already gives for using a real `SymbolManager`/`MapView` instead of
- * hand-rolling equivalents elsewhere in this app.
+ * RAW mode's aircraft-list panel (PWA "Stage 3") — a faithful port of
+ * `ui.js`'s `renderAircraftList()` markup/behaviour, built as a real
+ * Android view (a title bar + a scrollable list of rows) rather than
+ * Canvas-drawn, since this is genuinely a scrolling list widget — the same
+ * reasoning `MainActivity.kt`'s own doc comment already gives for using a
+ * real `SymbolManager`/`MapView` instead of hand-rolling equivalents
+ * elsewhere in this app.
  *
  * Positioned by the caller (`MainActivity`) at exactly
- * `Geo.computeSquarePlotLayout()`'s own `rows` rect — the region
- * complementary to the 1:1 square `RawPlotView` occupies (below it in
- * portrait, to its right in landscape) — so it can never disagree with
- * where the plot itself decided it has room to exist.
+ * `Geo.computePlotLayout()`'s own `rows` rect — the region complementary
+ * to the plot `RawPlotView` occupies (below it in portrait, to its right
+ * in landscape) — so it can never disagree with where the plot itself
+ * decided it has room to exist.
+ *
+ * 2026-09-06/09-08 sync (PWA rounds 1/9): the PWA's own PRI/RNG/ALT/TYP
+ * sort-button header was removed outright — "this is for android auto
+ * there should initially be less interaction and rearranging the list is
+ * not necessary" — items always render in the same priority order
+ * `Indicators.build()` already produces (score desc, then proximity), no
+ * resorting. The header row was later brought back as a plain, non-
+ * interactive "AIRCRAFT NEARBY {count}" title bar (round 9) — a label, not
+ * a control, so it doesn't reopen the interaction concern the sort-button
+ * removal was about. Each row's own leading marker changed from a plain
+ * colour dot to a colour-matched chevron (round 9, matching the project
+ * owner's own mockup), reusing the exact same colour-selection priority.
  */
 class RawAircraftListView(context: Context) : LinearLayout(context) {
 
-    var onSortClick: ((String) -> Unit)? = null
     var onRowClick: ((Indicators.IndicatorItem) -> Unit)? = null
 
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Float) = (v * density).roundToInt()
 
-    private val sortButtons = mutableMapOf<String, TextView>()
+    private val titleBar = LinearLayout(context).apply { orientation = HORIZONTAL }
+    private val titleLabel = TextView(context)
+    private val titleCount = TextView(context)
     private val rowsContainer = LinearLayout(context).apply { orientation = VERTICAL }
     private val scrollView = ScrollView(context)
-
-    private val sortModes = listOf("priority" to "PRI", "range" to "RNG", "altitude" to "ALT", "type" to "TYP")
 
     init {
         orientation = VERTICAL
         setBackgroundColor(Color.argb((0.85f * 255).toInt(), 14, 17, 23))
 
-        val header = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            setBackgroundColor(Color.argb((0.0f * 255).toInt(), 0, 0, 0))
+        titleBar.gravity = Gravity.CENTER_VERTICAL
+        titleBar.setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
+        titleLabel.apply {
+            text = "AIRCRAFT NEARBY "
+            setTextColor(Color.argb((0.75f * 255).toInt(), 240, 240, 240))
+            textSize = 10f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        sortModes.forEach { (key, label) ->
-            val btn = TextView(context).apply {
-                text = label
-                gravity = Gravity.CENTER
-                setTextColor(Color.argb((0.55f * 255).toInt(), 240, 240, 240))
-                textSize = 9f
-                setPadding(dp(2f), dp(6f), dp(2f), dp(6f))
-                setOnClickListener { onSortClick?.invoke(key) }
-            }
-            sortButtons[key] = btn
-            header.addView(btn, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        titleCount.apply {
+            text = "0"
+            setTextColor(VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN))
+            textSize = 10f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        addView(header, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        titleBar.addView(titleLabel)
+        titleBar.addView(titleCount)
+        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         scrollView.addView(rowsContainer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(scrollView, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
@@ -67,16 +78,11 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
 
     fun update(
         items: List<Indicators.IndicatorItem>,
-        sortMode: String,
         beyondRangeHexes: Set<String>,
         selectedHex: String?,
         colorblindSafe: Boolean = false
     ) {
-        sortButtons.forEach { (key, btn) ->
-            val active = key == sortMode
-            btn.setBackgroundColor(if (active) Color.argb((0.16f * 255).toInt(), 240, 240, 240) else Color.TRANSPARENT)
-            btn.setTextColor(if (active) Color.rgb(240, 240, 240) else Color.argb((0.55f * 255).toInt(), 240, 240, 240))
-        }
+        titleCount.text = items.size.toString()
 
         rowsContainer.removeAllViews()
         if (items.isEmpty()) {
@@ -107,14 +113,17 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
             // doc comment for the full reasoning (mirrors ui.js's
             // _displayColor()).
             val colorHex = if (colorblindSafe) item.vis.colorblindSafe.ifBlank { item.vis.color } else item.vis.colorRaw.ifBlank { item.vis.color }
-            val dotColor = try { android.graphics.Color.parseColor(colorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
-            val dot = View(context).apply {
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(dotColor)
-                }
+            val chevronColor = try { android.graphics.Color.parseColor(colorHex) } catch (e: IllegalArgumentException) { Color.WHITE }
+            // Round 9: a colour-matched chevron glyph, not a plain dot —
+            // matching the project owner's own mockup, same underlying
+            // per-aircraft colour the dot used.
+            val chevron = TextView(context).apply {
+                text = "❮" // HEAVY LEFT-POINTING ANGLE QUOTATION MARK ORNAMENT ("❮")
+                setTextColor(chevronColor)
+                textSize = 14f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
             }
-            row.addView(dot, LayoutParams(dp(8f), dp(8f)).apply { rightMargin = dp(6f) })
+            row.addView(chevron, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6f) })
 
             val info = LinearLayout(context).apply { orientation = VERTICAL }
             val callsign = TextView(context).apply {

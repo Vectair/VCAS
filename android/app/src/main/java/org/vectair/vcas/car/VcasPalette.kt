@@ -49,5 +49,20 @@ object VcasPalette {
     const val RAW_LIST_BG     = "#0e1117"
     const val RAW_LIST_BORDER = "#f0f0f0" // used at low alpha, matching rgba(240,240,240,.18) etc.
 
+    // 2026-09-06/09-08 RAW-mode redesign sync (PWA rounds 4-11) — the
+    // project owner's own design draft/mockup, pixel-sampled the same way
+    // as the reference-photo values above. Kept in sync by hand with
+    // VCAS.css's own --raw-chrome-bg/--raw-value-green/--raw-value-cyan
+    // custom properties, same caveat this project already carries for
+    // MAPTILER_KEY and the other duplicated config/palette values.
+    /** Mid slate blue-gray — RAW-only chrome background at first (round 4), later promoted app-wide regardless of Day/Night (round 11). */
+    const val RAW_CHROME_BG   = "#465c74"
+    /** Colour-coded "good value" nav-status text (turn direction, arrival time, SPD figure) — round 4/9. */
+    const val RAW_VALUE_GREEN = "#22c55e"
+    /** Colour-coded distance/range figures in the nav-status card and range-selector readout — round 4/9. */
+    const val RAW_VALUE_CYAN  = "#38bdf8"
+    /** Nav/route-toggle diamond icon colour, pixel-sampled from the project owner's own Photoshop mockup (round 9) — supersedes an earlier round-4 orange guess. */
+    const val RAW_NAV_ICON    = "#9c3b42"
+
     fun parse(hex: String): Int = Color.parseColor(hex)
 }

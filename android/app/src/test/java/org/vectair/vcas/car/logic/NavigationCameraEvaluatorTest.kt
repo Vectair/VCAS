@@ -223,7 +223,7 @@ class NavigationCameraEvaluatorTest {
     }
 
     @Test
-    fun navRaw_squareAnchor_matchesDirectGeoComputation() {
+    fun navRaw_plotAnchor_matchesDirectGeoComputation() {
         val evaluator = NavigationCameraEvaluator()
         val result = evaluator.evaluate(
             ctx(navDisplayStyle = "raw", viewportWidth = 400.0, viewportHeight = 800.0, squareContentTop = 50.0, squareContentHeight = 700.0),
@@ -232,10 +232,15 @@ class NavigationCameraEvaluatorTest {
 
         assertEquals("NAV_RAW", result.state)
 
-        val square = Geo.computeSquarePlotLayout(400.0, 50.0, 700.0)
-        val withinSquareAnchorY = NavigationCameraEvaluator.STATE_PRESETS.getValue("NAV_RAW").anchorY
-        val anchorXPx = square.squareLeft + square.squareSize * 0.5
-        val anchorYPx = square.squareTop + square.squareSize * withinSquareAnchorY
+        // 2026-09-08 round-7 rework: the real camera anchor and the
+        // screen-space plot's own anchor both derive from the SAME
+        // Geo.computePlotLayout() call (including its now-derived anchorY),
+        // not a flat constant blended against a literal square -- this is
+        // the concrete cross-check that guarantee actually holds.
+        val desiredAnchorY = NavigationCameraEvaluator.STATE_PRESETS.getValue("NAV_RAW").anchorY
+        val plot = Geo.computePlotLayout(400.0, 50.0, 700.0, Geo.PlotLayoutOpts(desiredAnchorY = desiredAnchorY))
+        val anchorXPx = plot.plotLeft + plot.plotWidth * 0.5
+        val anchorYPx = plot.plotTop + plot.plotHeight * plot.anchorY
         val expectedAnchorX = anchorXPx / 400.0
         val expectedAnchorY = anchorYPx / 800.0
 
@@ -245,7 +250,7 @@ class NavigationCameraEvaluatorTest {
     }
 
     @Test
-    fun navRaw_squareAnchor_skippedWhenViewportDimsMissing_fallsBackToFlatPreset() {
+    fun navRaw_plotAnchor_skippedWhenViewportDimsMissing_fallsBackToFlatPreset() {
         val evaluator = NavigationCameraEvaluator()
         val result = evaluator.evaluate(ctx(navDisplayStyle = "raw"), currentTimeMs = 0L)
 
@@ -257,7 +262,7 @@ class NavigationCameraEvaluatorTest {
     }
 
     @Test
-    fun navRaw_squareAnchor_stillAppliesWhenSquareContentHeightIsZero() {
+    fun navRaw_plotAnchor_stillAppliesWhenSquareContentHeightIsZero() {
         // A real asymmetry preserved from the JS source: viewportWidth/
         // viewportHeight use a truthy check (0 excluded), but
         // squareContentHeight uses an explicit `!= null` check, so 0 is a
@@ -270,10 +275,17 @@ class NavigationCameraEvaluatorTest {
 
         assertEquals("NAV_RAW", result.state)
         // Branch entered (not skipped) -> anchors are computed from a
-        // degenerate zero-size square, NOT the flat 0.5/0.80 preset
-        // defaults that "skipped" would have left in place.
-        assertEquals(0.0, result.anchorX, 1e-9)
-        assertEquals(0.0, result.anchorY, 1e-9)
+        // degenerate zero-height plot, cross-checked against the same
+        // Geo.computePlotLayout() call directly (not hand-asserted, since
+        // the primary axis -- width in portrait -- is now preserved at its
+        // full size even when content height is 0, unlike the old
+        // literal-square algorithm which forced both dimensions to 0).
+        val desiredAnchorY = NavigationCameraEvaluator.STATE_PRESETS.getValue("NAV_RAW").anchorY
+        val plot = Geo.computePlotLayout(400.0, 0.0, 0.0, Geo.PlotLayoutOpts(desiredAnchorY = desiredAnchorY))
+        val expectedAnchorX = (plot.plotLeft + plot.plotWidth * 0.5) / 400.0
+        val expectedAnchorY = (plot.plotTop + plot.plotHeight * plot.anchorY) / 800.0
+        assertEquals(expectedAnchorX, result.anchorX, 1e-9)
+        assertEquals(expectedAnchorY, result.anchorY, 1e-9)
     }
 
     @Test

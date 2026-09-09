@@ -41,11 +41,21 @@ object Geo {
     data class Point(val x: Int, val y: Int)
     data class LatLon(val lat: Double, val lon: Double)
     data class Rect(val left: Double, val top: Double, val width: Double, val height: Double)
-    data class SquarePlotLayout(
+
+    /**
+     * RAW's plot region — see computePlotLayout()'s own doc comment.
+     * plotWidth/plotHeight are no longer required to be equal (renamed
+     * from the old squareLeft/squareTop/squareSize, which assumed they
+     * always were) — a rectangle whose two dimensions can genuinely
+     * differ has no single "size" left to report.
+     */
+    data class PlotLayout(
         val orientation: String, // "portrait" or "landscape"
-        val squareLeft: Double,
-        val squareTop: Double,
-        val squareSize: Double,
+        val plotLeft: Double,
+        val plotTop: Double,
+        val plotWidth: Double,
+        val plotHeight: Double,
+        val anchorY: Double,
         val rows: Rect
     )
 
@@ -284,38 +294,127 @@ object Geo {
         return min(deadAhead, edge)
     }
 
+    data class PlotLayoutOpts(
+        val desiredAnchorY: Double = 0.8,
+        val safeInset: Double = 60.0,
+        val fovHalfAngleDeg: Double = 75.0,
+        val markerMarginPx: Double = 30.0
+    )
+
     /**
-     * RAW's plot region: a true 1:1 square, pinned to the top in portrait
-     * (list rows below) or the left in landscape (list rows to the right).
-     * See geo.js's own doc comment — this must stay the single shared
-     * source for both the real camera anchor and the screen-space plot, or
-     * the two silently drift apart the way an earlier bug already did once.
+     * RAW's plot region — pinned to the TOP in portrait (full content width,
+     * with the aircraft list below) or the LEFT in landscape (full content
+     * height, list to the right), matching a real ND's own fixed-aspect
+     * traffic display plus whatever data panel fits around it. Originally a
+     * literal 1:1 square (both axes always equal) — reworked (matching the
+     * PWA's own 2026-09-08 rework, see CLAUDE.md's "the plot box no longer
+     * forces a literal square" entry): a literal square left a genuinely
+     * empty gap between the plot's own box edge and where the rings/dots
+     * actually render, on any ordinary tall phone, since the box's
+     * "primary" axis (width in portrait) is what actually determines how
+     * far the FOV-restricted circular plot can reach, and forcing the
+     * "secondary" axis (height) to match it left most of that secondary
+     * axis completely outside the circle's reach — dead space no
+     * repositioning of the box could close, since it's a property of the
+     * box's own internal proportions, not of where the box sits on screen.
+     *
+     * Fix: keep the primary axis at its full available size (unchanged —
+     * this is what maximises the FOV's real reach, still worth preserving),
+     * but size the SECONDARY axis to just fit the plot's own true radius
+     * (plus a small fixed marker allowance) instead of defaulting to match
+     * the primary axis. `desiredAnchorY` (normally
+     * NavigationCameraEvaluator's own NAV_RAW preset anchorY, 0.80 —
+     * "ownship low, priority ahead") only seeds this computation and is the
+     * exact fallback fraction if there genuinely isn't enough room to trim
+     * — the REAL anchor fraction in effect is derived here and returned as
+     * `anchorY`, not assumed externally by either caller.
+     *
+     * This return value's `anchorY` is now the single shared source both
+     * the real camera's marker anchor (NavigationCameraEvaluator, for
+     * NAV_RAW) and the screen-space dots/rings/list must read from — see
+     * that function's own call site for why the two are structurally
+     * guaranteed to agree rather than independently assuming 0.80.
+     *
+     * @param contentWidth   Full width available (RAW's plot is never
+     *   inset from the screen's left/right edges).
+     * @param contentTop     Y where usable content starts — real chrome
+     *   (top bar, guidance card) PLUS the compass tape's own reserved
+     *   height.
+     * @param contentHeight  Usable height from contentTop down to the
+     *   bottom chrome (bottom bar/route card) — already excludes both.
      */
-    fun computeSquarePlotLayout(contentWidth: Double, contentTop: Double, contentHeight: Double): SquarePlotLayout {
+    fun computePlotLayout(
+        contentWidth: Double,
+        contentTop: Double,
+        contentHeight: Double,
+        opts: PlotLayoutOpts = PlotLayoutOpts()
+    ): PlotLayout {
+        val (desiredAnchorY, safeInset, fovHalfAngleDeg, markerMarginPx) = opts
         val portrait = contentWidth <= contentHeight
-        val squareSize = max(0.0, if (portrait) contentWidth else contentHeight)
-        val squareLeft = 0.0
-        val squareTop = contentTop
-        val rows = if (portrait) {
-            Rect(
-                left = 0.0,
-                top = contentTop + squareSize,
-                width = contentWidth,
-                height = max(0.0, contentHeight - squareSize)
-            )
+        val extra = safeInset + 20.0 // matches maxRadiusForBearing's own topY = safeInset + 20
+        val edgeMarginPx = 20.0      // matches maxRadiusForBearing's own left/right margin
+
+        val plotLeft: Double
+        val plotTop: Double
+        val plotWidth: Double
+        val plotHeight: Double
+        val anchorY: Double
+        val rows: Rect
+
+        if (portrait) {
+            plotWidth = max(0.0, contentWidth)
+            // A large placeholder height so the dead-ahead (vertical)
+            // constraint can't be what caps this — we want the TRUE
+            // width-bound radius this plot's own width allows on its own,
+            // independent of how much vertical room ends up being given to
+            // it (which is exactly what we're about to solve for). Clamped
+            // to 0: a degenerate/near-zero plotWidth (no real device ever
+            // produces this, but the function must still behave sanely
+            // rather than propagate a negative radius into
+            // neededCy/neededHeight below, which would otherwise pass the
+            // `<= contentHeight` check trivially and yield a negative
+            // plotHeight).
+            val radius = max(0.0, circularPlotRadius(plotWidth, plotWidth * 10, desiredAnchorY, safeInset, fovHalfAngleDeg))
+            val neededCy = radius + extra                // exactly enough dead-ahead room, no more
+            val neededHeight = neededCy + markerMarginPx  // + fixed room below for the marker itself
+            if (neededHeight <= contentHeight) {
+                plotHeight = neededHeight
+                anchorY = neededCy / plotHeight
+            } else {
+                // Not enough room to trim — fall back to the old "use it
+                // all" shape; there's no excess to reclaim in this case
+                // anyway.
+                plotHeight = max(0.0, contentHeight)
+                anchorY = desiredAnchorY
+            }
+            plotLeft = 0.0
+            plotTop = contentTop
+            rows = Rect(left = 0.0, top = contentTop + plotHeight, width = contentWidth, height = max(0.0, contentHeight - plotHeight))
         } else {
-            Rect(
-                left = squareSize,
-                top = contentTop,
-                width = max(0.0, contentWidth - squareSize),
-                height = contentHeight
-            )
+            plotHeight = max(0.0, contentHeight)
+            val cyFixed = plotHeight * desiredAnchorY
+            val deadAheadRadius = max(0.0, cyFixed - extra)
+            // Mirror image of the portrait branch: minimal width whose own
+            // edge-bearing constraint reaches at least deadAheadRadius —
+            // beyond that point, more width buys nothing, since dead-ahead
+            // (fixed by the given height) would already be what's capping
+            // the circle.
+            val sinEdge = sin(toRad(fovHalfAngleDeg)).let { if (it == 0.0) 1.0 else it }
+            val neededWidth = 2 * (deadAheadRadius * sinEdge + edgeMarginPx)
+            plotWidth = if (neededWidth <= contentWidth) neededWidth else max(0.0, contentWidth)
+            anchorY = desiredAnchorY
+            plotLeft = 0.0
+            plotTop = contentTop
+            rows = Rect(left = plotWidth, top = contentTop, width = max(0.0, contentWidth - plotWidth), height = contentHeight)
         }
-        return SquarePlotLayout(
+
+        return PlotLayout(
             orientation = if (portrait) "portrait" else "landscape",
-            squareLeft = squareLeft,
-            squareTop = squareTop,
-            squareSize = squareSize,
+            plotLeft = plotLeft,
+            plotTop = plotTop,
+            plotWidth = plotWidth,
+            plotHeight = plotHeight,
+            anchorY = anchorY,
             rows = rows
         )
     }

@@ -90,10 +90,11 @@ object Indicators {
         // implicit undefined-passthrough exactly.
         val anchorY: Double? = null,
         val fovHalfAngleDeg: Double? = null,
-        // RAW's plot lives inside a 1:1 square sub-region of the real
-        // viewport (Geo.computeSquarePlotLayout), not the full viewport
-        // itself — null (Hybrid, which never sets these) falls back to the
-        // plain viewport with no offset.
+        // RAW's plot lives inside a sub-region of the real viewport, sized
+        // to just fit the plot's own true radius rather than a forced 1:1
+        // square (Geo.computePlotLayout, 2026-09-08's round-7 rework) —
+        // null (Hybrid, which never sets these) falls back to the plain
+        // viewport with no offset.
         val plotWidth: Double? = null,
         val plotHeight: Double? = null,
         val plotOffsetX: Double? = null,

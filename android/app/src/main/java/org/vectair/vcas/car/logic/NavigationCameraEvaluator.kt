@@ -96,7 +96,15 @@ class NavigationCameraEvaluator {
         val viewportWidth: Double? = null,
         val viewportHeight: Double? = null,
         val squareContentTop: Double? = null,
-        val squareContentHeight: Double? = null
+        val squareContentHeight: Double? = null,
+        // 2026-09-08 round-7 plot-layout rework: the same safeInset/
+        // fovHalfAngleDeg the screen-space plot itself is computed with must
+        // reach this branch too, or the real camera anchor and the plot's
+        // own anchor could silently diverge (the exact bug class CLAUDE.md
+        // documents at length for the rings-vs-dots mismatch). Defaults
+        // match Geo.PlotLayoutOpts's own defaults.
+        val plotSafeInset: Double = 60.0,
+        val plotFovHalfAngleDeg: Double = 75.0
     )
 
     data class Maneuver(val exists: Boolean, val distanceMeters: Double, val bearingDeltaDeg: Double)
@@ -313,10 +321,20 @@ class NavigationCameraEvaluator {
             ctx.viewportHeight != null && ctx.viewportHeight != 0.0 &&
             ctx.squareContentHeight != null
         ) {
-            val square = Geo.computeSquarePlotLayout(ctx.viewportWidth, ctx.squareContentTop ?: 0.0, ctx.squareContentHeight)
-            val withinSquareAnchorY = STATE_PRESETS.getValue("NAV_RAW").anchorY
-            val anchorXPx = square.squareLeft + square.squareSize * 0.5
-            val anchorYPx = square.squareTop + square.squareSize * withinSquareAnchorY
+            val desiredAnchorY = STATE_PRESETS.getValue("NAV_RAW").anchorY
+            val plotOpts = Geo.PlotLayoutOpts(
+                desiredAnchorY = desiredAnchorY,
+                safeInset = ctx.plotSafeInset,
+                fovHalfAngleDeg = ctx.plotFovHalfAngleDeg
+            )
+            val plot = Geo.computePlotLayout(ctx.viewportWidth, ctx.squareContentTop ?: 0.0, ctx.squareContentHeight, plotOpts)
+            // anchorY is now DERIVED by computePlotLayout itself (the plot
+            // box no longer forces a literal square, so the fraction of its
+            // own height the anchor sits at is no longer a flat constant) —
+            // read it back from the same call the screen-space plot itself
+            // makes, rather than assuming desiredAnchorY held.
+            val anchorXPx = plot.plotLeft + plot.plotWidth * 0.5
+            val anchorYPx = plot.plotTop + plot.plotHeight * plot.anchorY
             anchorX = anchorXPx / ctx.viewportWidth
             anchorY = anchorYPx / ctx.viewportHeight
         }

@@ -500,25 +500,29 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Two-line top bar (title + live status) styled with VCAS's real
-     * cockpit-panel palette — see `VcasPalette.kt`'s own doc comment. A
-     * real settings gear (opens `buildSettingsScreen()`) now sits at the
-     * bar's right edge, 2026-08-27. Still deliberately NOT the PWA's own
-     * ADS-B status pill — that has no real native counterpart yet (no
-     * live/stale/error status tracking beyond the plain aircraft-count
-     * text already shown). The adsb.fi credit line was added the same
-     * day, before the settings gear — see `buildAdsbCreditLine()`'s own
-     * doc comment for why it couldn't stay deferred the way the rest of
-     * the top bar could.
+     * 2026-09-06/09-08 chrome sync (PWA rounds 6/9/11): the "VCAS" text
+     * wordmark is gone — the real brand icon (`ic_launcher.png`, the same
+     * lime-green-wordmark-integrated artwork the PWA's own launch screen
+     * uses) already carries the name in its own artwork, so a second text
+     * repeat of it was redundant (same reasoning the PWA's own round-10
+     * entry gives). The status pill row is an honest SUBSET of the PWA's
+     * current 3-pill set (adsb.fi/MapTiler/Open-Meteo): this native app has
+     * no Open-Meteo integration at all, and no live per-poll ADS-B/MapTiler
+     * health tracking the way `UpperAirProvider`/`MetarProvider`'s own
+     * `getStatus()` give the PWA — building fake "active/stale" pills for
+     * signals this app doesn't actually track would be exactly the kind of
+     * half-finished control this project's conventions reject (see
+     * `buildSettingsScreen()`'s own precedent). Both native pills instead
+     * show a real, honest "configured" state (a static key/attribution
+     * link, not a live health check) — the same simplification the PWA's
+     * own MapTiler pill already makes for the identical reason.
      */
     private fun buildTopBar(): View {
-        val textColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val title = TextView(this).apply {
-            text = "VCAS"
-            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
-            textSize = 20f
-            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        val brandIcon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher)
+            contentDescription = "VCAS"
         }
+
         val status = TextView(this).apply {
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
             textSize = 13f
@@ -527,9 +531,19 @@ class MainActivity : Activity() {
             text = "Acquiring position…"
         }
         statusText = status
-        textColumn.addView(title)
+
+        val pillRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 6, 0, 0)
+        }
+        pillRow.addView(buildStatusPill("adsb.fi", "https://adsb.fi"))
+        pillRow.addView(buildStatusPill("MapTiler", "https://www.maptiler.com").apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.leftMargin = 12
+        })
+
+        val textColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         textColumn.addView(status)
-        textColumn.addView(buildAdsbCreditLine())
+        textColumn.addView(pillRow)
 
         val gear = TextView(this).apply {
             text = "⚙"
@@ -542,94 +556,87 @@ class MainActivity : Activity() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL))
+            setBackgroundColor(VcasPalette.parse(VcasPalette.RAW_CHROME_BG))
             setPadding(28, 20, 28, 14)
         }
+        bar.addView(brandIcon, LinearLayout.LayoutParams(dpToPx(30f), dpToPx(30f)).apply { rightMargin = 20 })
         bar.addView(textColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         bar.addView(gear)
 
-        val accentRule = View(this).apply { setBackgroundColor(VcasPalette.parse(VcasPalette.ACCENT)) }
-        val wrapper = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        wrapper.addView(bar)
-        wrapper.addView(accentRule, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 3))
-        return wrapper
+        return bar
     }
 
     /**
-     * adsb.fi attribution (2026-08-27) — same real requirement CLAUDE.md's
-     * Pre-V1 checklist and "How VCAS is actually installed" sections
-     * already document at length for the PWA: adsb.fi's usage terms
-     * require an ONGOING citation with a link to their homepage for as
-     * long as their data is displayed, not a one-time acknowledgment —
-     * this is why the PWA places it in its persistent top bar
-     * (`#adsb-credit`, `index.html`) rather than a splash screen shown
-     * once. Originally added before this app had any settings screen to
-     * gate a settings gear behind — that gear now exists (see
-     * `buildSettingsScreen()`), but this credit line was never gated
-     * behind it in the first place and still doesn't need to be; an
-     * ongoing citation still belongs in the persistent chrome, not a
-     * screen the user has to go open.
-     *
-     * Exact wording matches the PWA's own real markup
-     * (`index.html`: `Data: <a href="https://adsb.fi">adsb.fi</a>`), not
-     * a paraphrase — only the "adsb.fi" substring is underlined/tappable,
-     * mirroring the PWA's own anchor-only-around-the-name link, opened via
-     * a plain `ACTION_VIEW` intent to their real homepage.
+     * A restyled, real citation link — mirrors the PWA's own round-6
+     * `#adsb-status` treatment ("the pill's LABEL itself is the link,
+     * satisfying adsb.fi's ongoing-citation requirement for as long as
+     * the app is open, not a one-time splash mention"). Same shape reused
+     * for MapTiler's own attribution, matching the PWA's own two-real-
+     * pills-only scope for this native app.
      */
-    private fun buildAdsbCreditLine(): View {
-        val full = "Data: adsb.fi"
-        val linkStart = full.indexOf("adsb.fi")
-        val spannable = SpannableString(full).apply {
-            setSpan(UnderlineSpan(), linkStart, full.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    private fun buildStatusPill(label: String, url: String): View {
+        val spannable = SpannableString(label).apply {
+            setSpan(UnderlineSpan(), 0, label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         return TextView(this).apply {
             text = spannable
-            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
             textSize = 11f
-            setPadding(0, 4, 0, 0)
-            typeface = VcasFonts.display(this@MainActivity)
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
             setOnClickListener {
                 try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://adsb.fi")))
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 } catch (e: Exception) {
-                    // No browser available to handle the intent — not fatal,
-                    // the credit text itself is still visibly present either way.
+                    // No browser available to handle the intent -- not
+                    // fatal, the pill text itself is still visibly present.
                 }
             }
         }
     }
 
+    private fun dpToPx(dp: Float): Int = (dp * resources.displayMetrics.density).roundToInt()
+
     /**
-     * RAW/AIR/HYBRID segmented control — a Kotlin port of `VCAS.css`'s
-     * `.mode-toggle`/`.mode-btn` styling (flat segments in one bevelled
-     * bank, active segment gets `--btn-active-bg`), matching the PWA's
-     * own button order and RAW-default (see CLAUDE.md's "RAW as default"
-     * entry) rather than inventing a new order.
+     * RAW/AIR/HYBRID segmented control — 2026-09-08 chrome sync (PWA
+     * rounds 9/11): reworked from one merged/segmented pill (a solid blue
+     * fill for the active button) into three INDIVIDUALLY bordered black
+     * boxes, matching the project owner's own Photoshop mockup — the
+     * active button reads via a coloured cyan border+text rather than a
+     * filled background, inactive buttons are white border+text on black.
+     * This high-contrast treatment is scoped to these three buttons only
+     * (not the whole bottom bar's own chrome background, which uses the
+     * softer app-wide `RAW_CHROME_BG` slate — see round 11's own PWA
+     * writeup: "deliberately scoped to RAW [buttons]... Hybrid/AIR keep
+     * the softer cockpit-panel look" — except THIS native app has no
+     * separate softer look to preserve, since the whole native chrome was
+     * always a single shared style; applying the high-contrast mockup
+     * treatment app-wide here is the honest equivalent of round 11's own
+     * "chrome extended app-wide regardless of Day/Night" outcome).
      */
     private fun buildModeToggleBar(): View {
         val outer = LinearLayout(this).apply {
-            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL))
-            setPadding(14, 10, 14, 20)
+            setBackgroundColor(VcasPalette.parse(VcasPalette.RAW_CHROME_BG))
+            setPadding(14, 14, 14, 20)
         }
-        val toggle = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(VcasPalette.parse(VcasPalette.BTN_BG))
-                cornerRadius = 10f
-            }
-        }
-        listOf("raw" to "RAW", "air" to "AIR", "hybrid" to "HYBRID").forEach { (mode, label) ->
+        val toggle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("raw" to "RAW", "air" to "AIR", "hybrid" to "HYBRID").forEachIndexed { index, (mode, label) ->
             val btn = TextView(this).apply {
                 text = label
                 gravity = Gravity.CENTER
-                setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
                 textSize = 11f
                 typeface = VcasFonts.display(this@MainActivity, bold = true)
-                setPadding(28, 22, 28, 22)
+                setPadding(20, 22, 20, 22)
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.BLACK)
+                    cornerRadius = 4f * resources.displayMetrics.density
+                    setStroke((1.5f * resources.displayMetrics.density).roundToInt(), Color.WHITE)
+                }
                 setOnClickListener { switchMode(mode) }
             }
             modeButtons[mode] = btn
-            toggle.addView(btn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            if (index > 0) lp.leftMargin = 10
+            toggle.addView(btn, lp)
         }
         outer.addView(toggle, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         updateModeButtonHighlight()
@@ -639,7 +646,11 @@ class MainActivity : Activity() {
     private fun updateModeButtonHighlight() {
         modeButtons.forEach { (mode, btn) ->
             val active = mode == currentMode
-            btn.setBackgroundColor(if (active) VcasPalette.parse(VcasPalette.BTN_ACTIVE_BG) else Color.TRANSPARENT)
+            val borderColor = if (active) VcasPalette.parse(VcasPalette.RAW_VALUE_CYAN) else Color.WHITE
+            (btn.background as? android.graphics.drawable.GradientDrawable)?.setStroke(
+                (1.5f * resources.displayMetrics.density).roundToInt(), borderColor
+            )
+            btn.setTextColor(borderColor)
         }
     }
 
@@ -1627,11 +1638,26 @@ class MainActivity : Activity() {
         val squareContentTop = chromeTopInset + RAW_COMPASS_RESERVED_DP * density
         val squareContentHeight = (vh - squareContentTop - bottomInset).coerceAtLeast(0.0)
 
-        val square = Geo.computeSquarePlotLayout(vw, squareContentTop, squareContentHeight)
+        val plotSafeInsetPx = (SQUARE_EDGE_MARGIN_DP * density).toDouble()
+        val desiredAnchorY = NavigationCameraEvaluator.STATE_PRESETS.getValue("NAV_RAW").anchorY
+        // 2026-09-08 round-7 plot-layout rework: the plot box no longer
+        // forces a literal square — it's now sized to just fit its own
+        // true radius, with anchorY DERIVED from that (not a flat
+        // constant). Read anchorY back from the layout itself, the exact
+        // same call NavigationCameraEvaluator's own NAV_RAW branch makes
+        // for the real camera (see that class's own doc comment) — one
+        // shared source, so the plot and the real camera anchor can't
+        // silently drift apart.
+        val plotOpts = Geo.PlotLayoutOpts(
+            desiredAnchorY = desiredAnchorY,
+            safeInset = plotSafeInsetPx,
+            fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG
+        )
+        val square = Geo.computePlotLayout(vw, squareContentTop, squareContentHeight, plotOpts)
+        val anchorY = square.anchorY
 
         val activeBandsNm = Indicators.RING_BANDS_NM.subList(0, selectedRangeIndex + 1)
         val selectedRangeNm = activeBandsNm.last()
-        val anchorY = NavigationCameraEvaluator.STATE_PRESETS.getValue("NAV_RAW").anchorY
 
         val userState = Indicators.UserState(
             lat = location.latitude,
@@ -1642,11 +1668,11 @@ class MainActivity : Activity() {
             viewportHeight = vh,
             anchorY = anchorY,
             fovHalfAngleDeg = Indicators.FOV_HALF_ANGLE_DEG,
-            plotWidth = square.squareSize,
-            plotHeight = square.squareSize,
-            plotOffsetX = square.squareLeft,
-            plotOffsetY = square.squareTop,
-            plotSafeInset = (SQUARE_EDGE_MARGIN_DP * density).toDouble(),
+            plotWidth = square.plotWidth,
+            plotHeight = square.plotHeight,
+            plotOffsetX = square.plotLeft,
+            plotOffsetY = square.plotTop,
+            plotSafeInset = plotSafeInsetPx,
             plotBandsNm = activeBandsNm
         )
 

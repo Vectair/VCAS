@@ -71,7 +71,7 @@ class RawPlotView @JvmOverloads constructor(
     private var headingDeg = 0.0
     private var speedMph = 0.0
     private var routeInfo: String? = null
-    private var square: Geo.SquarePlotLayout? = null
+    private var square: Geo.PlotLayout? = null
     private var anchorY = 0.8
     private var bandsNm: List<Double> = Indicators.RING_BANDS_NM
     private var selectedRangeNm: Double = Indicators.RING_BANDS_NM.last()
@@ -87,7 +87,7 @@ class RawPlotView @JvmOverloads constructor(
         headingDeg: Double,
         speedMph: Double,
         routeInfo: String?,
-        square: Geo.SquarePlotLayout,
+        square: Geo.PlotLayout,
         anchorY: Double,
         bandsNm: List<Double>,
         selectedRangeNm: Double,
@@ -176,78 +176,173 @@ class RawPlotView @JvmOverloads constructor(
         setWillNotDraw(false)
     }
 
+    // Matches ui.js's own COMPASS_MAJOR_TICK_H export (2026-09-08 round-10
+    // fix) — the tallest tick's own height, needed both to draw the tick
+    // AND to know how much clearance the tape's radius needs to leave so
+    // that tick's outer tip doesn't poke above the chrome above it. Kept as
+    // one shared constant read by both, not two independently-guessed
+    // numbers that could drift apart the way the original PWA bug did.
+    private fun compassMajorTickHPx() = dp(14f)
+    private fun compassMinorTickHPx() = dp(8f)
+
     override fun onDraw(canvas: Canvas) {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
         val sq = square ?: return
-        drawCompassTape(canvas)
         drawRangeRings(canvas, sq)
+        drawCompassTape(canvas, sq)
+        drawOwnship(canvas, sq)
         val hitboxes = mutableListOf<Pair<String, RectF>>()
         drawAircraft(canvas, hitboxes)
         val rangeBtnRect = drawRangeSelector(canvas, sq)
         tapTargets = TapTargets(rangeBtnRect, hitboxes)
     }
 
-    // ---- Compass tape — port of ui.js's renderCompassRing() ----
-    private fun drawCompassTape(canvas: Canvas) {
-        val vw = width.toFloat()
-        val cx = vw * 0.5f
-        val tickTopY = chromeTopInsetPx
-        val pxPerDeg = dp(6f)
-        val halfSpanDeg = min(60.0, (vw / (2 * pxPerDeg)).toDouble())
+    /**
+     * Compass tape — port of ui.js's renderCompassRing(), 2026-09-08 round-9/
+     * round-10 curved-tape rework, not the original flat linear-pixel
+     * version. Ticks radiate outward from the SAME anchor point
+     * (plot centre, cx/tapeCy) the range rings/dots already use, at each
+     * tick's own true relative bearing to current heading — a tick at
+     * relative bearing 0 points straight up, one at +75deg off to the
+     * upper-right — rather than sliding along a flat horizontal line, so
+     * the tape's own curve matches the rings' curve at every heading
+     * instead of only near dead-ahead. `tapeRadius` is deliberately reduced
+     * by the tallest tick's own height + a small margin (round 10) so its
+     * outer tip stays just clear of the chrome above, never poking through
+     * it — same "almost flush, not literally flush" convention this
+     * project already uses for RAW_COMPASS_RESERVED_PX.
+     */
+    private fun drawCompassTape(canvas: Canvas, sq: Geo.PlotLayout) {
+        val cx = (sq.plotLeft + sq.plotWidth * 0.5).toFloat()
+        val tapeCy = (sq.plotTop + sq.plotHeight * anchorY).toFloat()
+        val majorTickH = compassMajorTickHPx()
+        val tapeRadius = max(0f, (tapeCy - chromeTopInsetPx) - (majorTickH + dp(4f)))
+        val deadAheadRimY = tapeCy - tapeRadius
+
         val heading = ((headingDeg % 360) + 360) % 360
+        val fov = Indicators.FOV_HALF_ANGLE_DEG
 
-        var startDeg = Math.ceil((heading - halfSpanDeg) / 10) * 10
-        val endDeg = heading + halfSpanDeg
+        var tickHeading = 0.0
+        while (tickHeading < 360.0) {
+            var relBearing = tickHeading - heading
+            relBearing = ((relBearing + 540) % 360) - 180 // wrap to (-180, 180]
+            if (Math.abs(relBearing) <= fov) {
+                val angleRad = Math.toRadians(relBearing)
+                val sinA = sin(angleRad).toFloat()
+                val cosA = cos(angleRad).toFloat()
+                val isMajor = tickHeading % 30.0 == 0.0
+                val tickH = if (isMajor) majorTickH else compassMinorTickHPx()
 
-        while (startDeg <= endDeg) {
-            val wrapped = ((startDeg % 360) + 360) % 360
-            val x = cx + ((startDeg - heading) * pxPerDeg).toFloat()
-            val isMajor = wrapped % 30 == 0.0
-            val tickH = dp(if (isMajor) 14f else 8f)
-            canvas.drawLine(x, tickTopY, x, tickTopY + tickH, tickPaint)
-            if (isMajor) {
-                val label = wrapped.toInt().toString().padStart(3, '0')
-                canvas.drawText(label, x, tickTopY + tickH + dp(14f), tickLabelPaint)
+                val innerX = cx + tapeRadius * sinA
+                val innerY = tapeCy - tapeRadius * cosA
+                val outerX = cx + (tapeRadius + tickH) * sinA
+                val outerY = tapeCy - (tapeRadius + tickH) * cosA
+                canvas.drawLine(innerX, innerY, outerX, outerY, tickPaint)
+
+                if (isMajor) {
+                    // Shortened to tens-shorthand (round 9) -- a curved tape
+                    // this tight has no room for 3-digit headings.
+                    val label = (tickHeading / 10.0).toInt().toString()
+                    val labelX = cx + (tapeRadius + tickH + dp(12f)) * sinA
+                    val labelY = tapeCy - (tapeRadius + tickH + dp(12f)) * cosA
+                    canvas.drawText(label, labelX, labelY + tickLabelPaint.textSize * 0.35f, tickLabelPaint)
+                }
             }
-            startDeg += 10
+            tickHeading += 10.0
         }
 
-        // Fixed lubber line — always centred, pointing down at the tick baseline.
+        // Fixed lubber line — always centred, pointing down at the
+        // dead-ahead rim point (round 10: this now derives from the
+        // curved tape's own dead-ahead rim, not a flat tickTopY, so it
+        // moves in lockstep with the tick clearance fix above).
         val lubberPath = Path().apply {
-            moveTo(cx - dp(7f), tickTopY - dp(16f))
-            lineTo(cx + dp(7f), tickTopY - dp(16f))
-            lineTo(cx, tickTopY - dp(2f))
+            moveTo(cx - dp(7f), deadAheadRimY - dp(16f))
+            lineTo(cx + dp(7f), deadAheadRimY - dp(16f))
+            lineTo(cx, deadAheadRimY - dp(2f))
             close()
         }
         canvas.drawPath(lubberPath, lubberPaint)
 
         val hdgRounded = Math.round(heading).toInt() % 360
-        canvas.drawText(hdgRounded.toString().padStart(3, '0'), cx, tickTopY - dp(22f), digitalPaint)
+        canvas.drawText(hdgRounded.toString().padStart(3, '0'), cx, deadAheadRimY - dp(22f), digitalPaint)
 
-        // SPD/route info strip.
-        val stripY = tickTopY + dp(14f) + dp(14f) + dp(20f)
+        // SPD/route info strip — round 6: moved to the top-left corner of
+        // the plot (left-aligned) rather than centred, freeing the top
+        // centre/right for the aircraft-count readout in the PWA; native
+        // has no LOG button sharing this row, so this is simply the
+        // left edge of the plot box + a small margin.
+        drawInfoStrip(canvas, sq, deadAheadRimY)
+    }
+
+    private fun drawInfoStrip(canvas: Canvas, sq: Geo.PlotLayout, deadAheadRimY: Float) {
+        val leftX = (sq.plotLeft + dp(8f)).toFloat()
+        val stripY = deadAheadRimY + dp(14f) + dp(14f) + dp(20f)
         val speedLabel = "SPD ${Math.round(speedMph)} MPH"
         val route = routeInfo
+        val leftAlign = Paint(stripTextPaint).apply { textAlign = Paint.Align.LEFT }
         val estWidth = { s: String -> s.length * dp(7.2f) }
-        val boxW = max(estWidth(speedLabel), route?.let { estWidth(it) } ?: 0f) + dp(28f)
+        val boxW = max(estWidth(speedLabel), route?.let { estWidth(it) } ?: 0f) + dp(20f)
         val boxH = if (route != null) dp(46f) else dp(26f)
         canvas.drawRoundRect(
-            RectF(cx - boxW / 2, stripY - dp(17f), cx + boxW / 2, stripY - dp(17f) + boxH),
+            RectF(leftX - dp(6f), stripY - dp(17f), leftX - dp(6f) + boxW, stripY - dp(17f) + boxH),
             dp(4f), dp(4f), stripBgPaint
         )
-        canvas.drawText(speedLabel, cx, stripY, stripTextPaint)
+        // Round 9: the SPD figure itself is colour-coded green ("good
+        // value" readout, matching the nav-status card's own colour
+        // coding), the "SPD "/"MPH" label text stays plain white — drawn
+        // as three sequential runs since Canvas text has no span concept.
+        val prefix = "SPD "
+        val number = Math.round(speedMph).toString()
+        val suffix = " MPH"
+        var runX = leftX
+        canvas.drawText(prefix, runX, stripY, leftAlign)
+        runX += leftAlign.measureText(prefix)
+        val greenPaint = Paint(leftAlign).apply { color = VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN) }
+        canvas.drawText(number, runX, stripY, greenPaint)
+        runX += greenPaint.measureText(number)
+        canvas.drawText(suffix, runX, stripY, leftAlign)
         if (route != null) {
-            val routePaint = Paint(stripTextPaint).apply { textSize = dp(12f); isFakeBoldText = false; alpha = (0.85f * 255).toInt() }
-            canvas.drawText(route, cx, stripY + dp(18f), routePaint)
+            val routePaint = Paint(leftAlign).apply { textSize = dp(12f); isFakeBoldText = false; alpha = (0.85f * 255).toInt() }
+            canvas.drawText(route, leftX, stripY + dp(18f), routePaint)
         }
     }
 
+    /**
+     * Ownship marker — round 1's car icon (replacing an earlier chevron),
+     * redesigned at true device scale in round 1's own follow-up (the
+     * wheel-bump detail didn't survive real-device scale, see CLAUDE.md).
+     * The PWA's own RAW ownship is the real MapLibre marker forced yellow
+     * with no glow (round 9) — native's Canvas-only plot has no MapLibre
+     * marker to reuse, so this draws an equivalent flat yellow car shape
+     * directly on the plot, always pointing "up" (heading-up display, so
+     * ownship never rotates). Deliberately no glow/halo, matching RAW's
+     * own "flat instrument symbol, not a highlighted map pin" look.
+     */
+    private fun drawOwnship(canvas: Canvas, sq: Geo.PlotLayout) {
+        val cx = (sq.plotLeft + sq.plotWidth * 0.5).toFloat()
+        val cy = (sq.plotTop + sq.plotHeight * anchorY).toFloat()
+        val w = dp(18f)
+        val h = dp(26f)
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = VcasPalette.parse(VcasPalette.RAW_LUBBER) }
+        val path = Path().apply {
+            moveTo(cx, cy - h / 2f) // tapered nose, pointing "up" / dead-ahead
+            lineTo(cx + w * 0.42f, cy - h * 0.18f)
+            quadTo(cx + w * 0.5f, cy + h * 0.15f, cx + w * 0.4f, cy + h * 0.5f)
+            quadTo(cx, cy + h * 0.58f, cx - w * 0.4f, cy + h * 0.5f)
+            quadTo(cx - w * 0.5f, cy + h * 0.15f, cx - w * 0.42f, cy - h * 0.18f)
+            close()
+        }
+        canvas.drawPath(path, bodyPaint)
+        val windshieldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = Color.argb(180, 10, 12, 15) }
+        canvas.drawRoundRect(RectF(cx - w * 0.28f, cy - h * 0.32f, cx + w * 0.28f, cy - h * 0.02f), dp(2f), dp(2f), windshieldPaint)
+    }
+
     // ---- Range rings — port of ui.js's renderRangeRingsOverlay() ----
-    private fun drawRangeRings(canvas: Canvas, sq: Geo.SquarePlotLayout) {
-        val cx = (sq.squareLeft + sq.squareSize * 0.5).toFloat()
-        val cy = (sq.squareTop + sq.squareSize * anchorY).toFloat()
-        val plotRadius = Geo.circularPlotRadius(sq.squareSize, sq.squareSize, anchorY, dp(16f).toDouble(), Indicators.FOV_HALF_ANGLE_DEG)
+    private fun drawRangeRings(canvas: Canvas, sq: Geo.PlotLayout) {
+        val cx = (sq.plotLeft + sq.plotWidth * 0.5).toFloat()
+        val cy = (sq.plotTop + sq.plotHeight * anchorY).toFloat()
+        val plotRadius = Geo.circularPlotRadius(sq.plotWidth, sq.plotHeight, anchorY, dp(16f).toDouble(), Indicators.FOV_HALF_ANGLE_DEG)
         val fovRad = Math.toRadians(Indicators.FOV_HALF_ANGLE_DEG)
 
         for (nm in bandsNm) {
@@ -267,14 +362,16 @@ class RawPlotView @JvmOverloads constructor(
         }
     }
 
-    // ---- Range selector button — port of ui.js's renderRangeSelector() ----
-    private fun drawRangeSelector(canvas: Canvas, sq: Geo.SquarePlotLayout): RectF {
+    // ---- Range selector button — port of ui.js's renderRangeSelector().
+    // Round 8: moved from the plot's top-right corner to its BOTTOM-right,
+    // directly above where the aircraft-list panel begins. ----
+    private fun drawRangeSelector(canvas: Canvas, sq: Geo.PlotLayout): RectF {
         val text = "${formatNm(selectedRangeNm)}NM"
         val textW = rangeBtnTextPaint.measureText(text)
         val padH = dp(8f)
         val padV = dp(4f)
-        val x = (sq.squareLeft + sq.squareSize - dp(8f)).toFloat() // right edge anchor
-        val y = chromeTopInsetPx + dp(48f)
+        val x = (sq.plotLeft + sq.plotWidth - dp(8f)).toFloat() // right edge anchor
+        val y = (sq.plotTop + sq.plotHeight - dp(40f) - (rangeBtnTextPaint.textSize + padV * 2)).toFloat()
         val rect = RectF(x - textW - padH * 2, y, x, y + rangeBtnTextPaint.textSize + padV * 2)
         canvas.drawRoundRect(rect, dp(4f), dp(4f), rangeBtnBgPaint)
         canvas.drawRoundRect(rect, dp(4f), dp(4f), rangeBtnBorderPaint)

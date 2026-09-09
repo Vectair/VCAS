@@ -282,48 +282,125 @@ class GeoTest {
         assertTrue("farther range should be closer to the top of the screen", far.y < near.y)
     }
 
-    // ---- computeSquarePlotLayout ----
+    // ---- computePlotLayout ----
+    //
+    // Ported from geo.js's real computePlotLayout() (2026-09-08's "plot box
+    // no longer forces a literal square" rework, see CLAUDE.md's own RAW-mode
+    // redesign round 7 entry) — replaces the old literal-square
+    // computeSquarePlotLayout(). The primary axis (width in portrait, height
+    // in landscape) still uses the full available content dimension; the
+    // secondary axis is now solved to just fit the plot's own true radius
+    // plus a small marker margin, with anchorY returned as a DERIVED value
+    // rather than assumed a flat constant.
 
     @Test
-    fun squareLayout_portrait_pinsSquareToTop() {
-        val layout = Geo.computeSquarePlotLayout(contentWidth = 400.0, contentTop = 100.0, contentHeight = 800.0)
+    fun plotLayout_portrait_usesFullWidthAsPrimaryAxis() {
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 100.0, contentHeight = 800.0)
         assertEquals("portrait", layout.orientation)
-        assertEquals(400.0, layout.squareSize, EPS)
-        assertEquals(0.0, layout.squareLeft, EPS)
-        assertEquals(100.0, layout.squareTop, EPS)
-        assertEquals(0.0, layout.rows.left, EPS)
-        assertEquals(500.0, layout.rows.top, EPS) // contentTop + squareSize
-        assertEquals(400.0, layout.rows.width, EPS)
-        assertEquals(400.0, layout.rows.height, EPS) // contentHeight - squareSize
+        assertEquals(400.0, layout.plotWidth, EPS)
+        assertEquals(0.0, layout.plotLeft, EPS)
+        assertEquals(100.0, layout.plotTop, EPS)
     }
 
     @Test
-    fun squareLayout_landscape_pinsSquareToLeft() {
-        val layout = Geo.computeSquarePlotLayout(contentWidth = 900.0, contentTop = 50.0, contentHeight = 400.0)
+    fun plotLayout_portrait_secondaryAxisIsTighterThanFullWidth() {
+        // On an ordinary tall phone, the true circular radius derived from
+        // the full width is reached well before a literal square's own full
+        // width-as-height would allow -- plotHeight must come out smaller
+        // than plotWidth, this round's whole point (the old squareSize
+        // forced them equal, wasting real vertical space).
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 100.0, contentHeight = 800.0)
+        assertTrue("plotHeight (${layout.plotHeight}) should be less than plotWidth (${layout.plotWidth}) on a tall phone",
+            layout.plotHeight < layout.plotWidth)
+    }
+
+    @Test
+    fun plotLayout_portrait_rowsRegionFillsWhatsLeft() {
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 100.0, contentHeight = 800.0)
+        assertEquals(0.0, layout.rows.left, EPS)
+        assertEquals(100.0 + layout.plotHeight, layout.rows.top, EPS)
+        assertEquals(400.0, layout.rows.width, EPS)
+        assertEquals(800.0 - layout.plotHeight, layout.rows.height, EPS)
+    }
+
+    @Test
+    fun plotLayout_landscape_usesFullHeightAsPrimaryAxis() {
+        val layout = Geo.computePlotLayout(contentWidth = 900.0, contentTop = 50.0, contentHeight = 400.0)
         assertEquals("landscape", layout.orientation)
-        assertEquals(400.0, layout.squareSize, EPS)
-        assertEquals(50.0, layout.squareTop, EPS)
-        assertEquals(400.0, layout.rows.left, EPS) // squareSize
-        assertEquals(50.0, layout.rows.top, EPS)   // contentTop
-        assertEquals(500.0, layout.rows.width, EPS) // contentWidth - squareSize
+        assertEquals(400.0, layout.plotHeight, EPS)
+        assertEquals(50.0, layout.plotTop, EPS)
+    }
+
+    @Test
+    fun plotLayout_landscape_rowsRegionFillsWhatsLeft() {
+        val layout = Geo.computePlotLayout(contentWidth = 900.0, contentTop = 50.0, contentHeight = 400.0)
+        assertEquals(layout.plotWidth, layout.rows.left, EPS)
+        assertEquals(50.0, layout.rows.top, EPS)
+        assertEquals(900.0 - layout.plotWidth, layout.rows.width, EPS)
         assertEquals(400.0, layout.rows.height, EPS)
     }
 
     @Test
-    fun squareLayout_exactSquareContent_choosesPortraitBranch() {
+    fun plotLayout_exactSquareContent_choosesPortraitBranch() {
         // contentWidth == contentHeight -- the "portrait" tiebreak
         // (contentWidth <= contentHeight) must resolve to portrait, not
         // landscape, for an exact square.
-        val layout = Geo.computeSquarePlotLayout(contentWidth = 500.0, contentTop = 0.0, contentHeight = 500.0)
+        val layout = Geo.computePlotLayout(contentWidth = 500.0, contentTop = 0.0, contentHeight = 500.0)
         assertEquals("portrait", layout.orientation)
     }
 
     @Test
-    fun squareLayout_neverProducesNegativeRowDimensions() {
+    fun plotLayout_neverProducesNegativeRowDimensions() {
         // A degenerate case (near-zero leftover space) must still clamp to
         // 0, not go negative.
-        val layout = Geo.computeSquarePlotLayout(contentWidth = 400.0, contentTop = 0.0, contentHeight = 400.0)
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 0.0, contentHeight = 400.0)
         assertTrue(layout.rows.width >= 0.0)
         assertTrue(layout.rows.height >= 0.0)
+    }
+
+    @Test
+    fun plotLayout_degenerateZeroContent_producesNoNegativeDimensions() {
+        // Real regression test: a first draft of computePlotLayout() could
+        // return a NEGATIVE plotHeight for zero/degenerate content
+        // dimensions, since a negative computed radius silently satisfied
+        // the "<= contentHeight" fallback check. Caught by deliberately
+        // testing degenerate inputs, not just realistic ones.
+        val layout = Geo.computePlotLayout(contentWidth = 0.0, contentTop = 0.0, contentHeight = 0.0)
+        assertTrue(layout.plotWidth >= 0.0)
+        assertTrue(layout.plotHeight >= 0.0)
+        assertTrue(layout.rows.width >= 0.0)
+        assertTrue(layout.rows.height >= 0.0)
+    }
+
+    @Test
+    fun plotLayout_anchorY_fallsBackToDesiredWhenNoRoomToTrim() {
+        // When contentHeight is too small to hold even the trimmed
+        // plotHeight, the function must fall back to using the whole
+        // contentHeight and the original desiredAnchorY -- not some
+        // partially-computed value.
+        val opts = Geo.PlotLayoutOpts(desiredAnchorY = 0.8)
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 0.0, contentHeight = 50.0, opts = opts)
+        assertEquals(50.0, layout.plotHeight, EPS)
+        assertEquals(0.8, layout.anchorY, EPS)
+    }
+
+    @Test
+    fun plotLayout_portrait_plotHeightMatchesRadiusPlusMarginFormula() {
+        // Directly verifies the port reproduces geo.js's own documented
+        // formula (radius solved from the full width via a large placeholder
+        // height/desiredAnchorY, then plotHeight = radius + safeInset + 20 +
+        // markerMarginPx, anchorY derived from that) -- not just that SOME
+        // trimmed height came out, but the actual specified one. This is
+        // also the concrete form of the "screen-space plot and the real
+        // camera anchor can't drift apart" guarantee documented at length in
+        // CLAUDE.md's round 7 writeup: both now derive from this one
+        // formula instead of two independently-typed constants.
+        val opts = Geo.PlotLayoutOpts(desiredAnchorY = 0.8, safeInset = 60.0, fovHalfAngleDeg = 75.0, markerMarginPx = 30.0)
+        val layout = Geo.computePlotLayout(contentWidth = 400.0, contentTop = 0.0, contentHeight = 800.0, opts = opts)
+        val radius = Geo.circularPlotRadius(layout.plotWidth, layout.plotWidth * 10, opts.desiredAnchorY, opts.safeInset, opts.fovHalfAngleDeg)
+        val expectedNeededCy = radius + opts.safeInset + 20.0
+        val expectedHeight = expectedNeededCy + opts.markerMarginPx
+        assertEquals(expectedHeight, layout.plotHeight, EPS)
+        assertEquals(expectedNeededCy / expectedHeight, layout.anchorY, EPS)
     }
 }

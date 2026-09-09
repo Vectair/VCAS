@@ -8145,3 +8145,237 @@ Not done in this pass, and not implied by it: no change to the native
 Android Auto port (same standing "synced in dedicated passes" note as
 every RAW-mode-redesign round above) — it has no METAR/Open-Meteo status
 pills at all today, so there's nothing there to remove or relink.
+
+## Native Android port: RAW-mode/chrome design-sync pass (2026-09-09)
+
+Direct instruction: "the native port is still massively lagging in terms
+of design. it effectively looks nothing like the pwa so can you work on
+updating that. it should be a like for like comparison." True — the
+phone-side native app (`android/`) was still visually frozen at its
+2026-08-26/27 state (real pass 2/3: RAW built as a faithful Canvas port,
+settings/onboarding/popup added), while the PWA had since gone through
+11 full RAW-mode-redesign rounds plus a chrome-unification pass plus the
+Open-Meteo/METAR-pill changes — none of which had ever reached the
+native code, per this file's own repeated "synced in dedicated passes,
+not every change" standing note for that project.
+
+**Phase 1 — the load-bearing logic dependency, ported and verified
+first, since the visual work depends on it.** The PWA's own round-7
+rework ("the plot box no longer forces a literal square," see above) —
+`Geo.kt`'s `computeSquarePlotLayout()`/`SquarePlotLayout` replaced with
+`computePlotLayout()`/`PlotLayout`, a structural port of the real,
+current `src/logic/geo.js` (read directly, not reconstructed from
+memory) rather than a re-derivation: the primary axis (width in
+portrait) still uses the full available content dimension, the
+secondary axis is solved to just fit the plot's own true circular
+radius plus a small marker margin, and `anchorY` is now a DERIVED return
+value rather than an assumed flat constant — the same "one shared
+source, not two independently-typed values that could drift" discipline
+this file already documents at length for the rings-vs-dots mismatch,
+now load-bearing for a genuinely new piece of Kotlin geometry rather
+than repeated as a slogan.
+
+Every one of `Geo.kt`'s consumers was updated to match, not just
+`Geo.kt` itself:
+- `NavigationCameraEvaluator.kt`'s NAV_RAW branch (9b) now calls the same
+  `Geo.computePlotLayout()` and reads its derived `anchorY` back, rather
+  than assuming the old flat preset constant — new `plotSafeInset`/
+  `plotFovHalfAngleDeg` fields added to `Ctx` (defaulted to
+  `Geo.PlotLayoutOpts`'s own defaults) so a real call site can thread the
+  actual values through, mirroring the PWA's `_rawChromeInsets()`
+  single-measurement-reaches-both-call-sites pattern. **Honest note**:
+  this branch currently has NO live call site in the native app at
+  all — `MainActivity.kt`'s `updateHybridCamera()`/`updateAirCamera()`
+  never set `navDisplayStyle = "raw"` (RAW mode has no MapLibre camera at
+  all, being pure Canvas) — so this fix closes a real latent
+  inconsistency (verified via the test suite below) without yet being
+  exercised by any production code path; worth remembering if a future
+  pass ever wires a real camera into RAW.
+- `GeoTest.kt`'s old `computeSquarePlotLayout` tests rewritten against
+  the new API, including a new test that directly reproduces geo.js's
+  own radius-plus-margin formula (catching the exact class of "vacuous
+  test" mistake this project's own port test-writeups have flagged
+  before) and a regression test for a real bug class already caught once
+  in the PWA's own port (a degenerate/zero-content input producing a
+  negative computed radius).
+- `NavigationCameraEvaluatorTest.kt`'s two square-anchor tests rewritten
+  to cross-check against a direct `Geo.computePlotLayout()` call rather
+  than hand-asserted literals — including a genuine BEHAVIOUR change
+  caught by this rewrite, not just a rename: the old literal-square
+  algorithm forced `plotWidth == plotHeight == 0` for a
+  `squareContentHeight = 0.0` degenerate case, while the new algorithm
+  correctly keeps the PRIMARY axis (width) at its full size even when
+  the secondary axis has no room — the zero-content test's own expected
+  anchorX changed from `0.0` to `0.5` as a direct, correct consequence,
+  not a mistake.
+- `Indicators.kt`'s one stale comment reference updated.
+
+**Verified with the same standalone `kotlinc` 2.0.0 + JUnit4 toolchain
+this project's entire Android logic-port history is built on** — jars
+freshly re-downloaded from `repo1.maven.org` this session (this
+sandbox's own toolchain isn't preserved between sessions, only the
+scratchpad's small files are) into the scratchpad, then a real compile +
+test run of the FULL `logic/` package (all 12 main source files, all 12
+test files): **209 tests, zero failures**, confirming the round-7 port
+didn't regress any of the five prior logic ports (`Visibility`/
+`Relevance`/`AircraftExtrapolation`/`Indicators`/`RouteGeometry`/
+`NavigationCameraEvaluator`/`NormaliseAircraft`/`OrsProvider`/
+`OrsGeocoder`/`ManeuverTracker`/`CameraAnchor` all still passing
+alongside the rewritten `Geo`/`NavigationCameraEvaluator` tests).
+
+**Phase 2 — `RawPlotView.kt` (the Canvas-drawn RAW plot itself), synced
+against the PWA's rounds 1/6/8/9/10, not just the round-7 dependency
+fix:**
+- **Curved compass tape** (round 9/10), replacing the original flat
+  linear-pixel tape entirely: ticks now radiate outward from the SAME
+  anchor point the range rings already use — a tick at relative bearing
+  0 points straight up, one at the FOV edge points off at that bearing's
+  own angle — computed via `sin`/`cos` around `(cx, tapeCy)` rather than
+  sliding along a flat horizontal line, so the tape's own curve matches
+  the rings' curve at every heading instead of only near dead-ahead
+  (exactly the mismatch the PWA's own round-9 entry describes finding).
+  `tapeRadius` is deliberately reduced by the tallest tick's own height
+  plus a small margin (round 10's real fix for ticks poking above the
+  chrome) — implemented as one shared `compassMajorTickHPx()` constant
+  read by both the tick-drawing loop and the radius-clearance
+  calculation, the same "one number, not two that could drift" pattern
+  Phase 1 already established for the plot layout itself. Tick labels
+  shortened to tens-shorthand (`"7"` not `"070"`) per round 9.
+- **SPD moved to the top-left corner** (round 6), left-aligned rather
+  than centred — native has no LOG button to share that row with (never
+  ported, see "Not done" below), so this is simply the plot's own left
+  edge + a small margin, matching the PWA's own final round-8 position
+  rather than round 6's intermediate one. The SPD figure itself is now
+  colour-coded green (round 9's colour-coding pass), drawn as three
+  sequential text runs since Canvas has no span concept the way the
+  PWA's SVG `<tspan>` does.
+- **Range-selector button moved to the plot's bottom-right corner**
+  (round 8), directly above where the aircraft-list panel begins,
+  replacing its original top-right position.
+- **A real ownship car icon, drawn for the first time** — native's
+  Canvas-only RAW plot had never drawn an ownship marker of any kind
+  before this pass (unlike the PWA, whose RAW ownship is the real
+  MapLibre marker forced yellow — there is no MapLibre map underneath
+  native's RAW Canvas view for an equivalent marker to reuse). A flat
+  yellow tapered-body-plus-windshield shape (round 1's redesigned car,
+  not the original wheel-bump version that didn't survive real-device
+  scale — see the PWA's own follow-up entry on that), always pointing
+  "up" (heading-up display), deliberately with no glow/halo (round 9's
+  "flat instrument symbol, not a highlighted map pin" RAW treatment).
+
+**Phase 3 — `RawAircraftListView.kt`**: the PRI/RNG/ALT/TYP sort-button
+header (round 1's own removal target in the PWA, but never removed
+here — the native port had been built AFTER round 1's own PWA date but
+apparently from an earlier reference, or simply never resynced) is gone
+entirely — `update()`'s `sortMode`/`onSortClick` parameters dropped, not
+left as unused holes, matching this project's own "delete unused code,
+don't leave a disabled shell" convention. Replaced with a plain,
+non-interactive "AIRCRAFT NEARBY {count}" title bar (round 9, brought
+back after round 1's removal specifically as a label, not a control).
+Each row's leading marker changed from a plain colour dot to a colour-
+matched chevron glyph (`❮`, round 9), reusing the exact same
+colourblind-wins-over-RAW-fidelity colour selection the dot used.
+
+**Phase 4 — `MainActivity.kt` chrome (top bar + bottom bar).** Read the
+real current `buildTopBar()`/`buildModeToggleBar()`/
+`buildAdsbCreditLine()` before touching anything, per this project's own
+established discipline:
+- **Top bar**: the "VCAS" text wordmark is gone — the real brand icon
+  (`ic_launcher.png`, the same lime-green-wordmark-integrated artwork
+  already used elsewhere in this app) now sits where the text used to,
+  matching round 10's "the icon already carries the name, a second text
+  repeat was redundant" reasoning. Background switched to the same
+  slate-blue `RAW_CHROME_BG` the PWA's own top bar now uses everywhere
+  (round 11), not just in RAW. The old, separate `buildAdsbCreditLine()`
+  underlined-text-link is gone — folded into a genuine 2-pill status row
+  instead (`buildStatusPill()`, a small reusable tappable-link helper):
+  **adsb.fi** (the same real citation link, restyled as a pill) and
+  **MapTiler** (new). **A deliberate, honest scope decision, not an
+  oversight**: the PWA's current top bar carries 3 real pills (adsb.fi/
+  MapTiler/Open-Meteo) — this native app has no Open-Meteo integration
+  at all, and neither pill here tracks true live "active"/"stale"
+  fetch-success state the way `UpperAirProvider.getStatus()`/the PWA's
+  own ADS-B status dot do (this native app's `AdsbFiClient` has no
+  equivalent success/failure tracking yet either). Building a 3rd pill
+  for an integration that doesn't exist, or a live-status dot for a
+  signal nothing here actually measures, would be exactly the kind of
+  half-finished/non-functional control this project's conventions
+  already reject elsewhere (see `buildSettingsScreen()`'s own precedent
+  for not shipping a toggle with no real effect behind it) — both native
+  pills instead show an honest "configured" state (a real link, not a
+  live health check), the same simplification the PWA's own MapTiler
+  pill already makes for the identical reason.
+- **Bottom bar mode toggle**: reworked from one merged/segmented pill
+  (solid blue fill for the active button) into three individually
+  bordered black boxes — white border+text when inactive, cyan
+  (`RAW_VALUE_CYAN`) border+text when active — matching the project
+  owner's own Photoshop mockup the PWA's round 9 was built against.
+  Applied app-wide (all three modes share this one bottom bar), the
+  honest native equivalent of the PWA's own round-11 "chrome extended
+  app-wide regardless of Day/Night" outcome, since this native app never
+  had a separate softer per-mode chrome style to preserve in the first
+  place.
+
+**Two new palette tokens files needed for the above**: `VcasPalette.kt`
+gained `RAW_CHROME_BG`/`RAW_VALUE_GREEN`/`RAW_VALUE_CYAN`/`RAW_NAV_ICON`
+(the last currently unused — see "Not done" below), duplicated as
+literal hex from `VCAS.css`'s own `--raw-chrome-bg`/`--raw-value-green`/
+`--raw-value-cyan` custom properties, same "kept in sync by hand" caveat
+this file already carries for `MAPTILER_KEY`/`LOG_ENDPOINT_KEY` and
+every other intentionally-duplicated config/palette value in this native
+project.
+
+**Explicitly NOT done in this pass — real, scoped-out gaps, not
+oversights:**
+- **RAW's own merged nav-status card / flight-plan line (PWA rounds 2/5/
+  6/9) were not ported.** Native's `refreshRawMode()` has always passed
+  `routeInfo = null` to `RawPlotView` ("RAW mode itself carries no route
+  info — that's HYBRID's own guidance card," a pre-existing, unchanged
+  design choice this pass didn't touch) — the PWA's own ND-abbreviated
+  "IN {dist} TURN {direction}" colour-coded card, and the screen-space
+  flight-plan line reusing `Geo.projectToPolarPosition()`, are both real,
+  substantial pieces of work with no native equivalent yet. A genuine
+  next step, not attempted this pass given the size of everything else
+  already covered.
+- **No nav/route-toggle diamond icon** (PWA rounds 4/9) — this native
+  app has no equivalent control to restyle in the first place: HYBRID
+  mode's own guidance card already shows its destination-search box
+  directly whenever no route is active (see the "destination search
+  box" entry above), with no separate arm/disarm button the PWA's own
+  pin-button-turned-diamond-icon exists to be. `RAW_NAV_ICON` is defined
+  in `VcasPalette.kt` for whenever/if a real use for it is found, but
+  nothing references it yet — flagged rather than silently unused.
+- **No mode-button-order settings control** (PWA round 9) — a real
+  functional feature, not core visual parity; deprioritized in favour of
+  the actual "looks nothing like the PWA" visual gaps this pass was
+  asked to close.
+- **No RAW rows-backdrop** (PWA round 4's Part 4) — the PWA fixed a real
+  gap where RAW's rows region (below/beside the plot, where the
+  aircraft-list panel sits) showed through as plain black behind/around
+  the list panel; native's `rawListView` already carries its own
+  `rgba(14,17,23,.85)` panel background covering its own rect, so the
+  visible difference is smaller (a near-black panel over a pure-black
+  gap, vs. the PWA's slate-blue-tinted gap) but not identical — a minor,
+  known gap rather than a fixed one.
+- Colour-coding for the Hybrid guidance card, and any change to Hybrid's
+  own map-content chrome, were out of scope here exactly as they were in
+  the PWA's own round 11 (chrome-only, map content/guidance text
+  untouched).
+
+**Honest status, same caveat as every native UI file in this project's
+history**: `MainActivity.kt`/`RawPlotView.kt`/`RawAircraftListView.kt`/
+`VcasPalette.kt` were never compiled — no Android SDK in this sandbox,
+same limitation as everything else in `android/`. Checked via careful
+manual re-reads of each diff plus a brace/paren balance script run
+against every touched file (clean on all of them; `MainActivity.kt`'s
+own naive comment-stripping pass initially flagged a false imbalance,
+traced to the script's own line-comment stripper mishandling `//` inside
+`"https://..."` URL string literals — not a real code issue, confirmed
+by the file's raw, unstripped brace/paren count already being balanced
+both before and after this pass's edits). `Geo.kt`/
+`NavigationCameraEvaluator.kt` (the pure-logic layer this pass's visual
+work depends on) ARE genuinely, fully verified via real `kotlinc`+JUnit4
+execution — the same distinction this project has drawn between
+pure-logic and platform/UI code in every prior native-port entry. The
+real remaining check for the platform/UI code is still opening this in
+Android Studio and building it.
