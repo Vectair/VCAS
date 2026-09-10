@@ -78,7 +78,51 @@ const View3DLogic = (() => {
     return viewportHeight / 2 + (devicePitchDeg / halfV) * (viewportHeight / 2);
   }
 
-  return { projectTo3DPosition, horizonScreenY, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
+  // 8-point compass, used to label the "major" ticks compassTicks() returns
+  // (every 45°) — the same set a real compass rose shows, not an arbitrary
+  // subdivision.
+  const COMPASS_POINT_LABELS = {
+    0: "N", 45: "NE", 90: "E", 135: "SE",
+    180: "S", 225: "SW", 270: "W", 315: "NW",
+  };
+
+  /** Signed angular difference a-b, normalized to (-180, 180]. */
+  function _angleDiff(a, b) {
+    return ((a - b + 540) % 360) - 180;
+  }
+
+  /**
+   * Compass-tick strip for 3D View's top edge (2026-09-09 follow-up: "add
+   * compass ticks around the edge... reusing the azimuth you already
+   * have"). Every 10° of true compass bearing gets a tick if it falls
+   * inside the phone's current horizontal pointing window (the SAME
+   * fovHalfHDeg window projectTo3DPosition already gates on); every 45°
+   * (the 8-point compass) is a "major" tick with a direction label,
+   * everything else is a small unlabeled mark. x uses the identical
+   * linear degrees-to-pixels mapping projectTo3DPosition uses for its own
+   * bearing axis, so a tick and an aircraft dot at the same true bearing
+   * always land at the same x — not a second, independently-computed
+   * layout that could drift from the dots (this project's own repeated
+   * "one shared source" discipline, see CLAUDE.md's rings-vs-dots
+   * history).
+   *
+   * @param {number} headingDeg  Device azimuth (0-360, true compass bearing).
+   * @returns {Array<{deg:number,x:number,major:boolean,label:string|null}>}
+   */
+  function compassTicks(headingDeg, viewportWidth, fovHalfHDeg) {
+    const halfH = fovHalfHDeg != null ? fovHalfHDeg : FOV_HALF_H_DEG;
+    const ticks = [];
+    for (let deg = 0; deg < 360; deg += 10) {
+      const offset = _angleDiff(deg, headingDeg);
+      if (Math.abs(offset) > halfH) continue;
+      const x = viewportWidth / 2 + (offset / halfH) * (viewportWidth / 2);
+      const major = deg % 45 === 0;
+      ticks.push({ deg, x, major, label: major ? COMPASS_POINT_LABELS[deg] : null });
+    }
+    return ticks;
+  }
+
+  return { projectTo3DPosition, horizonScreenY, compassTicks, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
 })();
 
 if (typeof module !== "undefined") module.exports = View3DLogic;

@@ -282,6 +282,8 @@
     _applyModeButtonOrder();
     TrafficRules.init();
     ManualTilt.init();
+    View3DClouds.init();
+    _updateView3DCloudsToggleBtn();
     _sync3DButtonState();
 
     DevMode.init();
@@ -994,6 +996,15 @@
       });
     }
 
+    // 10b. 3D View clouds toggle (2026-09-09 follow-up) — see view3dClouds.js.
+    const btn3DClouds = document.getElementById("btn-3d-clouds-toggle");
+    if (btn3DClouds) {
+      btn3DClouds.addEventListener("click", (e) => {
+        e.preventDefault();
+        onView3DCloudsToggleClick();
+      });
+    }
+
     // 11. Hybrid-only manual camera-tilt override (2026-09-09) — see
     // manualTilt.js / CLAUDE.md.
     const btnManualTiltToggle = document.getElementById("btn-manual-tilt-toggle");
@@ -1106,6 +1117,32 @@
     const btn = document.getElementById("btn-air-rings-toggle");
     if (!btn) return;
     const on = AirRangeRingsOption.isEnabled();
+    btn.textContent = on ? "On" : "Off";
+    btn.classList.toggle("active", on);
+  }
+
+  // ---- 3D View clouds (2026-09-09 follow-up) ----
+  //
+  // The one piece of 3D View's world-building set with an ongoing per-frame
+  // cost (a continuous CSS animation while the overlay is open, see
+  // view3dClouds.js's own doc comment) — given its own settings toggle so a
+  // user who feels it's affecting battery can turn it off, unlike the other
+  // four (horizon silhouette/haze band/ground texture/compass ticks), which
+  // are all static/compute-once and don't warrant one.
+
+  function onView3DCloudsToggleClick() {
+    View3DClouds.toggle();
+    _updateView3DCloudsToggleBtn();
+    // Re-render immediately if 3D View is already open, same "don't make the
+    // user wait for the next tick" pattern the colour-blind/air-rings
+    // toggles already use.
+    if (view3DOpen) refresh3DView();
+  }
+
+  function _updateView3DCloudsToggleBtn() {
+    const btn = document.getElementById("btn-3d-clouds-toggle");
+    if (!btn) return;
+    const on = View3DClouds.isEnabled();
     btn.textContent = on ? "On" : "Off";
     btn.classList.toggle("active", on);
   }
@@ -2248,7 +2285,14 @@
     // own doc comment for why this screen specifically DOES follow real
     // Day/Night unlike RAW's fixed-dark instrument look.
     const horizonY = View3DLogic.horizonScreenY(devicePitchDeg, vh);
-    UI.render3DWorld(horizonY, vh, ThemeManager.getResolved() === "night");
+    UI.render3DWorld(horizonY, vh, ThemeManager.getResolved() === "night", View3DClouds.isEnabled());
+
+    // Compass-tick strip (2026-09-09 follow-up) — same live azimuth
+    // (userHeading) the aircraft dots' own bearing offset is computed
+    // from, kept live through the blocked state below for the same
+    // "don't freeze the world mid-transition" reasoning as the sky/ground
+    // split above.
+    UI.renderCompassTicks(View3DLogic.compassTicks(userHeading, vw));
 
     const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
     document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);

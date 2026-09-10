@@ -9381,3 +9381,174 @@ a real 3D map ever becomes worth the added complexity for the
 near-horizon case specifically, that's the "both, staged" option that
 was offered and not taken this round — a real, separately-scoped follow-
 up, not an implied next step here.
+
+## 3D View, world-building pass 2: horizon silhouette, haze band, ground texture, drifting clouds, compass ticks (2026-09-09, same day)
+
+Direct follow-up to the sky/ground gradient shipped earlier the same day:
+"there needs to be more world building, currently it's just black... what
+other options are there for generating/having something that is a little
+more aesthetically pleasing... can all of them be done cheaply?" Offered
+five concrete, mostly-CSS options; confirmed all five are cheap except one
+(drifting clouds need an ongoing CSS animation, everything else is
+compute-once/static); direct instruction to build all five, plus "add an
+option to turn off the clouds in settings if the user feels it's overly
+affecting battery."
+
+**Before building any of it, a separate technical question was raised and
+answered first**: "could we warp the MapLibre tile so that it gives a
+pseudo surface impression?" — a CSS `perspective()`+`rotateX()` warp of a
+flat, unpitched MapLibre render, sidestepping the same pitch-ceiling limit
+that already ruled MapLibre out of the sky/ground gradient work. Built a
+real Playwright proof-of-concept (three renders at different perspective/
+rotateX values) confirming the technique genuinely produces a convincing
+receding-ground look. Offered three ways to actually wire it in (reuse the
+already-paused MapLibre instance behind the 3D View overlay, a second
+dedicated instance, or don't build it yet) via `AskUserQuestion` — answer:
+**don't build it yet**. The procedural gradient is free and always
+correct; a real tile-warp is a real architecture/battery jump for a
+cosmetic upgrade with no clear signal it's needed. Nothing from that
+investigation shipped — it's recorded here so the "yes, this works, here's
+the real cost" answer doesn't need re-deriving if it comes up again.
+
+### The five additions, all layered on the existing `#view3d-sky`/`#view3d-ground` split
+
+1. **Haze band** — a third gradient stop lightening the sky near the
+   horizon (`#view3d-sky`/`.night`, `VCAS.css`), replacing the old flat
+   two-stop fade. Skies read paler near the horizon in reality; this was a
+   pure CSS tweak to the existing gradient, no new elements.
+2. **Horizon silhouette** — a repeating hill-shape SVG data-URI
+   (`#view3d-horizon`, new), placed as a CHILD of `#view3d-ground` with a
+   negative `top` offset rather than positioned independently — since
+   `#view3d-ground`'s own `top` is already repositioned every refresh by
+   `UI.render3DWorld()`, the silhouette inherits that same positioned-
+   ancestor origin for free and tracks the horizon exactly with zero new
+   JS. Same silhouette shape/colour for day and night (real distant
+   terrain reads as a dark silhouette regardless of time of day) — only
+   overall opacity differs (dimmer at night, so it doesn't fight the
+   starfield above it).
+3. **Ground texture** — a flat (non-perspective) repeating grid pattern
+   layered under the existing solid gradient via a second/third
+   `background-image` entry on `#view3d-ground` (`repeating-linear-
+   gradient` × 2 for the grid lines, plus the original `linear-gradient`
+   for the base fill) — same visual family as the perspective-warp
+   proof-of-concept explored and declined above, just without the
+   transform, so none of that approach's WebGL-context/battery cost.
+4. **Drifting clouds** (`#view3d-clouds`, new, a child of `#view3d-sky`
+   so it's clipped to the sky's own current height via `overflow:hidden`)
+   — five hand-placed `.view3d-cloud` blurred ellipses (`filter:
+   blur(7px)`, varied size/vertical position/animation-duration/negative
+   animation-delay so they don't all start stacked at the left edge),
+   animated via one shared `@keyframes view3d-cloud-drift` (`translateX`,
+   linear, infinite) — a GPU-composited transform, the cheapest real
+   animation category available, and the only layer in this whole set
+   with genuinely ongoing per-frame cost. Dimmer/bluer at night
+   (`#view3d-sky.night .view3d-cloud`) rather than hidden outright —
+   faint clouds silhouetted against the starfield read as real depth
+   rather than clutter.
+5. **Compass-tick strip** (`#view3d-compass-ticks`, new, pinned along the
+   top edge, NOT repositioned by pitch the way sky/ground/horizon are) —
+   the one functionally new piece, not just decoration. New pure function
+   `View3DLogic.compassTicks(headingDeg, viewportWidth, fovHalfHDeg)`
+   (`view3dLogic.js`): every 10° of true compass bearing gets a tick if it
+   falls inside the phone's current horizontal pointing window (the SAME
+   `fovHalfHDeg` window `projectTo3DPosition` already gates aircraft on),
+   every 45° (the 8-point compass) is a labelled "major" tick, everything
+   else is a small unlabeled mark. Deliberately uses the IDENTICAL linear
+   degrees-to-pixels mapping `projectTo3DPosition` already uses for its
+   own bearing axis — a tick and an aircraft dot at the same true bearing
+   always land at the same x, by construction, not by two independently-
+   typed formulas that could drift apart (this project's own repeated
+   "one shared source" discipline — see the rings-vs-dots history
+   elsewhere in this file). New `UI.renderCompassTicks(ticks)` (`ui.js`)
+   rebuilds the strip fully each call — at most ~9 entries at once (an
+   80°-wide window, one tick per 10°), no diffing/reuse machinery needed
+   at this scale, same reasoning `render3DView`'s own full-rebuild
+   already uses.
+
+### `View3DClouds` — the one settings toggle this pass adds
+
+New `src/view3dClouds.js`, same `init`/`isEnabled`/`toggle` shape as
+`ColorblindMode` — a plain persisted boolean (`localStorage` key
+`vcas-3d-clouds`), **on by default** (a real visual improvement, not a
+hidden feature someone has to discover first). Given its own toggle
+specifically because it's the one piece of this five-item set with an
+ongoing per-frame cost (the drifting-cloud animation) — the other four
+(haze band, silhouette, ground texture, compass ticks) are all static/
+compute-once and don't warrant one, matching this project's own
+established discipline of only adding a control where there's a real
+effect behind it.
+
+New Settings → Display & Accessibility row ("Clouds in 3D View",
+`#btn-3d-clouds-toggle`, `index.html`), wired in `app.js` exactly like the
+existing colour-blind/air-rings toggles:
+`onView3DCloudsToggleClick()`/`_updateView3DCloudsToggleBtn()`, called
+from `init()` (button label synced on load) and from the settings-row
+click handler. Re-renders 3D View immediately if it's already open
+(`if (view3DOpen) refresh3DView();`) rather than waiting for the next
+sensor tick, same "don't make the user wait" pattern the colour-blind/
+air-rings toggles already use.
+
+`UI.render3DWorld()` gained a 4th parameter, `cloudsEnabled` — toggles a
+plain `.hidden` class on `#view3d-clouds` (this app's existing per-element
+`#id.hidden { display:none; }` convention, not a new global class).
+`refresh3DView()` (`app.js`) passes `View3DClouds.isEnabled()` straight
+through on every call, alongside the existing horizon/theme args — the
+clouds' on/off state is re-read fresh every refresh, not cached, so a
+mid-session settings change (or the settings screen's own immediate
+re-render call above) always reflects the current toggle.
+
+### Verified with real execution throughout, this project's own established discipline
+
+- **`View3DLogic.compassTicks()`**: 15 real Node checks — dead-ahead
+  tick centred when facing that direction, an out-of-window direction
+  (e.g. S while facing N) correctly absent, minor (non-45°) ticks present
+  and unlabeled, wraparound across the 0°/360° boundary, and a custom
+  `fovHalfHDeg` correctly widening/narrowing the window. All 15 pass
+  against the real, shipped function.
+- **`View3DClouds`**: 8 real Node checks against the actual shipped
+  module (a minimal in-memory `localStorage` stub, same technique this
+  project already uses for other persisted-state modules) — defaults to
+  enabled with nothing stored, toggling off/on both persist correctly,
+  and a fresh re-`init()` correctly picks up the persisted state. All 8
+  pass.
+- **DOM/CSS/visual**: a real Playwright/Chromium harness driving the
+  ACTUAL extracted `#view3d-screen` markup (string-sliced verbatim out of
+  `index.html`, not retyped) against the real `VCAS.css` and the real
+  `render3DWorld`/`renderCompassTicks` logic (copied verbatim from the
+  shipped `ui.js`) — 13 checks: clouds visibly present/hidden matching the
+  `cloudsEnabled` flag, night mode correctly applied, compass ticks
+  render and show the correct major-direction label for the current
+  heading (N facing north, E facing east, N correctly absent when facing
+  east and outside the 40° FOV), tilting up moves the horizon down (sky
+  div grows taller), the horizon silhouette element has a real negative
+  `top` offset and a real background image, the ground texture reports
+  multiple `repeating-linear-gradient` layers, and no horizontal overflow
+  at this project's standard 360px check. All 13 pass, zero page errors.
+- **Settings-toggle wiring**: a second extracted-verbatim Playwright
+  harness (the real `onView3DCloudsToggleClick`/
+  `_updateView3DCloudsToggleBtn` functions, string-sliced out of the real
+  `app.js`, against the real settings-row markup) — 6 checks: correct
+  default label, label/active-class flip on click, `refresh3DView()`
+  correctly NOT called while 3D View is closed, and correctly called
+  exactly once when a toggle happens while it's open. All 6 pass.
+- **Real screenshots**, not just DOM assertions: day/level (haze, hills,
+  clouds, ground texture, N tick all visible together), night/level with
+  clouds explicitly disabled via the setting (confirms the toggle
+  actually removes them from the rendered page, not just a DOM flag),
+  and day/tilted-up-20°-facing-east (confirms the horizon, haze band, and
+  silhouette all move down together as a single coupled system when
+  pitch changes, and the compass strip correctly swaps from N to E) — all
+  three visually consistent with the intended design.
+
+### Explicit scope, not silently implied to be more
+
+No MapLibre tile-warp (explicitly investigated and declined this session,
+see above — not a "maybe later," a real recorded no for now). No true
+astronomical sun/moon position or real weather-driven cloud cover — the
+clouds are decorative, hand-placed shapes, same "not a simulation" honesty
+already established for the static night starfield. No per-cloud-shape
+variety beyond size/position (all five clouds share one visual style). No
+native Android Auto port sync — same standing "synced in dedicated
+passes, not every change" note this file already carries for every other
+web-only feature; the native 3D View equivalent (if one is ever built)
+would need its own world-building pass.

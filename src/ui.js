@@ -1264,11 +1264,23 @@ const UI = (() => {
    * View3DLogic.horizonScreenY(), the same linear degrees-to-pixels
    * mapping the aircraft dots themselves use, applied to the horizon's
    * own fixed elevation (0°) — so as the phone tilts, the sky/ground
-   * split moves exactly the way a dot at true elevation 0 would.
+   * split moves exactly the way a dot at true elevation 0 would. The
+   * horizon silhouette/haze band/ground texture (VCAS.css) all ride along
+   * with the same #view3d-sky/#view3d-ground positioning this already
+   * does — only the clouds need their own explicit toggle here, since
+   * they're the one layer with a real settings-gated on/off state.
+   *
+   * cloudsEnabled reflects View3DClouds.isEnabled() (2026-09-09 follow-up:
+   * "add an option to turn off the clouds... if the user feels it's
+   * overly affecting battery") — the drifting-cloud animation is the only
+   * piece of this world-building set with an ongoing per-frame cost, so
+   * it's the only one given a real off switch; everything else here is
+   * static/compute-once and always on.
    */
-  function render3DWorld(horizonY, viewportHeight, isNight) {
+  function render3DWorld(horizonY, viewportHeight, isNight, cloudsEnabled) {
     const sky = document.getElementById("view3d-sky");
     const ground = document.getElementById("view3d-ground");
+    const clouds = document.getElementById("view3d-clouds");
     if (!sky || !ground) return;
 
     const clampedY = Math.max(0, Math.min(viewportHeight, horizonY));
@@ -1277,6 +1289,27 @@ const UI = (() => {
 
     sky.classList.toggle("night", !!isNight);
     ground.classList.toggle("night", !!isNight);
+    if (clouds) clouds.classList.toggle("hidden", !cloudsEnabled);
+  }
+
+  /**
+   * Compass-tick strip along 3D View's top edge (2026-09-09 follow-up) —
+   * ticks/labels come from View3DLogic.compassTicks(), which already
+   * filters to the phone's current pointing window and computes each
+   * tick's x using the exact same linear degrees-to-pixels mapping the
+   * aircraft dots use, so a tick and a dot at the same bearing always
+   * agree. Rebuilt fully each call (this list is at most ~9 entries at
+   * once — the FOV window is 80° wide and ticks are every 10° — no
+   * diffing/reuse machinery needed at this scale, same reasoning
+   * render3DView's own full-rebuild-per-call already uses).
+   */
+  function renderCompassTicks(ticks) {
+    const container = document.getElementById("view3d-compass-ticks");
+    if (!container) return;
+    container.innerHTML = ticks.map(t => `
+      <div class="view3d-tick${t.major ? " major" : ""}" style="left:${t.x}px;">
+        ${t.label ? `<div class="view3d-tick-label">${_escapeHtml(t.label)}</div>` : ""}
+      </div>`).join("");
   }
 
   // ---- Popup ----
@@ -1492,6 +1525,7 @@ const UI = (() => {
     render3DView,
     clear3DView,
     render3DWorld,
+    renderCompassTicks,
     showPopup,
     showAirPopup,
     hidePopup,

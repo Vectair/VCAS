@@ -2435,14 +2435,37 @@ body[data-nav-state="turn_approach"] { }
    continuously-anchored sky gradient would need to know the full 180°
    sky-to-ground range in advance, whereas this only needs "which side of
    the horizon is each pixel on," which is what actually matters for
-   reading the scene at a glance. */
+   reading the scene at a glance.
+
+   Pass 2 (2026-09-09, same day) adds four more static/cheap layers plus
+   one animated one on top of this same split, all still "compute once,
+   don't fight the render loop" per this project's own established
+   discipline — see CLAUDE.md's own writeup for the full reasoning:
+     - A haze band: a third gradient stop lightening the sky near the
+       horizon (skies read paler near the horizon, not a flat fade).
+     - A horizon silhouette (#view3d-horizon): a repeating hill-shape SVG
+       data-URI, positioned as a child of #view3d-ground with a NEGATIVE
+       top offset so it sits exactly on the sky/ground seam automatically,
+       with zero extra JS — it moves with the horizon for free because its
+       parent already does.
+     - A flat (non-perspective) ground texture: a repeating grid pattern
+       layered under the existing solid gradient via multiple
+       background-image layers — same visual idea as the perspective-warp
+       proof-of-concept explored and declined for the "warp a MapLibre
+       tile" question, just without the transform (see CLAUDE.md).
+     - Drifting cloud blobs (#view3d-clouds): the ONE layer here with an
+       ongoing per-frame cost (a continuous GPU-composited CSS transform
+       animation) — gated on View3DClouds's own settings toggle via a
+       plain .hidden class, toggled by UI.render3DWorld()'s new 4th
+       cloudsEnabled param. */
 #view3d-sky {
   position: absolute;
   left: 0; right: 0; top: 0;
-  background: linear-gradient(to bottom, #0a1a33, #4488c8);
+  overflow: hidden; /* clip drifting clouds to the sky's own current height */
+  background: linear-gradient(to bottom, #0a1a33 0%, #4488c8 78%, #9ad0ec 100%);
 }
 #view3d-sky.night {
-  background: linear-gradient(to bottom, #000000, #0a1830);
+  background: linear-gradient(to bottom, #000000 0%, #0a1830 78%, #1c3d5c 100%);
 }
 /* A handful of fixed points, not a real star field — cheap "this is night"
    texture on the night sky only, static so it costs nothing to redraw. */
@@ -2463,13 +2486,116 @@ body[data-nav-state="turn_approach"] { }
     radial-gradient(1.5px 1.5px at 45% 85%, #fff, transparent);
   opacity: .85;
 }
+
+/* Drifting clouds — soft blurred ellipses, each with its own size/height/
+   animation-duration/animation-delay set inline in index.html (a handful of
+   fixed, hand-placed shapes, not procedurally generated — same "decorative,
+   not simulated" honesty as the static night starfield above). Negative
+   animation-delay values start each cloud already mid-flight rather than
+   every cloud beginning stacked at the same left edge on open. Day and
+   night share the same drift animation; only colour/opacity differ. Toggled
+   off entirely (no animation running, nothing painted) via the .hidden
+   class when View3DClouds.isEnabled() is false. */
+#view3d-clouds {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#view3d-clouds.hidden { display: none; }
+.view3d-cloud {
+  position: absolute;
+  left: -220px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.55);
+  filter: blur(7px);
+  animation-name: view3d-cloud-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+#view3d-sky.night .view3d-cloud {
+  background: rgba(160,180,210,.22);
+}
+@keyframes view3d-cloud-drift {
+  from { transform: translateX(0); }
+  to   { transform: translateX(160vw); }
+}
+
+/* Horizon silhouette — a repeating hill-shape strip, positioned as a CHILD
+   of #view3d-ground with a negative top offset so it always sits exactly
+   on the sky/ground seam: #view3d-ground's own top is repositioned every
+   refresh by UI.render3DWorld(), and this child inherits that same
+   positioned-ancestor origin for free, no separate JS needed to keep it
+   in sync. Deliberately the SAME silhouette shape/colour for day and
+   night (real distant terrain reads as a dark silhouette regardless of
+   time of day) — only overall opacity differs, dimmer at night so it
+   doesn't compete with the starfield above it. */
+#view3d-horizon {
+  position: absolute;
+  left: 0; right: 0;
+  top: -22px;
+  height: 30px;
+  background-repeat: repeat-x;
+  background-position: bottom;
+  background-size: 200px 30px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='30' viewBox='0 0 200 30'><path d='M0,30 L0,18 L18,9 L34,15 L52,4 L70,13 L90,7 L108,16 L128,2 L148,12 L168,6 L184,14 L200,9 L200,30 Z' fill='%23111a14'/></svg>");
+  opacity: .8;
+}
+#view3d-ground.night #view3d-horizon {
+  opacity: .55;
+}
+
+/* Ground texture — a flat (non-perspective) repeating grid, layered under
+   the existing solid gradient via a second background-image rather than
+   replacing it. Deliberately NOT the perspective-warped version explored
+   for the "warp a MapLibre tile" question (see CLAUDE.md) — same visual
+   family, without that approach's WebGL-context/battery cost. */
 #view3d-ground {
   position: absolute;
   left: 0; right: 0; bottom: 0;
-  background: linear-gradient(to bottom, #3a2f1e, #14100a);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 1px, transparent 1px 34px),
+    linear-gradient(to bottom, #3a2f1e, #14100a);
 }
 #view3d-ground.night {
-  background: linear-gradient(to bottom, #0a0a08, #000000);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.03) 0 1px, transparent 1px 34px),
+    linear-gradient(to bottom, #0a0a08, #000000);
+}
+
+/* Compass-tick strip — pinned along the top edge (not repositioned by
+   pitch, unlike the sky/ground split), driven by the phone's live azimuth
+   via View3DLogic.compassTicks()/UI.renderCompassTicks(). Same FOV window
+   the aircraft dots themselves use, so a tick and a dot at the same
+   bearing always land at the same x. */
+#view3d-compass-ticks {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 34px;
+  pointer-events: none;
+}
+.view3d-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.view3d-tick::before {
+  content: "";
+  width: 1.5px;
+  height: 9px;
+  background: rgba(255,255,255,.75);
+}
+.view3d-tick.major::before { height: 14px; background: var(--raw-value-cyan); }
+.view3d-tick-label {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--raw-value-cyan);
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
 }
 
 /* Fixed at dead-centre — represents "where the phone is currently

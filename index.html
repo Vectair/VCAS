@@ -627,8 +627,29 @@
                View3DLogic.horizonScreenY() and UI.render3DWorld(). Sized/
                positioned every refresh() from the phone's own current
                pitch; painted behind the crosshair/items/hint below. -->
-          <div id="view3d-sky"></div>
-          <div id="view3d-ground"></div>
+          <!-- World-building pass 2 (2026-09-09, same day follow-up) — a
+               horizon silhouette + atmospheric haze band (both live inside
+               #view3d-sky/#view3d-ground via CSS, no extra elements needed
+               for the haze — see VCAS.css), a flat (non-perspective) ground
+               texture, drifting cloud blobs (#view3d-clouds, static markup
+               below — gated on View3DClouds's own settings toggle, the one
+               piece of this set with an ongoing per-frame cost), and a
+               compass-tick strip (#view3d-compass-ticks) along the top edge
+               driven by the phone's live azimuth — see
+               View3DLogic.compassTicks()/UI.renderCompassTicks(). -->
+          <div id="view3d-sky">
+            <div id="view3d-clouds">
+              <div class="view3d-cloud" style="top:14%;width:150px;height:34px;animation-duration:95s;animation-delay:0s;"></div>
+              <div class="view3d-cloud" style="top:32%;width:110px;height:26px;animation-duration:130s;animation-delay:-40s;"></div>
+              <div class="view3d-cloud" style="top:52%;width:180px;height:40px;animation-duration:80s;animation-delay:-65s;"></div>
+              <div class="view3d-cloud" style="top:8%;width:90px;height:20px;animation-duration:115s;animation-delay:-20s;"></div>
+              <div class="view3d-cloud" style="top:68%;width:130px;height:28px;animation-duration:105s;animation-delay:-90s;"></div>
+            </div>
+          </div>
+          <div id="view3d-ground">
+            <div id="view3d-horizon"></div>
+          </div>
+          <div id="view3d-compass-ticks"></div>
           <div id="view3d-crosshair"></div>
           <div id="view3d-items"></div>
           <div id="view3d-hint">Point your phone at the sky — aircraft
@@ -664,6 +685,10 @@
             <div class="settings-row">
               <span class="settings-label">Range rings in Air view</span>
               <button type="button" class="settings-toggle-btn" id="btn-air-rings-toggle">Off</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Clouds in 3D View</span>
+              <button type="button" class="settings-toggle-btn" id="btn-3d-clouds-toggle">On</button>
             </div>
             <div class="settings-row">
               <span class="settings-label">RAW / AIR / HYBRID button order</span>
@@ -859,6 +884,7 @@
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
   <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
   <script src="src/modeButtonOrder.js?v=__BUILD_ID__"></script>
+  <script src="src/view3dClouds.js?v=__BUILD_ID__"></script>
   <script src="src/airRangeRingsOption.js?v=__BUILD_ID__"></script>
   <script src="src/devMode.js?v=__BUILD_ID__"></script>
   <script src="src/navDisplayStyle.js?v=__BUILD_ID__"></script>
