@@ -58,6 +58,32 @@ const UI = (() => {
     el.classList.add(state); // "active" | "stale" | "error"
     const label = el.querySelector(".label");
     if (label) label.textContent = text || fallbackLabel;
+    // Re-check whether the row still fits on one line every time a label's
+    // text actually changes (see VCAS.css's own #status-pill-row comment) —
+    // not just on window resize, since adsb.fi's error/stale text is a
+    // variable-length string, not a fixed short name, and can be the thing
+    // that tips the row from "fits" to "doesn't" with no viewport change
+    // at all.
+    _fitStatusPillRow();
+  }
+
+  /**
+   * Measures the REAL rendered width of #top-bar (not a guessed breakpoint)
+   * and toggles #status-pill-row's `.compact` class only if the full-size
+   * row would actually overflow it — same "measure the real DOM" discipline
+   * this project already applies elsewhere (see VCAS.css's own comment).
+   * Always re-checks from full size first (removes `.compact` before
+   * measuring) so shrinking a viewport back out, or a label getting
+   * shorter, can correctly return to the normal size rather than staying
+   * compact forever once triggered once.
+   */
+  function _fitStatusPillRow() {
+    const row = document.getElementById("status-pill-row");
+    const bar = document.getElementById("top-bar");
+    if (!row || !bar) return;
+    row.classList.remove("compact");
+    const overflowing = bar.scrollWidth > bar.clientWidth;
+    row.classList.toggle("compact", overflowing);
   }
 
   function setAdsbStatus(state, text) {
@@ -1493,6 +1519,7 @@ const UI = (() => {
     setAdsbStatus,
     setMaptilerStatus,
     setUpperAirStatus,
+    refitStatusPillRow: _fitStatusPillRow,
     showConfigBanner,
     showGpsMessage,
     showCompassPermissionBanner,

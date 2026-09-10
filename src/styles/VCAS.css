@@ -377,21 +377,34 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
    was removed the same day once Open-Meteo's own pill took over as the
    app's weather-status indicator and citation link — METAR data itself is
    untouched, only its dedicated pill is gone.
-   flex-wrap (round 10, 2026-09-08): a real device screenshot showed a 3rd
-   pill (added round 9) pushed past the right edge of the screen — this
-   row, #top-bar, and #top-right-controls had no wrap/overflow handling at
-   all, never re-verified at a narrow width once a 3rd pill existed.
-   Wraps onto a second line (right-aligned, matching the row's own
-   flex-end column parent) rather than clipping off-screen on a narrow
-   device instead of silently overflowing. */
+   Dynamic sizing (2026-09-10), superseding the round-10 flex-wrap fix
+   below: wrapping to a second line was itself the thing asked to go -
+   three pills should always read as one row, not fold onto a line of
+   their own on a narrow device. #status-pill-row is now a strict single
+   line (flex-wrap: nowrap); UI._fitStatusPillRow() (ui.js) measures the
+   REAL rendered width after every pill-label change (it's called from
+   the one place all three pills' text is ever written, _setStatusPill())
+   and toggles a `.compact` class - smaller font/padding/dot - only when
+   the full-size row would actually overflow #top-bar, the same "measure
+   the real DOM, don't guess with a media query" discipline this project
+   already applies to chrome-height measurement elsewhere (see CLAUDE.md's
+   camera-anchor-math history). A discrete two-tier class swap rather than
+   a continuous JS-computed font-size - cheaper, and matches this app's
+   own preference for a handful of named states over an interpolated
+   value nothing else reads. The .label max-width/ellipsis rule below is
+   the safety net for the one case font-shrinking alone can't fully
+   solve: adsb.fi's error/stale pill text is NOT a fixed short string
+   (`"No data (" + result.error + ")"` in app.js can be arbitrarily long)
+   - truncated with an ellipsis rather than ever being allowed to blow
+   out the row's width regardless of font size. */
 #status-pill-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 6px;
-  row-gap: 6px;
 }
+#status-pill-row.compact { gap: 4px; }
 
 .status-pill {
   display: flex;
@@ -407,6 +420,12 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   color: var(--text-primary);
   box-shadow: var(--btn-shadow);
   white-space: nowrap;
+  flex-shrink: 0;
+}
+#status-pill-row.compact .status-pill {
+  gap: 3px;
+  padding: 2px 6px;
+  font-size: 9px;
 }
 
 .status-pill .dot {
@@ -416,6 +435,32 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   background: var(--text-muted);
   flex-shrink: 0;
   transition: background .4s;
+}
+#status-pill-row.compact .status-pill .dot {
+  width: 5px;
+  height: 5px;
+}
+
+/* Safety net, not the primary fit mechanism - see #status-pill-row's own
+   comment above for why a pill's label text isn't always a fixed short
+   string. inline-block (anchors/spans are inline by default, and
+   text-overflow:ellipsis needs a box to clip against) plus a generous
+   max-width that never triggers on the three real fixed names
+   ("adsb.fi"/"MapTiler"/"Open-Meteo" all sit comfortably under it). */
+.status-pill .label {
+  display: inline-block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#status-pill-row.compact .status-pill .label {
+  /* Just above "Open-Meteo"'s own real compact-size rendered width (the
+     longest of the three real fixed names, ~54px measured directly) —
+     tight enough that even 3 pills at once, one showing a pathologically
+     long error string, still fit a narrow device; verified, not guessed. */
+  max-width: 58px;
 }
 
 .status-pill.active .dot   { background: #4caf50; }

@@ -329,6 +329,25 @@
     UI.setMaptilerStatus(!!(CONFIG && CONFIG.MAPTILER_KEY));
     UI.setLoading(false);
 
+    // Dynamic status-pill sizing (2026-09-10) — UI._fitStatusPillRow()
+    // already re-checks on every pill label change (_setStatusPill's own
+    // call site), but a resize/orientation change can also tip the row
+    // from "fits" to "doesn't" with no label change at all, so it needs
+    // its own listener too. Debounced (resize can fire dozens of times
+    // during a drag/rotation) rather than re-measuring on every event.
+    let _pillFitResizeTimer = null;
+    window.addEventListener("resize", () => {
+      clearTimeout(_pillFitResizeTimer);
+      _pillFitResizeTimer = setTimeout(() => UI.refitStatusPillRow(), 120);
+    });
+    // A web font (B612) finishing its load after the pills' first render
+    // can shift their real text width — re-check once fonts are actually
+    // ready rather than trusting a measurement taken against fallback-font
+    // metrics. Guarded: document.fonts isn't universally supported.
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => UI.refitStatusPillRow());
+    }
+
     // Measure the real bottom-bar height immediately so the VIEW/SPD/LOG dev
     // panels clear it from the very first frame, not just after the first
     // route/guidance-toggle event recalculates it.

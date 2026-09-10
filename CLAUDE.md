@@ -9552,3 +9552,75 @@ native Android Auto port sync — same standing "synced in dedicated
 passes, not every change" note this file already carries for every other
 web-only feature; the native 3D View equivalent (if one is ever built)
 would need its own world-building pass.
+
+## Top-bar status pills: dynamic shrink instead of wrapping (2026-09-10)
+
+Direct request: "make the size of the pills or the font in them dynamic so
+that we don't get wrapping and they all stay on the same [row]" —
+superseding round 10's own flex-wrap fix (see "RAW-mode redesign, round
+10" above), which solved the immediate overflow bug by letting a 3rd pill
+fold onto a second line, but a second line was never actually the wanted
+outcome, just the fastest fix available at the time.
+
+**Mechanism: a measured two-tier class swap, not a continuous CSS-only
+shrink.** `#status-pill-row` is now a strict single line
+(`flex-wrap: nowrap`). New `UI._fitStatusPillRow()` (`ui.js`) measures the
+REAL rendered width — `#top-bar`'s `scrollWidth > clientWidth` — and
+toggles a `.compact` class (smaller font/padding/dot, tuned and verified
+down to a 280px-wide viewport, well below any real phone) only when the
+full-size row would actually overflow. Same "measure the real DOM, don't
+guess with a media query" discipline this project already applies to
+chrome-height measurement elsewhere (`_rawChromeInsets()`, the camera-
+anchor-math history). Always re-checks from full size first (removes
+`.compact` before measuring), so shrinking a long error string back down,
+or widening the viewport back out, correctly returns to normal size
+rather than a class that only ever turns on.
+
+**Called from the single place all three pills' text is ever written**
+(`_setStatusPill()`, the shared helper `setAdsbStatus`/`setMaptilerStatus`/
+`setUpperAirStatus` all funnel through) — not just on resize. This
+matters because adsb.fi's error/stale text is genuinely variable-length
+(`` `No data (${result.error})` `` in `app.js`), so a label change alone,
+with zero viewport change, can be what tips the row from fitting to not.
+`app.js`'s `init()` also wires a debounced `window.resize` listener
+(120ms) calling the newly-exported `UI.refitStatusPillRow()`, plus a
+one-time re-check on `document.fonts.ready` (guarded for browsers without
+it) — B612 finishing its async load after the pills' first paint can
+shift their real text width away from whatever the fallback-font
+measurement saw.
+
+**A safety net for the one case font-shrinking alone can't fully solve**:
+`.status-pill .label` gets `max-width` + `overflow:hidden` +
+`text-overflow:ellipsis` (130px normal, 58px compact — the compact figure
+is deliberately tight, just above "Open-Meteo"'s own real measured
+compact-size width of ~54px, the longest of the three real fixed names)
+so a pathologically long upstream error string is truncated with an
+ellipsis rather than ever being allowed to blow out the row's width
+regardless of how far the font has already shrunk. Scoped to `.status-
+pill .label` specifically (confirmed via grep this is the only place
+`class="label"` appears anywhere in the app) rather than a bare `.label`
+rule that could accidentally catch an unrelated element.
+
+**Verified with a real Playwright/Chromium harness** driving the actual
+extracted `#top-bar` markup and the real, unmodified `ui.js` (loaded
+directly, not retyped) against the real `VCAS.css` — 10 checks: no
+overflow at a normal 412px width with real labels; no overflow at 320px
+and 280px (compact correctly engages); widening back out from 280px to
+412px via a real dispatched resize event correctly removes `.compact`
+again (not a one-way ratchet); a pathologically long error string doesn't
+overflow at either a normal or a narrow width (the ellipsis safety net,
+confirmed the full text is still present in the DOM — only visually
+clipped, not silently dropped); and a label-only change (no resize) at a
+narrow width correctly triggers compact on its own via `_setStatusPill`'s
+own call to the fit function. All 10 pass, zero page errors. Real
+screenshots at 412px/280px/320px-with-long-error confirm the row reads
+legibly as one line in every case, not just that the assertions pass
+blind.
+
+Not done: no attempt to support arbitrarily-long real label text beyond
+the ellipsis truncation (there's no third, even-more-compact tier) — the
+current two tiers were tuned and verified down to 280px, comfortably
+below this project's own established 360px worst-case check, so a third
+tier wasn't judged necessary. No change to the native Android port (same
+standing "synced in dedicated passes" note as every other web-only
+feature in this file) — it has no equivalent multi-pill status row today.
