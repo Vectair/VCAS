@@ -9624,3 +9624,98 @@ below this project's own established 360px worst-case check, so a third
 tier wasn't judged necessary. No change to the native Android port (same
 standing "synced in dedicated passes" note as every other web-only
 feature in this file) — it has no equivalent multi-pill status row today.
+
+## Relay request ledger — both relays now log usage/quota trajectory (2026-09-11)
+
+Prompted by a review of an uploaded ChatGPT-authored telemetry/diagnostic-
+logging requirements catalogue (`VCAS_Telemetry_and_Diagnostic_Logging_
+Analysis.md`, not committed to this repo). The document's own broad
+catalogue (dozens of proposed information categories: journey/session
+lifecycle, provider request ledgers, aircraft-candidate presentation
+tracking, usability/distraction telemetry, etc.) was reviewed against
+VCAS's actual existing systems (the observation log, the crash reporter,
+the relay throttling) and assessed as largely disproportionate to VCAS's
+real current scale (a handful of known beta testers) — most of it was
+explicitly NOT adopted, matching this project's own established
+"don't build more than what's actually needed" discipline. One real,
+previously-missing gap was identified as worth fixing on its own merits,
+independent of the source document's own scope: **both the ADS-B relay and
+the METAR relay work correctly but are completely invisible** — there was
+no way to see aggregate request volume, cache-hit rate, or how close
+either relay was actually running to its upstream's rate considerations,
+short of the project owner manually checking server logs.
+
+**Fix: a small request ledger added to both `relay.php` files**, reusing
+the exact same handoff pattern (a plain PHP file + `SendUserFile`, no new
+infrastructure) every prior relay change in this project has used. Each
+relay now appends one compact JSONL line per request — `ts`, `upstream`
+(bool: real API call vs. served from cache), `status` (the HTTP status
+returned to the client), `cache` (`"hit"`/`"miss"`/`"stale"`/`"n/a"`), and
+`bucket` (the SAME coarse, already-rounded location key each relay's own
+cache already uses — never a precise user location) — to
+`ledger/requests-YYYY-MM-DD.jsonl`, rotated daily. Self-cleaning (files
+older than 14 days deleted on ~1% of requests, no cron needed, matching
+this project's own established "no cron job on shared hosting" discipline
+already used elsewhere in both relays). A new `ledger/` folder alongside
+each relay's existing `cache/` folder, with the same `.htaccess`
+(`Require all denied`) blocking direct web access.
+
+A new `?stats=1` endpoint (gated by the SAME shared secret the relay
+already requires — `X-VCAS-Key`) reads the current day's ledger back and
+returns a summary: today's total/upstream/cache-hit/error counts, the last
+hour's totals, and — the number actually worth watching —
+`upstream_calls_per_sec_last_hour`, directly comparable against adsb.fi's
+documented 1 req/s limit. Checkable any time with a plain `curl`/browser
+request, no dashboard or new service to run.
+
+**A real, honestly-flagged limitation of this session's work**: `relay.php`
+for both relays has never been committed to this repo (see "ADS-B data
+source" and "Visibility model calibration pass #1" above) — it only ever
+exists as files handed to the project owner directly, and a fresh session
+has no access to files handed off in a PRIOR session (no persistence
+between sessions for anything outside the repo itself). This session did
+not have the actual currently-deployed source of either relay available to
+patch directly. Both files were instead **reconstructed from CLAUDE.md's
+own detailed prose description** of each relay's existing, already-shipped
+behaviour (shared-secret auth, the `reserve_upstream_slot()` rate gate, the
+per-location/per-area cache, the `MAX_WAIT_S` give-up path) — with the
+ledger/stats addition layered on top of that reconstruction, not verified
+against the real live file. The handoff package's own `UPDATE_INSTRUCTIONS.md`
+states this plainly and gives the project owner two explicit options:
+overwrite outright (safe if the live file matches this description, which
+it should since that's where the description came from), or apply just the
+new ledger functions/calls to their real file by hand if they'd rather not
+risk it — and to send back the real file if anything doesn't line up,
+rather than this being silently re-guessed a second time.
+
+**Verified locally, this project's own established testing convention for
+relay changes** (`php -l` + a live `php -S` dev server against a mocked
+upstream endpoint, not a real call to adsb.fi/aviationweather.gov — neither
+is reachable from this sandbox): auth success/failure (401 on missing or
+wrong key, both relays); input validation (400 on invalid `lat`/`lon`/
+`dist` for ADS-B, malformed or out-of-range `bbox` for METAR); a valid
+request producing exactly one real upstream call and a matching
+`upstream:true, cache:"miss"` ledger line; an immediate repeat serving
+from cache with zero additional upstream calls and a `cache:"hit"` line;
+the `?stats=1` endpoint's counts matching the real requests made in the
+test run exactly; and — the one piece worth a dedicated concurrency check
+rather than trusting the reused rate-gate logic on its prior track record
+alone — 3 simultaneous requests to 3 distinct locations correctly
+serializing through the ADS-B relay's rate gate, hitting the mock upstream
+1.05s apart on the nose (`MIN_UPSTREAM_INTERVAL_S`), confirming the new
+ledger logging doesn't interfere with the existing rate-gate mechanism.
+
+Not committed to this repo, same handoff pattern as every prior relay
+change: `adsb-relay/relay.php`, `metar-relay/relay.php`, both relays' new
+`ledger/.htaccess`, and `UPDATE_INSTRUCTIONS.md`, sent via `SendUserFile`
+as `relay-ledger-update.zip`. `src/config.js`'s `ADSB_RELAY_URL`/
+`ADSB_RELAY_KEY`/`METAR_RELAY_URL`/`METAR_RELAY_KEY` are all unchanged —
+this update needs no app-side code changes at all, only a relay-side
+deploy.
+
+Deliberately not done in this pass, per the same telemetry-document review
+that motivated this fix: no model/config version stamping added to logged
+observations, no installation-ID linkage, no expansion of the observation
+log's own schema beyond the `mode` field already added — these were
+identified as real, smaller possible follow-ups in that review but not
+requested or built this session; not implied as done by this entry.
