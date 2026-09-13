@@ -10175,3 +10175,139 @@ outside the UK, but confirmed NOT what the Dublin tester actually hit
 (their screenshot showed the real `#gps-message` card, not a map). Left
 as-is for now — not touched by this fix, and not yet reported as an
 actual symptom by anyone, just noted here in case it comes up later.
+
+## 3D View code review: three real bugs found and fixed (2026-09-13, same day)
+
+Direct request, once 3D View was flagged as "currently the weakest
+functioning section": a code review of `view3dLogic.js`/`devicePitch.js`/
+`compassHeading.js` and every 3D-View-related function in `app.js`/`ui.js`,
+without waiting for real-device confirmation of the jitter/calibration
+fixes shipped earlier the same day. Found six real issues; fixed the three
+unambiguous ones on the spot, left two speculative/unverifiable-from-here
+ones (see below) documented rather than acted on.
+
+### Fixed: the aircraft popup was completely invisible while 3D View was open
+
+The single highest-impact finding. `UI.showAirPopup()` (tapping any dot)
+unhides `#popup`, styled `z-index: 60` — but `#view3d-screen`'s own opaque
+full-screen background sits at `z-index: 220`, with no scoped rule
+anywhere raising the popup above it while 3D View is open. Confirmed
+directly, not assumed: a real Playwright check rendering both elements
+from the actual `VCAS.css` showed `document.elementFromPoint()` at the
+popup's own screen position returning `view3d-body`, not the popup. Every
+tap on a dot correctly built and unhid the card — it just rendered
+entirely behind the black overlay, invisible. This was very likely a
+large share of "why does 3D View feel broken" — the one interactive thing
+in the view silently did nothing.
+
+**Fix**: `open3DView()`/`close3DView()` (`app.js`) now toggle a new
+`view3d-popup-active` class directly on `#popup`, and `VCAS.css` gives
+that class `z-index: 230` (just above `#view3d-screen`'s 220) — scoped to
+a class on `#popup` itself, not a blanket z-index bump or a body-level
+flag, so every other z-index-200+ overlay in the app (Settings,
+onboarding, the crash banner) keeps its existing relationship with the
+popup exactly as before; this only changes the one case that actually
+needed it. Verified with a real Playwright/CSS check: without the class,
+`elementFromPoint` at the popup's position returns something else
+(confirms the harness reproduces the real bug); with the class added, it
+correctly returns the popup itself at the real computed `z-index: 230`;
+removing the class (simulating `close3DView()`) correctly reverts to the
+original behind-the-overlay stacking. Also re-ran the existing 20-check
+`open3DView`/`close3DView` regression suite from the same-day jitter fix
+— all still pass, confirming this didn't disturb that work.
+
+### Fixed: the clouds-toggle's "apply immediately" guarantee was broken by the same-day jitter fix
+
+`onView3DCloudsToggleClick()` calls `refresh3DView()` directly specifically
+so a Settings toggle applies without waiting for the next sensor tick —
+but that call predates the anti-jitter dead zone
+(`View3DLogic.shouldUpdateFrame()`) added earlier the same day, which now
+makes `refresh3DView()` bail out early whenever azimuth/pitch haven't
+moved >0.3° since the last painted frame. If the phone is held still while
+the user flips the clouds setting — the likely case, since they're
+standing in Settings to do it — the dead zone silently swallowed the call
+before `UI.render3DWorld()` ever ran, so the toggle wouldn't visibly apply
+until the next real movement. `onCalibrateNorthClick()` already worked
+around the identical gap for its own forced repaint (nulling
+`_view3DLastAzimuthDeg` first); the clouds handler was never updated to
+match, since it was written 4 days before the dead zone existed. The
+original clouds-toggle test suite only checked that `refresh3DView` was
+*called*, not that it actually repainted, which is exactly how this
+slipped through.
+
+**Fix**: `onView3DCloudsToggleClick()` now nulls `_view3DLastAzimuthDeg`
+before calling `refresh3DView()`, the same pattern `onCalibrateNorthClick()`
+already uses. Verified with a real Playwright harness against the actual,
+extracted `onView3DCloudsToggleClick`/`refresh3DView` functions (brace-
+matched, not retyped) with `View3DLogic.shouldUpdateFrame` stubbed to
+always report "no movement" — confirming a plain `refresh3DView()` call
+correctly does nothing in that state (the dead zone itself still works),
+while the clouds-toggle handler's own call correctly forces a repaint
+anyway, reflecting the new setting value, and correctly updates the
+tracked last-painted azimuth/pitch so the dead zone's own bookkeeping
+stays consistent afterward.
+
+### Fixed: `Visibility.estimate()`'s elevation was wrong for a dead-overhead aircraft
+
+Pre-existing bug (used by RAW/AIR long before 3D View existed), but found
+during this review because it directly feeds 3D View's own
+`elevationOffsetDeg` math. `elevationDeg` was computed as
+`altM > 0 && horizM > 0 ? Math.atan2(altM, horizM) : 0` — for an aircraft
+passing exactly overhead (`horizM === 0`), this forced `0°` (horizon)
+instead of the correct `90°` (straight up). The guard was both
+unnecessary and actively wrong: `Math.atan2` already handles a zero
+argument correctly on its own (`atan2(positive, 0) === 90°`,
+`atan2(0, 0) === 0°`), so the fix is simply calling it unconditionally.
+
+**Fix**: `elevationDeg = Math.atan2(altM, horizM) * (180 / Math.PI)`, no
+guard. Verified with 4 real Node checks against the actual shipped
+`visibility.js` (real `Geo` required and exposed as a global, matching
+how the browser loads it via a plain `<script>` tag, not a retyped
+stand-in): a dead-overhead aircraft now correctly reads ~90°; an ordinary
+non-overhead case is unaffected (still a real value strictly between 0
+and 90, matching pre-fix behaviour); a ground-level aircraft at a real
+distance still correctly reads 0°; and the fully-degenerate same-position/
+zero-altitude case still reads a clean `0`, not `NaN`. Also spot-checked
+two unrelated scoring paths (the contrail floor, the very-close override)
+to confirm the fix doesn't touch anything outside the elevation figure
+itself — both still produce their pre-existing labels unchanged.
+
+### Found, documented, not acted on — needs a real device or a real design call, not a quick fix
+
+- **Azimuth reliability may be structurally worse in 3D View's own
+  required pose than in RAW/NAV's.** `DevicePitch`'s own doc comment
+  describes 3D View's intended use as holding the phone near-vertical,
+  screen facing the user (`beta≈90°`) — but the standard alpha/beta/gamma
+  Euler decomposition `CompassHeading` relies on for Android's
+  `deviceorientationabsolute` path has a well-documented near-singularity
+  right around `beta=90°`, which is exactly that pose. `CompassHeading`
+  was designed and tuned entirely around RAW/NAV's dash-mounted,
+  roughly-flat use case; nothing in its history has ever considered the
+  vertical-hold pose 3D View actually needs. This could plausibly be a
+  bigger source of "jittery/unreliable heading" in 3D View specifically
+  than plain sensor noise — none of the smoothing/dead-zone/calibration
+  work shipped earlier the same day would fix it, since all of it assumes
+  the only problem is noise or a biased zero-point, not systematic
+  instability from the device's own attitude. Can't be confirmed without
+  a real device; flagged here so it's on record before more smoothing
+  work gets thrown at what might be a structural issue instead.
+- **A narrow open/close race in `open3DView()`/`close3DView()`.**
+  `open3DView()` is `async` and sets `view3DOpen = true` before its only
+  real `await` (the iOS `CompassHeading.requestPermission()` branch, first
+  grant only). A close tap landing during that await would run
+  `close3DView()`, then the original `open3DView()` call resumes
+  afterward and re-starts the sensors/render timer — silently reopening
+  the view the user just closed. Only reachable on iOS before compass
+  permission has ever been granted, and iOS's own native permission
+  dialog usually blocks other page taps during that window, so this is
+  real but low-probability. Not fixed this pass — a proper fix (checking
+  `view3DOpen` again after the await, before doing anything further) is
+  small, but wasn't judged urgent enough to bundle in given how narrow
+  the window is.
+
+Two cosmetic loose ends also noted, neither acted on: `devicePitchDeg`
+isn't reset on `close3DView()`, so reopening briefly shows the previous
+session's stale pitch for ~150-300ms until a fresh reading arrives
+(self-heals); and `#view3d-hint` ("Point your phone at the sky…") is
+never hidden once aircraft are actually in view, so it can visually
+compete with a dot/label near the bottom of the window.

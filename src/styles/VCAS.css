@@ -2756,6 +2756,20 @@ body[data-nav-state="turn_approach"] { }
    .manual-tilt-toggle-disabled/.lp-toggle-disabled elsewhere in this app. */
 #btn-3d.view3d-toggle-disabled { opacity: .35; cursor: not-allowed; }
 
+/* Real bug fix (2026-09-13 review): #popup lives outside #view3d-screen's
+   own DOM subtree at its normal z-index (60) — #view3d-screen's opaque
+   full-screen background sits at z-index 220, so tapping an aircraft dot
+   in 3D View called UI.showAirPopup() correctly, but the resulting card
+   rendered entirely behind the overlay, invisible. Confirmed directly via
+   a real elementFromPoint() check before fixing, not assumed. app.js's
+   open3DView()/close3DView() toggle this class on #popup itself (not a
+   body-level flag) so every other z-index-200+ overlay (Settings,
+   onboarding, the crash banner) keeps its existing relationship with the
+   popup exactly as before — this only raises it specifically for 3D
+   View's own case, where nothing above it is ever supposed to be showing
+   at the same time as an aircraft tap anyway. */
+#popup.view3d-popup-active { z-index: 230; }
+
 /* ---- Settings screen ---- */
 #settings-screen {
   position: fixed;

@@ -420,9 +420,16 @@ const Visibility = (() => {
     const slantM = Math.sqrt(horizM * horizM + altM * altM);
     const slantNm = slantM / NM_TO_M;
 
-    const elevationDeg = altM > 0 && horizM > 0
-      ? Math.atan2(altM, horizM) * (180 / Math.PI)
-      : 0;
+    // Real bug fix (2026-09-13 review): the old `altM > 0 && horizM > 0`
+    // guard forced elevationDeg to 0 for an aircraft passing exactly
+    // overhead (horizM === 0) — wrong, that case should read 90°
+    // (straight up). Math.atan2 already handles a zero argument
+    // correctly on its own (atan2(positive, 0) === 90°, atan2(0, 0) ===
+    // 0°), so the guard was both unnecessary and actively incorrect.
+    // This fed directly into 3D View's elevationOffsetDeg math, so a
+    // plane passing directly overhead would have misplotted at the
+    // horizon instead of near the crosshair's centre.
+    const elevationDeg = Math.atan2(altM, horizM) * (180 / Math.PI);
 
     const isOverhead = elevationDeg > 70;
 

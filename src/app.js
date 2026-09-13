@@ -1176,7 +1176,20 @@
     // Re-render immediately if 3D View is already open, same "don't make the
     // user wait for the next tick" pattern the colour-blind/air-rings
     // toggles already use.
-    if (view3DOpen) refresh3DView();
+    //
+    // Real bug fix (2026-09-13 review): this call alone stopped actually
+    // doing that once refresh3DView() gained its own anti-jitter dead zone
+    // the same day (see View3DLogic.shouldUpdateFrame) — if the phone
+    // hasn't moved since the last painted frame (the likely case: the user
+    // is standing still in Settings when they flip this), the dead zone
+    // silently swallows this call before UI.render3DWorld() ever runs, so
+    // the toggle wouldn't visibly apply until the next real movement.
+    // onCalibrateNorthClick() already worked around the same gap for its
+    // own forced repaint; this needed the identical fix.
+    if (view3DOpen) {
+      _view3DLastAzimuthDeg = null;
+      refresh3DView();
+    }
   }
 
   function _updateView3DCloudsToggleBtn() {
@@ -2292,6 +2305,13 @@
     if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // can't even open while moving
     view3DOpen = true;
     document.getElementById("view3d-screen")?.classList.remove("hidden");
+    // Real bug fix (2026-09-13 review): #popup's normal z-index (60) sits
+    // well below #view3d-screen's own (220) — without this, tapping an
+    // aircraft dot correctly opened the popup, it just rendered entirely
+    // behind the opaque 3D View overlay, invisible. See VCAS.css's own
+    // #popup.view3d-popup-active comment for why this is a class toggled
+    // on #popup itself rather than a blanket z-index bump.
+    document.getElementById("popup")?.classList.add("view3d-popup-active");
     _sync3DButtonState();
     _updateCalibrateNorthButton();
 
@@ -2348,6 +2368,7 @@
     // alone hands the module's default damping back to whatever else is
     // using it.
     CompassHeading.resetSmoothFactor();
+    document.getElementById("popup")?.classList.remove("view3d-popup-active");
     UI.clear3DView();
     _sync3DButtonState();
   }
