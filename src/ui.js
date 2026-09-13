@@ -125,10 +125,61 @@ const UI = (() => {
 
   // ---- GPS message ----
 
-  function showGpsMessage(show) {
+  // Keyed on the real GeolocationPositionError.code (1/2/3), plus a plain
+  // "unsupported" string for the no-navigator.geolocation-at-all case
+  // startGps() also uses this for. A single generic "reload the page"
+  // message (the original copy, kept as GPS_MESSAGE_DEFAULT below) is
+  // genuinely bad advice for PERMISSION_DENIED specifically: once a
+  // browser has recorded a real denial, reloading the page cannot
+  // re-trigger its permission prompt on its own — the user has to change
+  // the permission in their browser/OS settings first, which the old
+  // copy never told them how to do. 2026-09-13, prompted by a real
+  // tester (Dublin) hitting exactly this with no way back in.
+  const GPS_MESSAGE_DEFAULT =
+    'VCAS needs your GPS position to work.<br>' +
+    'Please allow location access and reload the page.';
+  const GPS_MESSAGE_BY_REASON = {
+    // PERMISSION_DENIED (code 1) — the actual "reload alone won't fix it"
+    // case. iOS and Android hide this setting in different places, so
+    // both are listed rather than guessing which platform the tester is
+    // on from inside the page.
+    1: 'VCAS needs your location, but access was denied.<br>' +
+       'iPhone: Settings &rarr; Privacy &amp; Security &rarr; Location Services &rarr; ' +
+       'Safari Websites &rarr; set to "Ask" or "While Using the App".<br>' +
+       'Android: Chrome settings &rarr; Site settings &rarr; Location &rarr; ' +
+       'remove this site from "Blocked", or reset the permission.<br>' +
+       'Then reload this page.',
+    // POSITION_UNAVAILABLE (code 2) — permission is fine, the device
+    // just couldn't get a real fix (no GPS signal, no network-based
+    // location available).
+    2: "VCAS couldn't get a GPS fix.<br>" +
+       'Try moving somewhere with a clearer view of the sky, or check that ' +
+       "Location Services is turned on for your device, then reload.",
+    // TIMEOUT (code 3) — same underlying "no fix yet" story as
+    // POSITION_UNAVAILABLE, just via the request timing out instead of
+    // failing outright.
+    3: 'VCAS is taking too long to get a GPS fix.<br>' +
+       'Check that Location Services is turned on and you have a clear ' +
+       'view of the sky, then reload.',
+    // navigator.geolocation doesn't exist at all in this browser.
+    unsupported: "This browser doesn't support location access, which VCAS " +
+       'needs to work. Please try a different or more up-to-date browser.',
+  };
+
+  /**
+   * @param {boolean} show
+   * @param {number|"unsupported"} [reason]  A GeolocationPositionError.code
+   *   (1/2/3) or "unsupported" — omit to keep whatever text is already
+   *   showing (or the default, the first time this is ever shown true).
+   */
+  function showGpsMessage(show, reason) {
     const el = document.getElementById("gps-message");
     if (!el) return;
     el.classList.toggle("hidden", !show);
+    if (show && reason != null) {
+      const detail = document.getElementById("gps-message-detail");
+      if (detail) detail.innerHTML = GPS_MESSAGE_BY_REASON[reason] || GPS_MESSAGE_DEFAULT;
+    }
   }
 
   // ---- Compass permission banner ----

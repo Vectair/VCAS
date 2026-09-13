@@ -1321,7 +1321,7 @@
 
   function startGps() {
     if (!navigator.geolocation) {
-      UI.showGpsMessage(true);
+      UI.showGpsMessage(true, "unsupported");
       return;
     }
 
@@ -1616,7 +1616,13 @@
   function onGpsError(err) {
     console.warn("GPS error:", err.message);
     if (userLat === null) {
-      UI.showGpsMessage(true);
+      // err.code is the real GeolocationPositionError code (1 =
+      // PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT) —
+      // threaded through so UI.showGpsMessage() can show reason-specific
+      // recovery instructions instead of one generic "reload the page"
+      // message that's actively wrong advice for a real denial (see that
+      // function's own comment).
+      UI.showGpsMessage(true, err.code);
       if (!window._mapInitialised) {
         window._mapInitialised = true;
         EosMap.init("map", 51.5, -0.12, _effectiveMapTheme(ThemeManager.getResolved()));

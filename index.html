@@ -323,11 +323,16 @@
            hidden entirely when there isn't room. See UI.renderAircraftList. -->
       <div id="raw-aircraft-list" class="hidden"></div>
 
-      <!-- GPS unavailable message -->
+      <!-- GPS unavailable message. #gps-message-detail's text is swapped by
+           UI.showGpsMessage() based on the real GeolocationPositionError
+           code — see that function's own comment for why a single generic
+           "reload the page" instruction isn't good enough once permission
+           has actually been denied (reloading alone can't re-trigger a
+           browser's permission prompt after a real denial). -->
       <div id="gps-message" class="hidden">
         <div class="card">
           <h2>Location unavailable</h2>
-          <p>VCAS needs your GPS position to work.<br>
+          <p id="gps-message-detail">VCAS needs your GPS position to work.<br>
              Please allow location access and reload the page.</p>
         </div>
       </div>

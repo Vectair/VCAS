@@ -10116,3 +10116,62 @@ something to attempt from a fresh session without them:
    above — the actual blocker before any of that code gets written; the
    CORS-header question for Orbis Routing specifically should be the
    first thing checked once a real key exists.
+
+## GPS-error message now distinguishes permission-denied from other failures (2026-09-13)
+
+Prompted by a real report from a third-party tester (Dublin, shared the
+app link via WhatsApp) hitting a blank screen with the "Location
+unavailable" card — confirmed via a real screenshot to be genuine Safari
+(not an in-app WebView) showing the app's own `#gps-message` card, not
+the separate London-fallback rough edge also flagged during triage (see
+below). The card's own copy ("allow location access and reload the
+page") is real, actively bad advice for the single most likely cause: on
+iOS/Android, once a site's location permission has been genuinely
+**denied**, reloading the page cannot re-trigger the browser's own
+permission prompt — the user has to go change the permission in their
+browser/OS settings first, which the old message never explained how to
+do or even hinted was necessary.
+
+**Fix**: `onGpsError()` (`app.js`) now threads the real
+`GeolocationPositionError.code` (1=PERMISSION_DENIED, 2=
+POSITION_UNAVAILABLE, 3=TIMEOUT) through to `UI.showGpsMessage(show,
+reason)` (`ui.js`), which now writes reason-specific recovery copy into
+a new `#gps-message-detail` paragraph (`index.html`, given an id so it's
+independently targetable) instead of one static, one-size-fits-all
+message:
+- **PERMISSION_DENIED** — the actual "reload alone won't fix it" case.
+  Gives both iOS (Settings → Privacy & Security → Location Services →
+  Safari Websites → Ask/While Using the App) and Android (Chrome
+  settings → Site settings → Location → remove from Blocked) paths,
+  since there's no reliable way to tell which platform the tester is on
+  from inside the page itself.
+- **POSITION_UNAVAILABLE**/**TIMEOUT** — a real fix couldn't get a GPS
+  signal at all (permission is fine); points at moving somewhere with a
+  clearer sky view and checking Location Services is on, rather than the
+  permission-specific instructions above, which wouldn't help this case.
+- **`"unsupported"`** (no `navigator.geolocation` at all) — kept as its
+  own case, now passed explicitly from `startGps()`'s existing early
+  return rather than falling through to the generic default text.
+
+`GPS_MESSAGE_BY_REASON` is a small static lookup table of plain strings
+— no user-controlled interpolation goes into the `innerHTML` write, so
+this needed no escaping beyond what was already safe.
+
+Verified with a real Playwright harness against the actual, unmodified
+`ui.js` (loaded verbatim via `<script>` tag, not retyped): the default
+text is present before any call; each of the four reason codes writes
+its own distinct, correct copy; an omitted reason on a later call
+doesn't blank out whatever text is already showing; and the card still
+hides correctly. A real 390px-wide screenshot of the PERMISSION_DENIED
+case confirms the longer iOS+Android copy reads legibly with no overflow.
+
+**Separately investigated and ruled out during the same triage, worth
+recording so it isn't re-chased**: `onGpsError()` also has a documented
+fallback (unrelated to this fix) that initializes the map centered on a
+hardcoded London coordinate (`51.5, -0.12`) if geolocation fails before
+any real fix has ever been obtained — a real, previously-unflagged rough
+edge that would look exactly like "can't detect my location" to a tester
+outside the UK, but confirmed NOT what the Dublin tester actually hit
+(their screenshot showed the real `#gps-message` card, not a map). Left
+as-is for now — not touched by this fix, and not yet reported as an
+actual symptom by anyone, just noted here in case it comes up later.
