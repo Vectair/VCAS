@@ -10045,3 +10045,74 @@ alone.
 
 Not built this session — this entry is the researched recommendation,
 not a decision to switch or add anything.
+
+### Follow-up: a real, more detailed TomTom proposal reviewed (2026-09-13, same day)
+
+The project owner shared a second, much more specific document
+(`VCAS_Proposed_TomTom_Use_Going_Forward.md`, not committed to this
+repo — a third-party-authored engineering proposal, same "contextual
+proposal, not a repository-derived spec" category as the telemetry
+catalogue reviewed earlier this file) proposing TomTom's **Orbis
+Routing API specifically** — not map tiles, not the full Maps &
+Navigation SDK — as an experimental, provider-swappable second route
+source alongside OpenRouteService, with ORS kept as the default/
+fallback. Independently arrives at the same scope this session's own
+earlier TomTom research above already recommended (routing/ETA only,
+map/aircraft layer untouched), which is a good sign it's grounded
+rather than a generic pitch.
+
+**Reconciled against the real code before giving a recommendation, per
+the document's own explicit instruction to do so** — three real gaps
+found:
+1. **No provider abstraction for routing exists today.**
+   `src/routing/orsProvider.js` is a single ORS-specific module
+   (`getRoute(start, end, mode)`, ORS-shaped URL/response), called
+   directly from `app.js` — adding TomTom needs a small `RouteProvider`-
+   style interface first, not a hidden global swap.
+2. **ORS's own API key ships client-side with no relay at all**
+   (`CONFIG.ORS_API_KEY`, called directly from the browser to
+   `api.openrouteservice.org`) — unlike adsb.fi/aviationweather.gov,
+   which needed relays specifically because they send no CORS header.
+   **Whether TomTom's Orbis Routing API sends a CORS header for browser
+   `fetch()` is the one load-bearing fact neither this document nor
+   last session's own research could verify** (`docs.tomtom.com` is
+   blocked from this sandbox) — decides whether TomTom can reuse ORS's
+   existing "call it straight from the browser" pattern, or needs a
+   third relay built (same shape as the ADS-B/METAR ones). The actual
+   first thing to check once there's a real key, not something to guess.
+3. **VCAS's telemetry doesn't cover routing requests at all** — the
+   observation logger is aircraft-sighting-specific, no journey/session
+   ID or route-request ledger exists anywhere in the app yet. The
+   document's own measurement list (Section 10) is real and reasonable,
+   but describes infrastructure that doesn't exist yet, not a hookup to
+   something already there.
+
+**Recommendation given: build it, but much smaller than the document's
+own Phase 0–5 apparatus** (quota-threshold tiers, shadow-comparison
+mode, 10 formal test journeys, a five-phase rollout) — sized for a team
+forecasting capacity for a live user base, not VCAS's actual current
+scale (a handful of known testers). A right-sized first cut: a thin
+`RouteProvider` interface, a TomTom adapter behind a hidden dev toggle
+(mirroring how `DATA_PROVIDERS` already round-robins ADS-B sources),
+ORS untouched as the default, and a basic request log (provider,
+reason, latency, success/fail) reusing the existing small-JSONL-ledger
+pattern from the relay-ledger work above, rather than a new telemetry
+subsystem.
+
+### Pending — blocked on the project owner, to pick up once back at a computer
+
+Two real, concrete next actions came out of this session that need the
+project owner directly (deploy access / a new provider account), not
+something to attempt from a fresh session without them:
+
+1. **Deploy the relay request-ledger update** (see "Relay request
+   ledger" above) — `relay-ledger-update.zip` (both relays' updated
+   `relay.php`, new `ledger/.htaccess` files, `UPDATE_INSTRUCTIONS.md`)
+   was already handed over via `SendUserFile`; still needs uploading to
+   the live Bluehost hosting (`adsb-relay/`, `metar-relay/`). No app-side
+   code changes needed — `config.js`'s relay URLs/keys are unchanged.
+2. **Create a TomTom developer account and API key**, then come back to
+   scope/build the narrow Routing-API adapter described immediately
+   above — the actual blocker before any of that code gets written; the
+   CORS-header question for Orbis Routing specifically should be the
+   first thing checked once a real key exists.
