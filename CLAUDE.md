@@ -10290,20 +10290,9 @@ itself — both still produce their pre-existing labels unchanged.
   the only problem is noise or a biased zero-point, not systematic
   instability from the device's own attitude. Can't be confirmed without
   a real device; flagged here so it's on record before more smoothing
-  work gets thrown at what might be a structural issue instead.
-- **A narrow open/close race in `open3DView()`/`close3DView()`.**
-  `open3DView()` is `async` and sets `view3DOpen = true` before its only
-  real `await` (the iOS `CompassHeading.requestPermission()` branch, first
-  grant only). A close tap landing during that await would run
-  `close3DView()`, then the original `open3DView()` call resumes
-  afterward and re-starts the sensors/render timer — silently reopening
-  the view the user just closed. Only reachable on iOS before compass
-  permission has ever been granted, and iOS's own native permission
-  dialog usually blocks other page taps during that window, so this is
-  real but low-probability. Not fixed this pass — a proper fix (checking
-  `view3DOpen` again after the await, before doing anything further) is
-  small, but wasn't judged urgent enough to bundle in given how narrow
-  the window is.
+  work gets thrown at what might be a structural issue instead. Not fixed
+  this pass, still open — the user did not ask for this one to be touched
+  when following up on the other two findings below.
 
 Two cosmetic loose ends also noted, neither acted on: `devicePitchDeg`
 isn't reset on `close3DView()`, so reopening briefly shows the previous
@@ -10311,3 +10300,74 @@ session's stale pitch for ~150-300ms until a fresh reading arrives
 (self-heals); and `#view3d-hint` ("Point your phone at the sky…") is
 never hidden once aircraft are actually in view, so it can visually
 compete with a dot/label near the bottom of the window.
+
+## 3D View code review follow-up: the open/close race, fixed (2026-09-13, same day)
+
+Direct instruction after the three-bugs fix above shipped: "Fix the open/
+close race too" — the 4th finding from the same review, previously left
+documented but unfixed (see the entry immediately above) because it was
+judged real but low-probability, not because it was hard to fix.
+
+**Fix**: `open3DView()` (`app.js`) now re-checks `view3DOpen` immediately
+after its one real `await` (`CompassHeading.requestPermission()`)
+resolves, and returns early if it's no longer `true`:
+
+```js
+if (!compassPermissionGranted && CompassHeading.needsPermission()) {
+  const granted = await CompassHeading.requestPermission();
+  if (granted) compassPermissionGranted = true;
+  if (!view3DOpen) return;
+} else if (!compassPermissionGranted) {
+  compassPermissionGranted = true;
+}
+```
+
+Everything before the `await` (setting `view3DOpen = true`, unhiding the
+screen, adding the popup z-index class, syncing the button state) already
+ran synchronously and is exactly what `close3DView()` — if it runs during
+the wait — correctly undoes. The bail-out just stops `open3DView()` from
+blindly continuing past that point and re-doing what `close3DView()` just
+undid: re-starting `CompassHeading`/`DevicePitch` and the render-tick
+timer, and re-applying the heavier compass smoothing factor, none of
+which should happen once the user has already closed the view. This
+covers both a granted and a denied permission response equally — the
+check is on `view3DOpen`, not on what the permission prompt itself
+answered.
+
+**Verified with a real Playwright harness** extending this same day's own
+`open3DView`/`close3DView` extraction technique (brace-matched, not
+retyped, from the real, shipped `app.js` — a narrower extraction than the
+full wiring-test harness, limited to `_sync3DButtonState`/`open3DView`/
+`close3DView` specifically, since `refresh3DView` itself has unrelated
+dependencies this test has no reason to stub): a deferred-resolve stub
+for `CompassHeading.requestPermission()` let the test control exactly
+when that await resolves, simulating a slow real iOS permission prompt.
+Three scenarios, 21 checks total, all passing against the real, patched
+code:
+1. **The actual race**: open → (mid-await) close → permission resolves
+   `granted:true`. Confirmed the view is genuinely closed the instant
+   `close3DView()` runs (not just eventually), and — the real point of
+   the fix — stays closed after the deferred permission promise resolves:
+   no `CompassHeading.start`/`DevicePitch.start`/`refresh3DView` call and
+   no timer start anywhere in the log after the resume, confirmed by
+   inspecting the full ordered call log, not just a final-state snapshot.
+2. **Regression check — no close in the middle**: open → permission
+   resolves → fully open, exactly as before this fix (timer started, both
+   sensors started, an initial `refresh3DView()` call fired) — confirming
+   the bail-out only fires when it should, not on every open.
+3. **Denied-permission variant of the race**: open → (mid-await) close →
+   permission resolves `granted:false`. Confirmed the view stays closed
+   regardless of which way the permission prompt itself answered — the
+   fix's own re-check is on `view3DOpen`, not on the permission result,
+   so both outcomes bail out identically once a close has already
+   happened.
+
+Also re-ran the pre-existing 20-check `wiring_test.js` regression suite
+(the full extraction, `open3DView`/`close3DView`/`onCalibrateNorthClick`/
+`refresh3DView`/etc. together) against the patched file — still 20/20,
+confirming this fix didn't disturb any of the same-day jitter/calibration
+work it sits right next to. `node --check src/app.js` clean.
+
+The remaining, deliberately-untouched azimuth-reliability architectural
+concern from the same review (documented in the entry above) is still
+open — not requested to be fixed in this follow-up.

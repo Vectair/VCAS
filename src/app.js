@@ -2325,6 +2325,17 @@
     if (!compassPermissionGranted && CompassHeading.needsPermission()) {
       const granted = await CompassHeading.requestPermission();
       if (granted) compassPermissionGranted = true;
+      // Real bug fix (2026-09-13 review): open3DView() is async with only
+      // this one real await — everything above already ran synchronously
+      // (view3DOpen=true, screen unhidden, popup class added). If the user
+      // taps close WHILE the iOS permission prompt is pending, close3DView()
+      // runs to completion (view3DOpen=false, screen hidden, timer/sensors
+      // stopped) before this await resolves — then, without this check, we'd
+      // blindly continue below and re-start the sensors/render timer and
+      // re-show nothing (the screen itself is already hidden by the class
+      // toggle above having been undone), silently reopening the view the
+      // user just closed. Bail out here if close3DView() ran during the wait.
+      if (!view3DOpen) return;
     } else if (!compassPermissionGranted) {
       compassPermissionGranted = true;
     }
