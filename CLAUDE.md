@@ -9719,3 +9719,329 @@ observations, no installation-ID linkage, no expansion of the observation
 log's own schema beyond the `mode` field already added — these were
 identified as real, smaller possible follow-ups in that review but not
 requested or built this session; not implied as done by this entry.
+
+## Telemetry follow-up: model version + install-ID on logged observations (2026-09-13)
+
+Direct instruction to continue the two items the relay-ledger review above
+deliberately left open. Both are pure additions to
+`observationLogger.js`'s existing schema — no change to what's already
+logged, no change to `log.php`'s own behaviour (a generic JSON
+passthrough, per that file's own established description).
+
+**`Visibility.MODEL_VERSION`** — a new plain-date-string export
+(`"2026-09-13"`) from `visibility.js`, snapshotted into every observation's
+`computed.modelVersion`. Answers a real, previously-unanswerable question
+from the calibration passes above: whether an "outcome vs predicted"
+mismatch reflects the CURRENT scoring model or one that's since changed —
+without this, the only way to tell was cross-referencing an observation's
+own timestamp against this file's own changelog by hand. Bumped whenever
+`estimate()`'s scoring logic or any of its tuned constants meaningfully
+change (the CONTRAIL_*/LOCAL_OBSTRUCTION_*/UPPER_AIR_* thresholds, the
+`CATEGORIES` table, the METAR adjustment, etc.) — a plain date, not
+semver, matching this project's own established convention of dating
+changes rather than making a major/minor/patch judgement call.
+
+**`src/dev/installId.js`** (new) — a thin, anonymous, randomly-generated
+per-install identifier (`crypto.randomUUID()`, with a non-cryptographic
+fallback for older browsers), persisted in localStorage, snapshotted into
+every observation's top-level `installId`. Purpose: let multiple
+observations be recognised as coming from the same physical device/tester
+without recording any real identity — e.g. checking whether one tester's
+own contrail-spotting rate or angular-size judgement differs
+systematically from another's, a real gap the telemetry-catalogue review
+flagged (every observation already recorded WHAT was seen and WHAT the
+model predicted, but nothing tied multiple sightings together as "from
+the same tester," so a per-tester pattern was invisible in the aggregate
+data). **Deliberately not a user identity of any kind** — generated
+locally, never tied to an account/email/any other real-world identifier,
+never sent anywhere except attached to this device's own logged
+observations; clearing site data or reinstalling simply produces a new
+one, and nothing in this app needs the two linked. Never throws even if
+localStorage is blocked (private browsing, quota) — degrades to a fresh
+one-off ID for that one call rather than blocking an observation from
+being logged at all.
+
+Loaded in `index.html` right before `observationLogger.js` (its one
+consumer). Both new fields degrade to `null` — not `undefined` or a
+thrown error — for any caller/build missing the relevant global, matching
+`buildObservation()`'s own existing "raw context, never breaks logging"
+discipline already established for the `metar`/`localObstruction`/
+`upperAir` snapshots.
+
+**Verified with real Node execution against the actual shipped files**
+(this project's established "verify pure logic with real execution"
+discipline): 5 checks against `installId.js` directly (persists across
+repeated calls, looks like a real UUID, and — the one genuinely important
+case — never throws and still returns a usable string when localStorage
+itself throws); 6 checks against the real `observationLogger.js` wired to
+the real `Visibility`/`InstallId` modules (both new fields populate
+correctly, two observations from the same simulated device share the
+same `installId`, and both fields degrade to `null` rather than throwing
+when their module isn't available at all). `node --check` clean on all
+three touched files.
+
+## 3D View: real fixes for "extremely jittery" + a manual North calibration (2026-09-13)
+
+Direct report, alongside the telemetry work above: 3D View is "currently
+extremely jittery. So a certain level of smoothing needs to be done."
+Plus a second, related but distinct ask: "a system for self manipulation
+of the compass when stationary... the user should be able to self orient
+the phone and say I'm pointing North so use the internal sensors to
+identify movements based on this point... reduces the confusion the
+sensors get trying to find North on an immobile object."
+
+Read the real source before touching anything, per this project's own
+established discipline — `compassHeading.js`, `devicePitch.js`,
+`view3dLogic.js`, and every 3D-View-related function in `app.js`
+(`onCompassHeading`/`onDevicePitchChange`/`onGpsSuccess`/`open3DView`/
+`close3DView`/`refresh3DView`) — before writing a line of code.
+
+### Root cause #1, found by reading the wiring, not assumed: three independent, uncoordinated render triggers
+
+`refresh3DView()` was being called directly from THREE separate places —
+`onCompassHeading()` (~150ms cadence), `onDevicePitchChange()` (~150ms
+cadence), and `onGpsSuccess()` (a real GPS fix) — each completely
+unaware of the other two. Since `UI.render3DView()`/`UI.
+renderCompassTicks()` both do a full `innerHTML` rebuild every call
+(confirmed by reading `ui.js` directly, not assumed), this meant the
+scene could repaint from scratch at a real, uncoordinated rate every time
+EITHER sensor merely twitched — a genuine, mechanical source of visible
+"flicker" independent of how accurate the underlying sensor readings
+were.
+
+**Fix**: `onCompassHeading()`/`onDevicePitchChange()`/`onGpsSuccess()` no
+longer call `refresh3DView()` directly — they only update the stored
+`userHeading`/`devicePitchDeg` values now. `open3DView()` starts a single
+shared `setInterval(refresh3DView, 200ms)` render-tick timer instead
+(the same established pattern this file already documents for
+`_extrapolationRenderTick`), stopped in `close3DView()`. One controlled
+cadence, reading whatever the latest smoothed values happen to be at
+that moment — not three independent streams stacking.
+
+### Root cause #2: even well-smoothed sensor output still visibly wobbles at this view's own screen mapping
+
+3D View's linear degrees-to-pixels mapping (`view3dLogic.js`'s own
+`FOV_HALF_H_DEG`/`FOV_HALF_V_DEG` = ±40°/±30° across the full viewport)
+amplifies residual EMA-smoothed noise into real, visible pixel movement
+far more than RAW's compass tape or a real map ever would — a genuinely
+different noise/responsiveness tradeoff than either of this module's
+other consumers face.
+
+**Three coordinated fixes, not one:**
+1. **`View3DLogic.shouldUpdateFrame()`** (new, pure function) — an
+   anti-jitter dead zone at the RENDER decision itself: skip repainting
+   the whole scene (world backdrop, compass ticks, aircraft dots
+   together) unless the phone has moved more than
+   `FRAME_UPDATE_THRESHOLD_DEG` (0.3°) on either axis since the last
+   frame that actually painted. A genuinely small residual wobble never
+   gets a chance to move anything on screen at all; a real, deliberate
+   pan clears it within one or two sensor samples. Wired into
+   `refresh3DView()` right after the existing `blocked` (moving-too-fast)
+   check, which still forces a fresh repaint on unblock regardless.
+2. **`DevicePitch`'s own `SMOOTH_FACTOR`** lowered from 0.15 to 0.08 —
+   safe to tighten directly (unlike `CompassHeading`) since this module
+   has exactly one consumer, 3D View, with no shared-default tradeoff to
+   weigh against a different use case.
+3. **`CompassHeading.setSmoothFactor()`/`resetSmoothFactor()`** (new) —
+   lets 3D View temporarily borrow a heavier damping constant (0.05,
+   vs. the module's own 0.1 default) for exactly its own open/close
+   window, without touching the default RAW/nav's own stationary
+   heading fallback keeps getting. The two consumers have genuinely
+   different tradeoffs: RAW's compass tape is read from a phone sitting
+   still on a dash mount with no reason to trade away responsiveness it
+   doesn't need more of, while 3D View's whole point is the user
+   ACTIVELY, continuously rotating/tilting the phone to scan real sky —
+   heavier damping tuned for "truly stationary" would make THAT feel
+   laggy. Keeping them independently tunable (rather than lowering the
+   shared default outright) avoids that regression while still letting
+   3D View lean harder toward stability.
+
+### The manual "Set North" calibration — a real, distinct failure mode from jitter
+
+**Why smoothing alone can't fix this**: a magnetically-biased ABSOLUTE
+reading (nearby metal/electronics — common exactly in the
+stationary-testing scenarios this module is always used in) can be
+perfectly SETTLED and STILL wrong. No amount of additional EMA damping
+fixes a consistently-biased zero-point; only a real external reference
+can. This is a genuinely different problem from the "won't settle"
+jitter this module's own 2026-08-22/2026-08-24 fixes already addressed
+(see "Compass 'won't settle / settles wrong'" above) — those were about
+noise and event-trust bugs, not about the sensor's own zero-point being
+wrong in the first place.
+
+**`CompassHeading.calibrateTo(trueHeadingDeg)`/`clearCalibration()`/
+`hasCalibration()`** (new) — "I am currently pointing at
+`trueHeadingDeg` — use that as the new zero instead of whatever the
+magnetometer itself currently reads." Computes an offset from the
+module's own current smoothed heading (returns `false`, a no-op, if no
+reading has arrived yet — nothing to anchor against) and applies it as
+the LAST step before emission, after all the existing smoothing/
+absolute-event-trust/screen-rotation logic — everything upstream still
+operates on the sensor's own raw zero-point; only the final reported
+value is re-anchored. This is exactly "use the internal sensors to
+identify movements BASED ON this point," per the direct request — the
+sensor's own relative behaviour (how it responds to a real turn) is
+completely untouched, only where its zero currently sits.
+
+**Deliberately NOT persisted to localStorage** — `stop()` resets the
+offset (and the borrowed smooth factor) to nothing, so a fresh
+stationary period (a new location, genuinely different magnetic
+environment) always starts from the sensor's own raw reading rather than
+silently carrying a stale correction forward from somewhere else. It
+DOES survive closing and reopening 3D View while still stationary
+(`close3DView()` deliberately does not call `CompassHeading.stop()` —
+RAW/nav may still be reading the same live compass) — only a real
+`CompassHeading.stop()` (the vehicle actually starts moving again, see
+`onGpsSuccess`) clears it.
+
+**UI**: a new "Set North"/"Clear North" toggle button in `#view3d-
+header`, between the aircraft count and the close button — tap while
+pointing the phone at true North to calibrate, tap again to clear.
+Switches to the same cyan `--raw-value-cyan` "active" treatment this
+project already uses elsewhere once a calibration is in effect, so it
+reads as a real toggle rather than a one-shot action. Forces one
+immediate repaint on either tap (bypassing the dead zone for that one
+frame only) so the effect is visible right away, not on the next
+sensor tick.
+
+### Verified with real execution across three separate harnesses, this project's own established discipline
+
+1. **9 real Node checks** against `View3DLogic.shouldUpdateFrame()`
+   directly — first-frame-always-paints, below/at/above the threshold on
+   each axis independently, and (a real, deliberately-checked edge case)
+   correct circular-wraparound behaviour across the 359°/0° boundary in
+   both directions (a genuinely small real move across the wrap doesn't
+   false-trigger; a genuinely large one does).
+2. **15 real Playwright checks against the actual, shipped
+   `compassHeading.js`** (loaded verbatim via `<script>`, not retyped) —
+   `setSmoothFactor()`/`resetSmoothFactor()` (a heavier factor measurably
+   dampens a single perpendicular outlier sample more than the default,
+   and `resetSmoothFactor()` genuinely restores default-magnitude
+   behaviour) and the full `calibrateTo()`/`clearCalibration()`/
+   `hasCalibration()` cycle (no-op before any reading exists; the same
+   physical orientation reads as the calibrated target immediately after;
+   a real subsequent physical turn is still tracked correctly relative to
+   the new zero; clearing restores raw readings; `stop()` clears the
+   calibration automatically). **A real test-harness gotcha hit and fixed
+   along the way, not glossed over**: this sandbox's headless Chromium
+   has no `window.DeviceOrientationEvent`/`ondeviceorientationabsolute`
+   at all (confirmed directly, not assumed) — needed a minimal stub
+   constructor for `isSupported()`'s own check, and synthetic events had
+   to be dispatched as plain `"deviceorientation"` with `absolute:true`
+   set explicitly (the real fallback path this module's own 2026-08-22
+   fix already documents), not the dedicated `"deviceorientationabsolute"`
+   event type, which this environment never fires. A second gotcha:
+   testing the outlier-nudge size with a 180°-antipodal sample gives a
+   **mathematically meaningless** zero delta regardless of smoothing
+   (the circular-mean vector's Y-component barely moves when the new
+   sample sits exactly opposite the converged value) — switched to a
+   perpendicular (90°) outlier, which cleanly isolates the effect being
+   tested.
+3. **20 real Playwright checks against the actual, extracted (brace-
+   matched, not retyped) `open3DView`/`close3DView`/`refresh3DView`/
+   `onCalibrateNorthClick`/`onCompassHeading`/`onDevicePitchChange`
+   wiring from `app.js`** — this project's established fallback for
+   app.js closures given this sandbox's own documented MapLibre-CDN
+   flakiness (see "Real-device investigation" above), driven against
+   stubbed dependencies: `open3DView` calls `setSmoothFactor` before
+   starting `CompassHeading`, starts `DevicePitch`, and starts the
+   render-tick timer; `onCompassHeading`/`onDevicePitchChange` update
+   their stored values but no longer call any `UI.render*`/`clear3DView`
+   directly; `refresh3DView` correctly skips repainting on no real
+   movement and correctly repaints once genuine movement occurs; the
+   blocked (speeding) state clears the view and forces a fresh repaint on
+   unblock; `close3DView` stops the render timer and `DevicePitch` but
+   deliberately does NOT stop `CompassHeading`, and does reset its smooth
+   factor; the calibration button correctly toggles both its own label/
+   state and the underlying module calls on each tap.
+
+Also confirmed via a real Playwright screenshot at this project's
+standard 360px narrow-width check: the new header button doesn't cause
+horizontal overflow (`scrollWidth === clientWidth`), and reads correctly
+in both its default and "calibrated" (cyan) states.
+
+**Honest status**: every piece of LOGIC here (the dead zone, the
+sensor-module smoothing/calibration additions) got real dynamic
+execution against the actual shipped files, per the verification above.
+What's NOT verified, for the same reason this file's compass-heading
+history already carries at length: real-device sensor behaviour — this
+sandbox has no magnetometer/gyroscope, so whether the dead-zone threshold
+(0.3°) and the two tuned smoothing factors (0.08/0.05) actually feel
+right on a real phone, and whether the calibration flow genuinely
+resolves the reported "extremely jittery" symptom end-to-end, both need
+real-device field re-test. If jitter is still visible after this ships,
+the next things to check, in order: (a) whether `FRAME_UPDATE_THRESHOLD_DEG`
+needs raising further (a real device's own noise floor could exceed
+0.3°); (b) whether the render-tick interval (200ms) itself feels too
+slow/fast once genuinely panning; (c) magnetic declination or the
+still-unverified screen-rotation correction in `compassHeading.js`
+(pre-existing, unrelated caveats this file already carries) if a
+calibrated reading still drifts wrong over time rather than just at the
+moment of calibration.
+
+## TomTom Maps API — evaluated, not adopted (2026-09-13)
+
+Direct suggestion: "I've also had a suggestion that the mapping company
+tomtom has a generous free tier that would improve matters for this
+stage of VCAS." Researched rather than acted on — this sandbox's network
+egress policy blocks both `docs.tomtom.com` and `developer.tomtom.com`
+directly (confirmed, not assumed, same category of restriction already
+documented for aviationweather.gov/adsb.fi/several others in "Sandbox
+environment notes" above), so the actual quota numbers below come from a
+`WebSearch` summary, not a page read directly — flagged per this
+project's own established "treat WebSearch summaries as secondhand, not
+verified quotes" convention, not presented as independently confirmed.
+
+**Per that summary**: TomTom's free tier is reported as 50,000 map/traffic
+tile requests/day plus 2,500 non-tile requests/day (routing, geocoding,
+search), no credit card required, commercial use permitted, with
+overage pricing per 1,000 requests thereafter (tiles cheapest, Places/
+Search most expensive) — and a pricing revision reportedly scheduled for
+July 2026 that would need re-checking if this is ever revisited.
+
+**Recommendation: don't switch map tiles to TomTom — the real cost
+outweighs the benefit at VCAS's current scale.** VCAS's actual MapTiler
+usage isn't a generic "load some map tiles" integration that would
+port cleanly to a different vector-tile provider:
+- Hybrid mode's map style (`src/map/navStyle.js`) is a hand-built,
+  31-layer style authored directly against MapTiler's own OpenMapTiles
+  vector-tile schema, day/night variants, VCAS's own tuned colour
+  palette — not a stock style. Every layer/source-layer name in it is
+  specific to that schema.
+- The Local Obstruction feature (see "Local obstruction (buildings +
+  wooded landcover) signal" above) queries MapLibre's own loaded vector
+  source directly via `querySourceFeatures()` against SPECIFIC OpenMapTiles
+  schema values — `source-layer: "building"`, `source-layer: "landcover"`
+  filtered to `["wood","forest"]` — verified against real MapTiler-served
+  tiles during that feature's own build, not assumed generically true of
+  "vector tiles" in the abstract.
+- RAW mode's own real map content is deliberately zero (pure black
+  instrument look) — the ONLY reason it loads MapTiler's vector source at
+  all is the same Local Obstruction feature, invisibly.
+
+Migrating any of this to TomTom's own vector-tile schema would mean
+re-authoring the Hybrid style layer-by-layer AND re-verifying the Local
+Obstruction feature's own schema assumptions against TomTom's real served
+tiles — comparable in scope to work this file already flags elsewhere as
+"a genuine rebuild, not a port," for no demonstrated problem with
+MapTiler at VCAS's actual current scale (a handful of known testers).
+
+**Where TomTom's free tier COULD be a genuinely worthwhile, much
+narrower addition, if picked up later**: routing/ETA specifically, not
+map tiles. VCAS's current routing (`OpenRouteService`, already free) has
+no live-traffic awareness at all — `_updateRouteCard()`'s own remaining-
+duration estimate is a flat proportional scaling of the route's own
+ORS-declared TOTAL duration by remaining-distance fraction (see
+"Follow-up: live-updating route card" above), with zero real-time
+traffic signal feeding it. TomTom is specifically known for real-time
+traffic data; if its routing API's free 2,500/day non-tile allowance
+covers a traffic-aware directions/ETA call, that's a genuine feature
+upgrade over ORS's own free tier that wouldn't touch the map-tile/Local
+Obstruction architecture at all — a real, separately-scoped idea worth a
+closer, verified look later (confirming the actual API shape/CORS
+behaviour against real TomTom documentation, not this session's
+secondhand summary), not something to adopt on this session's research
+alone.
+
+Not built this session — this entry is the researched recommendation,
+not a decision to switch or add anything.

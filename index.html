@@ -614,6 +614,13 @@
         <div id="view3d-header">
           <div id="view3d-title">3D View</div>
           <div id="view3d-count">0 aircraft in view</div>
+          <!-- Manual "I'm pointing North" calibration (2026-09-13) — a
+               settled-but-magnetically-biased compass reading (common on a
+               stationary phone near metal/electronics) can't be fixed by
+               more smoothing alone, only by a real external reference
+               point. Toggles between "Set North" and "Clear North
+               Calibration" — see app.js's onCalibrateNorthClick(). -->
+          <button type="button" id="btn-3d-calibrate-north" title="Point the phone at true North, then tap this">Set North</button>
           <button type="button" id="btn-3d-view-close" title="Close 3D View">✕</button>
         </div>
         <div id="view3d-body">
@@ -895,6 +902,7 @@
   <script src="src/dev/speedSimPanel.js?v=__BUILD_ID__"></script>
   <script src="src/altitudeSuppressPanel.js?v=__BUILD_ID__"></script>
   <script src="src/trafficRules.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/installId.js?v=__BUILD_ID__"></script>
   <script src="src/dev/observationLogger.js?v=__BUILD_ID__"></script>
   <script src="src/dev/logPanel.js?v=__BUILD_ID__"></script>
   <script src="src/aircraftSymbol.js?v=__BUILD_ID__"></script>

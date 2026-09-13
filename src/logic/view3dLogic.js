@@ -91,6 +91,35 @@ const View3DLogic = (() => {
     return ((a - b + 540) % 360) - 180;
   }
 
+  // Anti-jitter dead zone (2026-09-13, "extremely jittery" report). Even
+  // heavily-smoothed sensor output still has some residual per-sample noise
+  // — and this view's own linear degrees-to-pixels mapping (see
+  // projectTo3DPosition's own doc comment: ±40°/±30° full window) amplifies
+  // that into visible on-screen wobble more than RAW's compass tape or a
+  // real map ever would. Rather than fighting this purely with heavier EMA
+  // smoothing (which trades away real responsiveness while the user is
+  // deliberately panning to scan the sky), shouldUpdateFrame() gates the
+  // RENDER decision itself: skip repainting the whole scene unless the
+  // phone has moved more than this many degrees, on either axis, since the
+  // last frame that actually rendered. A genuinely small residual wobble
+  // never gets a chance to move anything on screen at all; a real,
+  // deliberate pan clears it within one or two sensor samples.
+  const FRAME_UPDATE_THRESHOLD_DEG = 0.3;
+
+  /**
+   * @param {number|null} lastAzimuthDeg   Azimuth at the last rendered frame, or null if none yet.
+   * @param {number|null} lastPitchDeg     Elevation/pitch at the last rendered frame, or null if none yet.
+   * @param {number} azimuthDeg            Current device azimuth.
+   * @param {number} pitchDeg              Current device pitch/elevation.
+   * @returns {boolean} true if the scene should repaint this tick.
+   */
+  function shouldUpdateFrame(lastAzimuthDeg, lastPitchDeg, azimuthDeg, pitchDeg) {
+    if (lastAzimuthDeg == null || lastPitchDeg == null) return true; // nothing rendered yet — always paint the first frame
+    const azDiff = Math.abs(_angleDiff(azimuthDeg, lastAzimuthDeg));
+    const pitchDiff = Math.abs(pitchDeg - lastPitchDeg);
+    return azDiff > FRAME_UPDATE_THRESHOLD_DEG || pitchDiff > FRAME_UPDATE_THRESHOLD_DEG;
+  }
+
   /**
    * Compass-tick strip for 3D View's top edge (2026-09-09 follow-up: "add
    * compass ticks around the edge... reusing the azimuth you already
@@ -122,7 +151,10 @@ const View3DLogic = (() => {
     return ticks;
   }
 
-  return { projectTo3DPosition, horizonScreenY, compassTicks, FOV_HALF_H_DEG, FOV_HALF_V_DEG };
+  return {
+    projectTo3DPosition, horizonScreenY, compassTicks, shouldUpdateFrame,
+    FOV_HALF_H_DEG, FOV_HALF_V_DEG, FRAME_UPDATE_THRESHOLD_DEG,
+  };
 })();
 
 if (typeof module !== "undefined") module.exports = View3DLogic;

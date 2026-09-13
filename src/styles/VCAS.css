@@ -2460,6 +2460,32 @@ body[data-nav-state="turn_approach"] { }
   flex-shrink: 0;
 }
 
+/* Manual "Set North" calibration button (2026-09-13) — see
+   app.js's onCalibrateNorthClick()/_updateCalibrateNorthButton(). Plain
+   black/white pill matching the close button's own material; switches to
+   the same cyan this project already uses elsewhere for "active/on" state
+   (--raw-value-cyan) once a calibration is actually in effect, so it reads
+   as a real toggle, not a one-shot action button. */
+#btn-3d-calibrate-north {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#btn-3d-calibrate-north.view3d-calibrated {
+  border-color: var(--raw-value-cyan);
+  color: var(--raw-value-cyan);
+}
+
 #view3d-body {
   position: relative;
   flex: 1;

@@ -42,7 +42,16 @@ const DevicePitch = (() => {
   // scanning the sky is inherently jittery, and this module (like
   // CompassHeading) has no competing "must track something fast"
   // responsiveness need, so it's safe to lean toward stability.
-  const SMOOTH_FACTOR          = 0.15;
+  //
+  // 2026-09-13 follow-up ("extremely jittery" 3D View report): lowered
+  // from 0.15 — unlike CompassHeading, this module has exactly one
+  // consumer (3D View), so there's no shared-default tradeoff to weigh
+  // against a second, different use case; tightening it here directly is
+  // safe. Paired with app.js's own render-side dead zone
+  // (View3DLogic.shouldUpdateFrame) rather than relied on alone — heavier
+  // EMA damping reduces residual noise AMPLITUDE, the dead zone stops
+  // whatever's left from ever reaching the screen at all.
+  const SMOOTH_FACTOR          = 0.08;
   const MIN_UPDATE_INTERVAL_MS = 150;
 
   let _smoothed = null;

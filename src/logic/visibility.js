@@ -6,6 +6,22 @@
  */
 
 const Visibility = (() => {
+  // Model version (2026-09-13) — a plain date string, bumped whenever
+  // estimate()'s scoring logic or any of its tuned constants meaningfully
+  // change (the CONTRAIL_*/LOCAL_OBSTRUCTION_*/UPPER_AIR_* thresholds, the
+  // CATEGORIES table, the METAR adjustment, etc.). Snapshotted into every
+  // logged ground-truth observation (observationLogger.js's
+  // computed.modelVersion) so a future calibration pass can tell whether
+  // an "outcome vs predicted" mismatch reflects the CURRENT model or one
+  // that's since changed — without this, calibration pass #1/#2's own
+  // "still needs real-world data before/after this fix" caveats had no
+  // way to be checked mechanically, only by cross-referencing observation
+  // timestamps against this file's own CLAUDE.md changelog by hand. A
+  // plain date, not semver — matches this project's own established
+  // convention of dating changes rather than making a major/minor/patch
+  // judgement call for what "counts."
+  const MODEL_VERSION = "2026-09-13";
+
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
     A388: 80, A389: 80,
@@ -480,7 +496,7 @@ const Visibility = (() => {
     return CATEGORIES.map((c) => ({ ...c }));
   }
 
-  return { estimate, getCategories };
+  return { estimate, getCategories, MODEL_VERSION };
 })();
 
 if (typeof module !== "undefined") module.exports = Visibility;

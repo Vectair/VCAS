@@ -55,6 +55,36 @@
  * confirmation — see the module's own reasoning inline for why this is
  * the leading fit for the exact symptom reported, not a guess made from
  * nothing.
+ *
+ * 2026-09-13 follow-up, two additions for 3D View specifically (that
+ * mode's own "extremely jittery" + "compass gets confused finding North
+ * while stationary" reports):
+ *
+ * 1. setSmoothFactor()/resetSmoothFactor() — lets a caller temporarily
+ *    swap in a heavier damping constant than SMOOTH_FACTOR's own default
+ *    for the DURATION it's actively consuming this module, without
+ *    touching the default every other consumer (RAW/nav's own stationary
+ *    heading fallback) keeps getting. 3D View's own linear degrees-to-
+ *    pixels mapping (view3dLogic.js) visibly amplifies residual noise far
+ *    more than RAW's compass tape does, but RAW's own use is a plain,
+ *    genuinely-stationary dash-mount reading with no reason to trade away
+ *    responsiveness it doesn't need more of — the two consumers warrant
+ *    different tradeoffs, and this keeps them independently tunable
+ *    without a second copy of this module.
+ * 2. calibrateTo()/clearCalibration()/hasCalibration() — a manual
+ *    reference-point override: "I am currently pointing at [true heading
+ *    X], use that as the new zero instead of whatever the magnetometer
+ *    itself currently reads." Directly answers a real, distinct failure
+ *    mode from the "won't settle" jitter fixed above: a magnetically
+ *    biased ABSOLUTE reading (nearby metal/electronics, common exactly in
+ *    the stationary-testing scenarios this module is always used in) can
+ *    be perfectly SETTLED and STILL wrong — no amount of additional
+ *    smoothing fixes a consistently-biased zero-point, only a real
+ *    external reference can. The offset is intentionally NOT persisted to
+ *    localStorage — stop() resets it to zero, so a fresh stationary
+ *    period (a new location, a new magnetic environment) always starts
+ *    from the sensor's own raw reading rather than silently carrying a
+ *    stale correction forward from somewhere else.
  */
 const CompassHeading = (() => {
   // Lower than a first instinct might pick (was 0.25) — deliberately, since
@@ -76,6 +106,9 @@ const CompassHeading = (() => {
   let _listening  = false;
   let _onHeadingChange = null;
   let _eventName = null;
+  let _activeSmoothFactor = SMOOTH_FACTOR;
+  let _manualOffsetDeg = 0;
+  let _calibrated = false;
 
   function isSupported() {
     return typeof window !== "undefined" && typeof window.DeviceOrientationEvent !== "undefined";
@@ -151,8 +184,8 @@ const CompassHeading = (() => {
       _smoothedX = Math.cos(rad);
       _smoothedY = Math.sin(rad);
     } else {
-      _smoothedX += (Math.cos(rad) - _smoothedX) * SMOOTH_FACTOR;
-      _smoothedY += (Math.sin(rad) - _smoothedY) * SMOOTH_FACTOR;
+      _smoothedX += (Math.cos(rad) - _smoothedX) * _activeSmoothFactor;
+      _smoothedY += (Math.sin(rad) - _smoothedY) * _activeSmoothFactor;
     }
 
     const now = Date.now();
@@ -160,7 +193,57 @@ const CompassHeading = (() => {
     _lastEmitAt = now;
 
     const smoothedDeg = ((Math.atan2(_smoothedY, _smoothedX) * 180) / Math.PI + 360) % 360;
-    if (_onHeadingChange) _onHeadingChange(smoothedDeg);
+    // Manual calibration offset (2026-09-13) applied last, right before
+    // emission — everything upstream (smoothing, the absolute/screen-
+    // rotation correction) still operates on the sensor's own raw zero-
+    // point; this only re-anchors the FINAL reported value to whatever
+    // true heading calibrateTo() was last told it should read.
+    const outputDeg = (smoothedDeg + _manualOffsetDeg + 360) % 360;
+    if (_onHeadingChange) _onHeadingChange(outputDeg);
+  }
+
+  /** Returns the module's own current smoothed heading (pre-calibration-
+   * offset), or null if no reading has arrived yet — the same value
+   * _handleEvent's own atan2 line computes, exposed so calibrateTo() can
+   * anchor a new offset against it without needing a caller to pass in
+   * whatever the last emitted heading happened to be. */
+  function _currentSmoothedDeg() {
+    if (_smoothedX == null) return null;
+    return ((Math.atan2(_smoothedY, _smoothedX) * 180) / Math.PI + 360) % 360;
+  }
+
+  /** Overrides the EMA smoothing constant for as long as this consumer is
+   * using the module — see the module's own 2026-09-13 header note for
+   * why this exists instead of just changing SMOOTH_FACTOR outright. */
+  function setSmoothFactor(factor) {
+    if (typeof factor === "number" && factor > 0 && factor <= 1) _activeSmoothFactor = factor;
+  }
+
+  function resetSmoothFactor() {
+    _activeSmoothFactor = SMOOTH_FACTOR;
+  }
+
+  /**
+   * "I am currently pointing at trueHeadingDeg (real compass bearing) —
+   * use that as the new zero instead of whatever the sensor itself
+   * currently reads." Returns false (no-op) if no reading has arrived yet
+   * — there's nothing to anchor an offset against.
+   */
+  function calibrateTo(trueHeadingDeg) {
+    const current = _currentSmoothedDeg();
+    if (current == null) return false;
+    _manualOffsetDeg = ((trueHeadingDeg - current) % 360 + 360) % 360;
+    _calibrated = true;
+    return true;
+  }
+
+  function clearCalibration() {
+    _manualOffsetDeg = 0;
+    _calibrated = false;
+  }
+
+  function hasCalibration() {
+    return _calibrated;
   }
 
   /**
@@ -181,9 +264,20 @@ const CompassHeading = (() => {
     window.removeEventListener(_eventName, _handleEvent);
     _listening = false;
     _onHeadingChange = null;
+    // A fresh stationary period (new location, new magnetic environment)
+    // should never silently inherit a stale manual calibration or a
+    // still-active borrowed smoothing profile from whoever used the
+    // module last — both reset here, not just when their own consumer
+    // explicitly clears them.
+    _activeSmoothFactor = SMOOTH_FACTOR;
+    _manualOffsetDeg = 0;
+    _calibrated = false;
   }
 
-  return { isSupported, needsPermission, requestPermission, start, stop };
+  return {
+    isSupported, needsPermission, requestPermission, start, stop,
+    setSmoothFactor, resetSmoothFactor, calibrateTo, clearCalibration, hasCalibration,
+  };
 })();
 
 if (typeof module !== "undefined") module.exports = CompassHeading;

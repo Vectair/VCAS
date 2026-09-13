@@ -29,6 +29,17 @@
   // reading arrives.
   let view3DOpen = false;
   let devicePitchDeg = 0;
+  // 2026-09-13 follow-up ("extremely jittery" 3D View report) — render
+  // cadence decoupled from the two sensors' own ~150ms emission rate (see
+  // open3DView()'s own comment): one shared timer here, not three
+  // independent direct calls from onCompassHeading/onDevicePitchChange/
+  // onGpsSuccess. _view3DLast*Deg track what was actually last painted, for
+  // refresh3DView()'s own anti-jitter dead zone (View3DLogic.shouldUpdateFrame).
+  const VIEW3D_RENDER_TICK_MS = 200;
+  const VIEW3D_COMPASS_SMOOTH_FACTOR = 0.05;
+  let _view3DRenderTickTimer = null;
+  let _view3DLastAzimuthDeg = null;
+  let _view3DLastPitchDeg = null;
   let fetchTimer = null;
   let renderTickTimer = null;
   let lastFetchTime = null;
@@ -915,6 +926,16 @@
       });
     }
 
+    // "Set North" manual calibration (2026-09-13) — see
+    // onCalibrateNorthClick()'s own comment.
+    const btn3DCalibrate = document.getElementById("btn-3d-calibrate-north");
+    if (btn3DCalibrate) {
+      btn3DCalibrate.addEventListener("click", (e) => {
+        e.preventDefault();
+        onCalibrateNorthClick();
+      });
+    }
+
     // 3. Destination-pick arm/disarm — next map tap after arming supplies the target.
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
@@ -1358,7 +1379,11 @@
       if (!navFollowSuspended) CameraController.followNav(userLat, userLon, userHeading, userSpeedMph, _rawChromeInsets());
       refreshIndicators();
     }
-    if (view3DOpen) refresh3DView();
+    // 3D View (2026-09-09) no longer renders directly off this tick — see
+    // open3DView()'s own 2026-09-13 comment: a single shared render-tick
+    // timer reads the latest userLat/userLon/userHeading/devicePitchDeg on
+    // its own controlled cadence instead, so a GPS fix arriving doesn't
+    // stack a THIRD independent trigger on top of the two sensors' own.
   }
 
   // ---- Recenter (after a manual pan/zoom/rotate) ----
@@ -1530,16 +1555,19 @@
     // stationary/slow condition 3D View itself requires to be open at
     // all — see close3DView()'s own speed-gate). No separate azimuth
     // reading needed for 3D View beyond what this app already tracks.
-    if (view3DOpen) refresh3DView();
+    // No direct refresh3DView() call here any more (2026-09-13) — see
+    // open3DView()'s own comment on the shared render-tick timer that
+    // reads this value on its own cadence instead.
   }
 
   /** DevicePitch's own callback (src/sensors/devicePitch.js) — the one
    * genuinely new sensor axis 3D View needed, see that module's own doc
    * comment for the beta->elevation derivation and its honest
-   * unverified-against-real-hardware caveat. */
+   * unverified-against-real-hardware caveat. Just stores the latest
+   * reading (2026-09-13) — see open3DView()'s own comment for why this no
+   * longer triggers a render directly. */
   function onDevicePitchChange(elevationDeg) {
     devicePitchDeg = elevationDeg;
-    if (view3DOpen) refresh3DView();
   }
 
   // ---- Camera Padding Update Engine ----
@@ -2259,6 +2287,7 @@
     view3DOpen = true;
     document.getElementById("view3d-screen")?.classList.remove("hidden");
     _sync3DButtonState();
+    _updateCalibrateNorthButton();
 
     // Both sensors this view needs share the SAME iOS permission gate
     // (DeviceOrientationEvent.requestPermission(), a per-event-type grant,
@@ -2273,19 +2302,71 @@
     } else if (!compassPermissionGranted) {
       compassPermissionGranted = true;
     }
+    // Heavier smoothing than CompassHeading's own RAW/nav default
+    // (2026-09-13, "extremely jittery" report) — scoped to exactly this
+    // view's own open/close window via setSmoothFactor()/resetSmoothFactor()
+    // (see that module's own header comment) so RAW's stationary compass
+    // tape is completely untouched by this.
+    CompassHeading.setSmoothFactor(VIEW3D_COMPASS_SMOOTH_FACTOR);
     if (compassPermissionGranted) CompassHeading.start(onCompassHeading); // idempotent if already running
 
     DevicePitch.start(onDevicePitchChange);
+
+    // Render cadence decoupled from the two sensors' own ~150ms emission
+    // rate (2026-09-13 follow-up to the same "extremely jittery" report).
+    // Previously onCompassHeading/onDevicePitchChange/onGpsSuccess each
+    // independently called refresh3DView() on their own schedule —
+    // stacking to a real, uncoordinated rate with two full-innerHTML-
+    // rebuild render calls (aircraft dots + compass ticks) firing every
+    // time EITHER sensor merely twitched. One shared timer here, reading
+    // whatever the latest smoothed values currently are, gives a single
+    // controlled cadence — paired with refresh3DView()'s own anti-jitter
+    // dead zone (View3DLogic.shouldUpdateFrame), which is what actually
+    // decides whether a given tick repaints at all.
+    _view3DLastAzimuthDeg = _view3DLastPitchDeg = null; // next tick always paints a first frame
     refresh3DView();
+    _view3DRenderTickTimer = setInterval(refresh3DView, VIEW3D_RENDER_TICK_MS);
   }
 
   function close3DView() {
     view3DOpen = false;
     document.getElementById("view3d-screen")?.classList.add("hidden");
     document.getElementById("view3d-blocked")?.classList.add("hidden");
+    if (_view3DRenderTickTimer) { clearInterval(_view3DRenderTickTimer); _view3DRenderTickTimer = null; }
     DevicePitch.stop();
+    // Deliberately NOT CompassHeading.stop() here — RAW/nav may still be
+    // reading it while genuinely stationary, and (2026-09-13) a manual
+    // North calibration is meant to survive closing/reopening 3D View
+    // while stationary, only clearing on a real CompassHeading.stop()
+    // (the vehicle actually moves — see onGpsSuccess). resetSmoothFactor()
+    // alone hands the module's default damping back to whatever else is
+    // using it.
+    CompassHeading.resetSmoothFactor();
     UI.clear3DView();
     _sync3DButtonState();
+  }
+
+  /** "I am currently pointing at true North — use that as the new zero"
+   * (2026-09-13). See compassHeading.js's own header comment for why a
+   * settled-but-biased absolute reading (magnetic interference near a
+   * stationary phone) needs a manual reference point, not more smoothing. */
+  function onCalibrateNorthClick() {
+    if (CompassHeading.hasCalibration()) {
+      CompassHeading.clearCalibration();
+    } else {
+      CompassHeading.calibrateTo(0);
+    }
+    _updateCalibrateNorthButton();
+    _view3DLastAzimuthDeg = null; // force one immediate repaint reflecting the new/cleared offset
+    refresh3DView();
+  }
+
+  function _updateCalibrateNorthButton() {
+    const btn = document.getElementById("btn-3d-calibrate-north");
+    if (!btn) return;
+    const calibrated = CompassHeading.hasCalibration();
+    btn.textContent = calibrated ? "Clear North" : "Set North";
+    btn.classList.toggle("view3d-calibrated", calibrated);
   }
 
   function refresh3DView() {
@@ -2295,27 +2376,39 @@
     const vw = bodyEl ? bodyEl.clientWidth : window.innerWidth;
     const vh = bodyEl ? bodyEl.clientHeight : window.innerHeight;
 
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);
+    if (blocked) {
+      UI.clear3DView();
+      _view3DLastAzimuthDeg = _view3DLastPitchDeg = null; // next real (unblocked) tick always repaints
+      return;
+    }
+
+    // Anti-jitter dead zone (2026-09-13, "extremely jittery" report): skip
+    // the whole repaint below — world backdrop, compass ticks, aircraft
+    // dots together — unless the phone has genuinely moved more than
+    // View3DLogic.FRAME_UPDATE_THRESHOLD_DEG on either axis since the last
+    // frame that actually painted. Below that, residual EMA-smoothed
+    // sensor noise was still enough to visibly wobble the scene at this
+    // view's own linear degrees-to-pixels mapping (see view3dLogic.js) —
+    // a real jitter source independent of how heavily the sensors
+    // themselves are already smoothed (see the smoothing changes above).
+    if (!View3DLogic.shouldUpdateFrame(_view3DLastAzimuthDeg, _view3DLastPitchDeg, userHeading, devicePitchDeg)) return;
+    _view3DLastAzimuthDeg = userHeading;
+    _view3DLastPitchDeg = devicePitchDeg;
+
     // World building (2026-09-09 follow-up) — the sky/ground split at the
-    // real horizon, kept live regardless of the blocked state below (the
-    // "stationary only" banner sits on top of it either way, and there's
-    // no reason to freeze the world mid-transition). isNight reuses the
-    // same ThemeManager Day/Night resolution the rest of the app already
-    // derives its own chrome from — no new signal, see UI.render3DWorld's
-    // own doc comment for why this screen specifically DOES follow real
-    // Day/Night unlike RAW's fixed-dark instrument look.
+    // real horizon. isNight reuses the same ThemeManager Day/Night
+    // resolution the rest of the app already derives its own chrome from
+    // — no new signal, see UI.render3DWorld's own doc comment for why
+    // this screen specifically DOES follow real Day/Night unlike RAW's
+    // fixed-dark instrument look.
     const horizonY = View3DLogic.horizonScreenY(devicePitchDeg, vh);
     UI.render3DWorld(horizonY, vh, ThemeManager.getResolved() === "night", View3DClouds.isEnabled());
 
     // Compass-tick strip (2026-09-09 follow-up) — same live azimuth
-    // (userHeading) the aircraft dots' own bearing offset is computed
-    // from, kept live through the blocked state below for the same
-    // "don't freeze the world mid-transition" reasoning as the sky/ground
-    // split above.
+    // (userHeading) the aircraft dots' own bearing offset is computed from.
     UI.renderCompassTicks(View3DLogic.compassTicks(userHeading, vw));
-
-    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
-    document.getElementById("view3d-blocked")?.classList.toggle("hidden", !blocked);
-    if (blocked) { UI.clear3DView(); return; }
 
     // Same userState shape refreshAirMode() builds — 3D View is, like
     // AIR, an unfiltered real-position view (every tracked aircraft, not

@@ -87,6 +87,11 @@ const ObservationLogger = (() => {
       // on read — records logged before this field existed simply won't
       // have it, no migration needed.
       mode: userState.mode || null,
+      // 2026-09-13 — see installId.js's own doc comment for the full
+      // reasoning: a thin, anonymous, per-install correlation key so
+      // multiple observations can be recognised as coming from the same
+      // physical device/tester without recording any real identity.
+      installId: (typeof InstallId !== "undefined") ? InstallId.get() : null,
       user: {
         lat: userState.lat, lon: userState.lon,
         heading: userState.heading, speedMph: userState.speedMph,
@@ -98,6 +103,12 @@ const ObservationLogger = (() => {
         lastSeenSeconds: a.lastSeenSeconds,
       },
       computed: {
+        // 2026-09-13 — see visibility.js's own MODEL_VERSION comment: lets
+        // a future calibration pass tell whether an "outcome vs predicted"
+        // mismatch reflects the CURRENT scoring model or one that's since
+        // changed, without cross-referencing observation timestamps
+        // against the CLAUDE.md changelog by hand.
+        modelVersion: (typeof Visibility !== "undefined") ? Visibility.MODEL_VERSION : null,
         distanceNm: item.distanceNm,
         relativeBearing: item.relativeBearing,
         visibility: {
