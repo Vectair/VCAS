@@ -10371,3 +10371,58 @@ work it sits right next to. `node --check src/app.js` clean.
 The remaining, deliberately-untouched azimuth-reliability architectural
 concern from the same review (documented in the entry above) is still
 open — not requested to be fixed in this follow-up.
+
+## Bottom-bar NAVIGATION group cut off in AIR/Hybrid but not RAW (2026-09-14)
+
+Reported directly, with two real device screenshots side by side (RAW
+fitting correctly, AIR showing the SCREEN/mode-toggle row fine but the
+NAVIGATION label and OFF/ON button crowded/partially off the right
+edge). RAW showing correctly while AIR/Hybrid didn't was the real clue:
+`#aircraft-count` (the "N aircraft nearby" text) is the one element in
+`#mode-row` that's RAW-only `display:none` (see "LOG button
+row-alignment follow-up" above) — visible everywhere else.
+
+**Root cause, confirmed with a real Playwright render before touching
+anything**: `#aircraft-count` is `flex:1` with no `min-width` override —
+flex items default to `min-width:auto`, which floors them at their own
+text's intrinsic content width rather than letting them actually shrink
+to fit. `UI.setAircraftCount()`'s longest real string ("3 of 12 shown —
+tap for more", the overflow-cycling case) refused to shrink at a
+narrower real device width, pushing the NAVIGATION group's OFF/ON button
+past the right edge. This didn't show up in this project's own earlier
+360px checks (round 9's own comment: "verified against Hybrid/AIR...
+at the same 360px width too") because those checks predate `#btn-3d`
+being added to `.mode-toggle` — a 4th button that widened the SCREEN
+group afterward with nobody re-verifying the aircraft-count-visible case
+against it. Reproduced directly: extracted the real `#bottom-bar` markup
+verbatim and rendered it against the real `VCAS.css` at 412px (no
+overflow, matching why this went unnoticed), 360px (this project's own
+standard check width — genuinely overflows with the long text, ~17px of
+the OFF/ON button clipped past the edge, matching the screenshot), and
+328px.
+
+**Fix**: `#aircraft-count` gained `min-width: 0; overflow: hidden;
+white-space: nowrap; text-overflow: ellipsis;` — the identical
+"measure/shrink-to-fit + ellipsis safety net" pattern already
+established for the top-bar status pills (`UI._fitStatusPillRow`, see
+"Top-bar status pills" above), just via pure CSS here since this
+element's own text never needs measuring against a compact/full tier,
+only room to actually shrink. Verified: at 360px, the long text no
+longer forces overflow in either AIR or Hybrid, screenshot-confirmed
+NAVIGATION/OFF/ON fully on-screen; RAW (unaffected, `#aircraft-count`
+hidden there regardless) still renders identically.
+
+**A separate, pre-existing floor found during this investigation, NOT
+part of the fix and NOT what was reported — flagged honestly rather than
+silently folded in**: at 328px, the row still overflows in EVERY mode,
+including RAW with `#aircraft-count` fully hidden — the 4 mode buttons +
+bracket + SCREEN label alone are wider than 328px allows, a genuine
+`flex-shrink:0` floor on `.mode-row-group`/`.mode-toggle` unrelated to
+aircraft-count. 328px is narrower than this project's own established
+360px worst-case standard (most real Android phones report ≥360px CSS
+width), and this floor affects all three modes equally — not the RAW-
+vs-AIR/Hybrid asymmetry that was actually reported, and not something
+this pass touched. Worth a real fix (tighter `.mode-toggle .mode-btn`
+padding, or letting the SCREEN label/bracket collapse below some width)
+if a genuinely sub-360px device ever gets reported, not assumed to be
+covered by this one.

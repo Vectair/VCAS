@@ -684,6 +684,23 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 
 #aircraft-count {
   flex: 1;
+  /* Real bug fix (2026-09-14): flex items default to min-width:auto, which
+     floors them at their own text's intrinsic width rather than letting
+     them actually shrink — on a narrower real device (~360px, not the
+     412px this project's own checks have mostly used), the "3 of 12 shown
+     — tap for more" overflow-cycling string (setAircraftCount()'s longest
+     case) refused to shrink and pushed the NAVIGATION group's OFF/ON
+     button past the right edge, clipped off-screen. RAW never showed this
+     (#aircraft-count is display:none there, see below) — only Hybrid/AIR,
+     where it's visible, and only after btn-3d widened the SCREEN group
+     enough to leave no slack. Same "measure/shrink-to-fit + ellipsis
+     safety net" fix already established for the top-bar status pills
+     (see UI._fitStatusPillRow) — min-width:0 actually lets it shrink,
+     the rest keeps it legible once it does. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: center;
   font-size: 12px;
   color: var(--text-secondary);
