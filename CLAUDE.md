@@ -10518,3 +10518,112 @@ opening the LOG menu, then clicking the Settings gear, correctly closes
 the menu and opens Settings in one action — nothing left floating. No
 code change was needed for this; it already worked by virtue of the
 pre-existing document-click-close behavior, not by luck.
+
+## Colorblind-mode compliance audit (2026-09-14)
+
+Direct request: "review our current color blind settings... make sure
+they are all compliant if color blind mode is on," after several
+features (Traffic Rules highlights, 3D View, the RAW-redesign rounds)
+had shipped since `ColorblindMode`'s own established pattern was last
+comprehensively checked. Traced every place an aircraft's real
+visibility-tier colour is chosen for rendering, per `ui.js`'s own
+`_displayColor()` (and `map.js`'s identical local copy for AIR) — the
+established priority chain: colourblind-safe (if the toggle is on) →
+RAW's own reference-matched `colorRaw` → the plain theme-appropriate
+`color`/`colorDay`.
+
+**Found and fixed one real, genuine gap: the first-launch onboarding
+legend never consulted `ColorblindMode` at all.** `_renderOnboardingLegend()`
+(`app.js`) calls `AircraftSymbol.svg(cat.shape, cat.color, ...)` directly
+against `Visibility.getCategories()`'s raw table entries — bypassing
+`_displayColor()` entirely and always drawing the plain (non-colourblind)
+palette, regardless of the setting. This directly undercut that
+function's own doc comment ("real icon-drawing code and the real tier
+table... so this can't silently drift from what the app actually
+renders") — it COULD drift, and did, specifically for colourblind users:
+anyone who enables the setting sees a legend permanently describing
+colours they will never actually see rendered anywhere else in the app,
+since onboarding only ever shows once per install (`onboarding_seen_v1`)
+with no other screen re-displaying that same legend.
+
+**Fix**: `UI.displayColor` (aliasing `ui.js`'s private `_displayColor`)
+is now part of `UI`'s public export — a genuine one-line addition, not a
+new implementation, so the onboarding legend reuses the EXACT SAME
+colour-selection logic every live indicator/marker/popup/aircraft-list
+row already uses, rather than a third hand-copied version that could
+independently drift (the same "one shared source, not values that could
+drift apart" discipline this file already documents at length elsewhere).
+`_renderOnboardingLegend()`'s `AircraftSymbol.svg(cat.shape, cat.color, ...)`
+call became `AircraftSymbol.svg(cat.shape, UI.displayColor(cat), ...)`.
+Confirmed `Visibility.getCategories()`'s returned entries already carry
+every field `_displayColor()` needs (`color`/`colorDay`/`colorRaw`/
+`colorblindSafe`/`colorblindSafeDay`) — a shallow copy of the real
+`CATEGORIES` table, not a narrower projection — so no shape mismatch.
+Also confirmed the call ordering is already correct and needed no
+change: `ColorblindMode.init()`/`ThemeManager.init()` both run well
+before `_maybeShowOnboarding()` in `app.js`'s own `init()` sequence, so
+`_displayColor()`'s two branches always have real, current state to read
+by the time the legend first renders.
+
+**Everything else checked came back clean, not assumed clean:**
+- `ui.js`'s `renderIndicators()`/`renderSuppressedDots()`/
+  `renderAircraftList()`/`render3DView()`/`showPopup()`/`showAirPopup()`
+  — every one already calls `_displayColor()` (confirmed via a full grep
+  of every `.color`/`.colorRaw`/`.colorblindSafe` reference in `src/`),
+  including the RAW-mode-redesign rounds' own newer additions (the
+  aircraft-list chevron, 3D View's colour-matched dots) — both were
+  built ALREADY calling `_displayColor()`/reusing the shared pattern
+  correctly from day one, not gaps that needed fixing now.
+- `_borderColor()` (the `.indicator-label`'s own border tint) correctly
+  delegates to `_displayColor()` first, only layering an alpha value on
+  top — no separate colour source to drift.
+- `map.js`'s AIR-marker rendering (`_airMarkerHtml()`) has its own local
+  `_displayColor()` copy (necessarily separate — a different module),
+  but is fully consistent with `ui.js`'s version field-for-field, and
+  every colour used in an AIR marker (shape fill, direction arrow,
+  callsign text) reads from the same single `displayColor` variable —
+  no partial application within one marker.
+- **Traffic Rules highlight rings are a deliberately separate, orthogonal
+  axis, not a colorblind-mode gap.** A rule's highlight colour is a
+  free user pick (a plain `<input type="color">` in the settings rule
+  builder), not one of the four fixed visibility-tier colours
+  `ColorblindMode` governs — there's no "colourblind-safe variant" of an
+  arbitrary user-chosen colour to swap in. The ring itself is
+  shape-based (a `drop-shadow`/`box-shadow` glow, not a colour-only cue)
+  so its mere PRESENCE is already visible independent of whichever hue
+  was picked, the same "don't rely on hue alone" principle the tier
+  palette's own Okabe-Ito colourblind-safe variant exists to satisfy —
+  just achieved differently here (shape/presence vs. a curated hue set),
+  since there's no fixed enum of highlight colours to curate against.
+- The RAW-mode-redesign rounds' own chrome colours (black/white/cyan
+  mode buttons, green/cyan nav-status readouts, the maroon nav icon,
+  status-pill dots) are brand/instrument-readout colours, not aircraft-
+  identification colours — `ColorblindMode`'s own doc comment scopes it
+  specifically to "the colorblind-safe visibility palette... for the
+  same aircraft indicators," and none of these chrome elements encode
+  aircraft-identification information via colour alone (the actual
+  words/numbers in each readout carry the real information regardless
+  of their colour) — correctly out of this toggle's scope, not an
+  oversight.
+
+Verified with a real Playwright harness loading the actual, unmodified
+`visibility.js`/`aircraftSymbol.js`/`colorblindMode.js`/`themeManager.js`/
+`ui.js` (via `<script>`, not retyped) plus a verbatim copy of
+`_renderOnboardingLegend()`'s real logic: with the toggle off, the
+rendered icons' fill colours exactly matched the real `CATEGORIES`
+table's plain `color`/`colorDay` values; with it on, they exactly
+matched the real `colorblindSafe`/`colorblindSafeDay` values instead —
+confirmed field-for-field against `Visibility.getCategories()`'s own
+output, not just "the colours changed." `node --check` clean on both
+edited files.
+
+Not done: no change to the native Android Auto port's own onboarding
+screen — it has its own, separately-built legend
+(`buildOnboardingScreen()`, see "Native phone screen: first-launch
+onboarding screen" above) that already reuses `PhoneAircraftIcons.
+bitmapFor()` for its icons, but was not checked in this pass since the
+report was specifically about "our current color blind settings," read
+in context as the PWA the project owner was actively using (per the
+attached Settings-screen screenshot) — same standing "synced in
+dedicated passes, not every change" note this file already carries for
+every other PWA-only fix.

@@ -241,9 +241,15 @@
     // Real icon-drawing code (AircraftSymbol.svg) and the real tier table
     // (Visibility.getCategories()) — not hand-approximated shapes/colours —
     // so this can't silently drift from what the app actually renders.
+    // Colour comes from UI.displayColor(), the SAME theme/colourblind-aware
+    // selection every live indicator/marker/popup already uses (2026-09-14
+    // colorblind audit) — a real, previously-shipped gap: this used to read
+    // cat.color directly, always the plain (non-colourblind) palette, so a
+    // colourblind user turning that setting on would see a legend
+    // describing colours they'd never actually see rendered on screen.
     container.innerHTML = Visibility.getCategories()
       .map((cat) => {
-        const icon = AircraftSymbol.svg(cat.shape, cat.color, 22, cat.fillOpacity);
+        const icon = AircraftSymbol.svg(cat.shape, UI.displayColor(cat), 22, cat.fillOpacity);
         const desc = ONBOARDING_LEGEND_COPY[cat.label] || "";
         return `<div class="onboarding-legend-row">
           <span class="onboarding-legend-icon">${icon}</span>

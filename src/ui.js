@@ -1607,6 +1607,13 @@ const UI = (() => {
     showPopup,
     showAirPopup,
     hidePopup,
+    // Exported (2026-09-14 colorblind audit) so app.js's onboarding legend
+    // can reuse the exact same colour-selection logic every live aircraft
+    // render already uses, rather than a third hand-copied version that
+    // could silently drift out of sync with the colorblind/theme rules —
+    // see displayColor's own doc comment just above _displayColor's
+    // definition for the full priority chain.
+    displayColor: _displayColor,
   };
 })();
 
