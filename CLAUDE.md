@@ -10695,3 +10695,111 @@ retry fail forever — not reported, and the existing fallback-to-banner
 behavior already degrades reasonably in that case (the user just sees
 the banner again, same as a genuine first-time ask, rather than a
 broken or misleading state).
+
+## Colorblind-mode follow-up: safe-swatch shortcuts + a real chrome bug (2026-09-14, later the same day)
+
+Direct follow-up to the compliance audit above: "Can the traffic rules
+colours be specifically color blind safe if color blind mode is
+active? Same for the colors of app chrome? I would rather the whole
+experience is beneficial for a color blind user." Reviewed every color-
+coded chrome element (not just the aircraft-identification palette the
+earlier audit scoped to) before proposing anything, and found one real,
+unambiguous bug alongside a genuine design decision that needed
+confirming rather than guessing:
+
+- **Traffic Rules highlight colors** — a free `<input type="color">`,
+  so a user can pick literally any hex, including ones indistinguishable
+  from each other or from the tier palette under CVD. Fixable, but a
+  real product choice: restrict the picker outright, or keep it free and
+  add safe shortcuts alongside it.
+- **Status-pill dots** (`.status-pill.active/.stale/.error .dot`,
+  top-bar adsb.fi/MapTiler/Open-Meteo pills) — a genuine, unambiguous
+  bug: green/orange for active/stale, exactly the classic collision
+  under the most common forms of red-green colorblindness. No judgment
+  call here, just a fix.
+- Everything else reviewed came back fine: the nav-status card's green/
+  cyan "good value" text pair stays distinguishable under red-green CVD
+  (cyan is blue-based, unaffected by that confusion), and the RAW mode-
+  toggle's cyan-vs-white active state already carries a real luminance
+  difference on top of the hue difference. Not touched.
+
+Confirmed via `AskUserQuestion` before building (two real forks,
+answered): **free picker + safe presets** (not a restriction — `#tr-color`
+stays fully usable either way, a row of curated swatches sits alongside
+it as a faster path), and **leave already-saved rule colors as-is** when
+colorblind mode is turned on (the restriction only shapes what a NEW
+pick/edit can choose from — nothing changes under an existing rule the
+user hasn't touched).
+
+**Safe palette chosen deliberately, not picked freely**: the four
+Okabe-Ito hues NOT already claimed by the four visibility tiers
+(`visibility.js`'s own `colorblindSafe`/`colorblindSafeDay` fields use
+pink/reddish-purple, yellow, and blue for the three distinct tier
+colors) — orange `#e69f00`, sky blue `#56b4e9`, bluish green `#009e73`,
+vermillion `#d55e00`. Deliberately excludes black (Okabe-Ito's 8th hue)
+and white — RAW's own `colorRaw` uses pure white for two of the four
+tiers, and RAW's background is pure black, so either would be invisible
+or ambiguous exactly where this feature also renders (a highlight ring
+around a RAW plot icon).
+
+**Mechanism: a new `body.colorblind-safe` class**, the first CSS-facing
+signal `ColorblindMode` has ever produced — until now the flag only ever
+drove `_displayColor()`'s own JS-computed color selection, nothing
+CSS-scoped. `_updateColorblindToggleBtn()` (already the one function
+called both at `init()` and on every toggle) now also does
+`document.body.classList.toggle("colorblind-safe", on)` — one shared
+place, not a second call site that could drift out of sync with the
+button's own on/off state.
+
+`index.html`'s rule-builder form gained a `#tr-safe-swatches` row
+(4 plain `<button>` swatches, each `data-color="#hex"`) sitting right
+below the existing `#tr-color` picker, sharing `#tr-color-row`'s own
+"only visible for a highlight-mode rule" gating —
+`_openTrafficRuleForm()` now toggles both rows' `.hidden` class together
+rather than just the color row. `VCAS.css` hides the swatch row by
+default and only shows it under `body.colorblind-safe` — deliberately
+via a class-only selector (`.tr-safe-swatches`) checked AFTER the
+higher-specificity `#tr-safe-swatches.hidden` rule (an ID selector always
+outranks a class-only one regardless of the colorblind state), so a
+filter-mode rule's row stays correctly hidden even while colorblind mode
+is on. One delegated click listener on the row (`app.js`) sets
+`#tr-color`'s value to whichever swatch's `data-color` was tapped — the
+free picker itself needed zero changes, it just receives a value exactly
+as if the user had picked it manually.
+
+`VCAS.css`'s status-pill fix is a pure override, scoped the same way:
+`body.colorblind-safe .status-pill.active .dot`/`.stale .dot` swap to
+the safe blue/vermillion pair (Okabe-Ito's own recommended categorical
+duo), leaving `.error`'s grey untouched — grey has no hue to confuse
+under any CVD type, so it was never actually broken.
+
+**A real test-harness gotcha hit and resolved during verification, not
+a code bug** — worth recording per this project's own repeated
+"distinguish a harness artifact from a real bug" discipline: `.status-
+pill .dot`'s own pre-existing `transition: background .4s` rule (there
+so a pill's dot doesn't hard-cut when its live fetch status changes)
+meant a same-tick `getComputedStyle()` check immediately after toggling
+the class read a color still mid-transition, not the final target —
+producing a confusing "looks reversed by one step" result on the first
+verification pass. Confirmed via a deliberately reduced repro (a 3-rule
+isolated stylesheet, no transition) that the underlying cascade/
+specificity logic was correct the whole time; the real harness then just
+needed a `page.waitForTimeout(500)` after each toggle to let the
+transition settle before reading — not a bug in the shipped CSS, purely
+a verification-timing artifact.
+
+Verified with a real Playwright harness against the actual, unmodified
+`VCAS.css` and the real, extracted (brace-matched, not retyped)
+`_updateColorblindToggleBtn()`/swatch-click-listener code from `app.js`:
+swatches hidden by default, visible once colorblind mode is toggled on;
+a filter-mode rule's row stays hidden even with colorblind mode on;
+each of the four swatches correctly sets `#tr-color`'s value on click;
+the status-pill dots read the exact safe blue/vermillion hex values
+once the transition settles, and correctly revert to the original
+green/orange when colorblind mode is toggled back off, with `.error`
+unaffected throughout. `node --check` clean on both edited files.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no Traffic Rules settings screen
+or status-pill row equivalent today.

@@ -467,6 +467,19 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
 .status-pill.stale  .dot   { background: #ff9800; }
 .status-pill.error  .dot   { background: #9e9e9e; }
 
+/* Colourblind-safe override (2026-09-14) — the plain active/stale pair
+   above (green/orange) is a real, unambiguous accessibility bug: green
+   vs. orange is one of the classic collisions under the most common
+   forms of red-green colour blindness, exactly the pairing accessible-
+   design guides call out first. .error's grey is untouched — it already
+   has no hue to confuse, safe under every CVD type as-is. Swapped to the
+   standard safe blue/vermillion pair (Okabe-Ito's own recommended
+   categorical duo) rather than anything hand-picked. Toggled via
+   body.colorblind-safe, the same class app.js's _updateColorblindToggleBtn()
+   already sets/clears for the Traffic Rules safe swatches above. */
+body.colorblind-safe .status-pill.active .dot { background: #56b4e9; }
+body.colorblind-safe .status-pill.stale  .dot { background: #d55e00; }
+
 /* adsb.fi attribution (round 6, 2026-09-08) — the #adsb-status pill's own
    label IS now the required link to adsb.fi's homepage, replacing the
    separate #adsb-credit line this used to be (moved here from a Settings
@@ -3068,6 +3081,40 @@ body[data-nav-state="turn_approach"] { }
 }
 #traffic-rule-form.hidden { display: none; }
 #tr-color-row.hidden { display: none; }
+
+/* Colourblind-safe highlight-colour shortcuts (2026-09-14) — hidden by
+   default (and always hidden for a filter-mode rule, via the higher-
+   specificity #tr-safe-swatches.hidden rule below — an ID selector beats
+   this class-only one regardless of colourblind state), shown only once
+   ColorblindMode.isEnabled() is true, mirrored onto <body> as this class
+   by app.js's _updateColorblindToggleBtn(). Direct instruction: "free
+   picker + safe presets," not a restriction — #tr-color itself is
+   completely untouched and stays usable either way; these are just a
+   faster, curated path onto four colours drawn from the same safe family
+   the visibility-tier palette already uses (visibility.js's own
+   colorblindSafe/colorblindSafeDay), deliberately excluding the three
+   hues (pink, yellow, blue) those tiers already claim, plus black/white
+   (RAW's own colorRaw uses pure white for two tiers; a black swatch would
+   be invisible against RAW's own black background). */
+.tr-safe-swatches { display: none; }
+body.colorblind-safe .tr-safe-swatches { display: flex; align-items: center; }
+#tr-safe-swatches.hidden { display: none; }
+
+.tr-safe-swatch-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tr-safe-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+.tr-safe-swatch:active { transform: scale(.92); }
 
 .traffic-rule-input, .traffic-rule-select {
   flex-shrink: 0;

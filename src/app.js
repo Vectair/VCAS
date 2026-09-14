@@ -511,6 +511,19 @@
       _cancelTrafficRuleForm();
     });
 
+    // Colourblind-safe swatch shortcuts (2026-09-14) — a fast path onto
+    // #tr-color's own value; the free picker itself is untouched and
+    // still fully usable, per direct instruction ("free picker + safe
+    // presets," not a restriction). One delegated listener on the row
+    // rather than four, so nothing needs rebinding if the swatch set
+    // ever changes.
+    document.getElementById("tr-safe-swatches")?.addEventListener("click", (e) => {
+      const btn = e.target.closest(".tr-safe-swatch");
+      if (!btn) return;
+      e.preventDefault();
+      document.getElementById("tr-color").value = btn.dataset.color;
+    });
+
     _renderAltPresets();
     _renderModeOrderList();
     _renderTrafficRulesList();
@@ -770,11 +783,14 @@
     document.getElementById("tr-traffic").value = rule.conditions.traffic || "any";
 
     const colorRow = document.getElementById("tr-color-row");
+    const swatchRow = document.getElementById("tr-safe-swatches");
     if (rule.mode === "highlight") {
       colorRow.classList.remove("hidden");
+      swatchRow.classList.remove("hidden");
       document.getElementById("tr-color").value = rule.color || TrafficRules.DEFAULT_HIGHLIGHT_COLOR;
     } else {
       colorRow.classList.add("hidden");
+      swatchRow.classList.add("hidden");
     }
 
     const form = document.getElementById("traffic-rule-form");
@@ -1140,9 +1156,15 @@
   }
 
   function _updateColorblindToggleBtn() {
+    const on = ColorblindMode.isEnabled();
+    // Mirrored onto <body> (2026-09-14) so plain CSS can react to the
+    // setting too, not just the JS-driven aircraft-colour selection
+    // _displayColor() already handles — see VCAS.css's own
+    // body.colorblind-safe rules (the Traffic Rules safe-swatch row, the
+    // status-pill dot colours) for what currently reads this.
+    document.body.classList.toggle("colorblind-safe", on);
     const btn = document.getElementById("btn-colorblind-toggle");
     if (!btn) return;
-    const on = ColorblindMode.isEnabled();
     btn.textContent = on ? "On" : "Off";
     btn.classList.toggle("active", on);
   }

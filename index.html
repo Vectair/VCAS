@@ -774,6 +774,22 @@
                 <span class="settings-label">Highlight colour</span>
                 <input type="color" id="tr-color" class="traffic-rule-color">
               </div>
+              <!-- Colourblind-safe shortcut swatches (2026-09-14) — only
+                   shown when Colourblind Mode is on (body.colorblind-safe,
+                   see VCAS.css), a fast path onto a curated, mutually-
+                   distinguishable set rather than the free picker's full
+                   spectrum. The free #tr-color picker above stays fully
+                   usable either way — direct instruction was "free picker +
+                   safe presets," not a restriction. -->
+              <div class="settings-row tr-safe-swatches" id="tr-safe-swatches">
+                <span class="settings-label">Safe picks</span>
+                <div class="tr-safe-swatch-row">
+                  <button type="button" class="tr-safe-swatch" data-color="#e69f00" style="background:#e69f00" title="Orange"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#56b4e9" style="background:#56b4e9" title="Sky blue"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#009e73" style="background:#009e73" title="Bluish green"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#d55e00" style="background:#d55e00" title="Vermillion"></button>
+                </div>
+              </div>
               <div class="settings-row">
                 <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-save">Save</button>
                 <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-cancel">Cancel</button>
