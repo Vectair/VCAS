@@ -1534,24 +1534,69 @@
 
   // ---- Compass heading fallback (stationary/slow, where GPS course freezes) ----
 
+  // Real bug fix (2026-09-14): reported directly — "every time I refresh
+  // the app after an update I get asked to enable compass... at most I
+  // should only have been asked this once." Root cause: needsPermission()
+  // is a pure feature-detection check (does DeviceOrientationEvent even
+  // HAVE a requestPermission function?), not a "has this been granted
+  // before?" check — there's no API to ask iOS that directly. This
+  // function used to treat "the API needs asking" and "we've never been
+  // granted it" as the same thing, so it showed the visible banner
+  // unconditionally on every single init() (i.e. every page load/reload),
+  // forever, on any iOS device, regardless of whether the user already
+  // tapped "Enable" in a previous session. compassPermissionGranted
+  // itself is deliberately in-memory-only (see its own doc comment) and
+  // resets every reload, so it alone can't remember across sessions —
+  // this key is what actually does.
+  const COMPASS_PERMISSION_GRANTED_KEY = "vcas-compass-permission-granted";
+
   function initCompassHeading() {
     if (!CompassHeading.isSupported()) return;
 
     if (CompassHeading.needsPermission()) {
-      // iOS: can't request silently — needs a real user gesture.
-      UI.showCompassPermissionBanner(true, async () => {
-        const granted = await CompassHeading.requestPermission();
-        UI.showCompassPermissionBanner(false);
-        if (granted) {
-          compassPermissionGranted = true;
-          CompassHeading.start(onCompassHeading);
-        }
-      });
+      if (localStorage.getItem(COMPASS_PERMISSION_GRANTED_KEY) === "1") {
+        // Previously granted in an earlier session — per how this iOS API
+        // actually behaves, a call to requestPermission() after a real
+        // grant already exists resolves immediately (no OS dialog, no
+        // gesture required), it's only the FIRST-EVER call that needs a
+        // user tap. Ask silently, with no visible banner at all.
+        CompassHeading.requestPermission().then((granted) => {
+          if (granted) {
+            compassPermissionGranted = true;
+            CompassHeading.start(onCompassHeading);
+          } else {
+            // Revoked since last time (e.g. via iOS Settings) — the
+            // persisted flag is now stale; clear it and fall back to
+            // asking properly, since a real prompt is genuinely needed
+            // again this time.
+            localStorage.removeItem(COMPASS_PERMISSION_GRANTED_KEY);
+            _showCompassPermissionBannerOnce();
+          }
+        });
+      } else {
+        // Never granted before (fresh install, or a browser/site-data
+        // reset) — the real first-ever ask, which genuinely does need
+        // the visible banner's own tap as its user gesture.
+        _showCompassPermissionBannerOnce();
+      }
     } else {
       // Android/others: no explicit permission needed.
       compassPermissionGranted = true;
       CompassHeading.start(onCompassHeading);
     }
+  }
+
+  function _showCompassPermissionBannerOnce() {
+    // iOS: can't request silently — needs a real user gesture.
+    UI.showCompassPermissionBanner(true, async () => {
+      const granted = await CompassHeading.requestPermission();
+      UI.showCompassPermissionBanner(false);
+      if (granted) {
+        compassPermissionGranted = true;
+        localStorage.setItem(COMPASS_PERMISSION_GRANTED_KEY, "1");
+        CompassHeading.start(onCompassHeading);
+      }
+    });
   }
 
   function onCompassHeading(headingDeg) {
@@ -2330,7 +2375,11 @@
     // gesture iOS will accept the prompt from.
     if (!compassPermissionGranted && CompassHeading.needsPermission()) {
       const granted = await CompassHeading.requestPermission();
-      if (granted) compassPermissionGranted = true;
+      // Persist alongside initCompassHeading()'s own grant (2026-09-14 fix,
+      // see that function's comment) — if THIS is the request that first
+      // succeeds, future reloads should skip the visible banner too, not
+      // just this one.
+      if (granted) { compassPermissionGranted = true; localStorage.setItem(COMPASS_PERMISSION_GRANTED_KEY, "1"); }
       // Real bug fix (2026-09-13 review): open3DView() is async with only
       // this one real await — everything above already ran synchronously
       // (view3DOpen=true, screen unhidden, popup class added). If the user

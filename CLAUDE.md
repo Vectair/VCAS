@@ -10627,3 +10627,71 @@ in context as the PWA the project owner was actively using (per the
 attached Settings-screen screenshot) — same standing "synced in
 dedicated passes, not every change" note this file already carries for
 every other PWA-only fix.
+
+## Compass-permission banner re-shown on every reload, not just once (2026-09-14)
+
+Reported directly: "Everytime I refresh the app after an update I get
+asked to enable compass whilst stationary. At most I should only have
+been asked this once?"
+
+**Root cause**: `CompassHeading.needsPermission()` (`compassHeading.js`)
+is a pure feature-detection check — `typeof window.DeviceOrientationEvent.
+requestPermission === "function"` — true on any iOS Safari that supports
+the API AT ALL, regardless of whether the user has already granted it in
+a previous session. There's no API to directly ask iOS "has this origin
+already been granted this before?" `app.js`'s `initCompassHeading()`
+(run unconditionally on every `init()`, i.e. every page load/reload —
+including the ones triggered automatically by the service worker's own
+`controllerchange`-driven reload after a fresh deploy, see "PWA: real
+bug — the app-shell service worker" above, which explains the "after an
+update" detail in the report) treated "the API needs asking" and "we've
+never been granted it" as the same thing, so it showed the visible
+"Enable compass" banner every single time, forever, on any iOS device —
+`compassPermissionGranted` (the in-memory flag this whole gate is built
+around) is deliberately reset on every reload by design (see its own
+doc comment), so nothing remembered a prior grant across sessions at all.
+
+**Fix**: a new persisted `vcas-compass-permission-granted` localStorage
+flag. `initCompassHeading()` now branches three ways instead of two:
+- **Flag set (granted before)**: call `CompassHeading.requestPermission()`
+  directly, with NO visible banner at all — per how this iOS API
+  actually behaves, a call after a real prior grant resolves immediately
+  (no OS dialog, no fresh user gesture required); only the FIRST-EVER
+  call needs a tap. If it resolves true, start the sensor exactly as
+  before, just silently.
+- **Flag set but the silent call unexpectedly resolves false** (revoked
+  since last time, e.g. via iOS Settings): clear the now-stale flag and
+  fall back to the original visible-banner flow, since a real prompt is
+  genuinely needed again.
+- **Flag never set** (first-ever install, or a cleared browser/site-data
+  state): the original visible-banner flow, unchanged — this IS a
+  genuine first ask, and does need the banner's own tap as its user
+  gesture. Sets the flag on success.
+`open3DView()`'s own separate, second compass-permission request path
+(a silent fallback for the rare case 3D View opens before
+`initCompassHeading()`'s own grant has landed) now also persists the
+same flag on success, so whichever of the two request sites happens to
+be the one that actually gets the grant, future reloads skip the banner
+either way — not just the one that was touched first.
+
+Verified with a real Playwright harness against the actual, extracted
+(brace-matched, not retyped) `initCompassHeading`/
+`_showCompassPermissionBannerOnce` functions from `app.js`, 5 scenarios:
+fresh install shows the banner and grants nothing yet; a previously-
+granted flag with a successful silent re-request shows NO banner, calls
+`requestPermission`/`start()`, and leaves the flag set; a previously-
+granted flag whose silent re-request now resolves false correctly
+clears the stale flag and falls back to showing the banner; the
+Android/no-permission-API path is completely unaffected (no banner
+either way, immediate grant+start, regardless of the flag); and the
+original fresh-install banner-tap flow still works exactly as before,
+now additionally persisting the flag once the user actually grants it.
+All 5 passed against the real, shipped logic. `node --check` clean.
+
+Not done: no attempt to detect or message the case where the user has
+permanently denied the browser-level permission outside VCAS entirely
+(e.g. via iOS Settings) in a way that would make every future silent
+retry fail forever — not reported, and the existing fallback-to-banner
+behavior already degrades reasonably in that case (the user just sees
+the banner again, same as a genuine first-time ask, rather than a
+broken or misleading state).
