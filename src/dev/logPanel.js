@@ -70,12 +70,40 @@ const LogPanel = (() => {
       if (_speedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // see setSpeedMph()
       _menuOpen ? _close() : _open();
     });
-    document.body.appendChild(toggle);
 
     const menu = document.createElement("div");
     menu.id = "lp-menu";
     menu.className = "hidden";
-    document.body.appendChild(menu);
+
+    // Real bug fix (2026-09-14): appending straight to document.body put
+    // both elements OUTSIDE #viewport-dev-frame — but #viewport-dev-shell
+    // (the frame's own parent) is `position:fixed`, which unconditionally
+    // establishes its own stacking context per spec, REGARDLESS of z-index
+    // value. That traps every overlay screen that lives inside the frame
+    // (#settings-screen z-index:200, #onboarding-screen 250, #view3d-screen
+    // 220, #popup) into a LOCAL stacking order that's invisible from the
+    // root context — what actually competes against a body-level sibling
+    // like this toggle is the SHELL's own effective level (z-index:auto,
+    // i.e. auto/0), not any of those internal numbers. Since #lp-toggle's
+    // z-index:11 (and #lp-menu's 9999) is a real, explicit value greater
+    // than that, it always painted on top of the ENTIRE app — including
+    // fully opaque full-screen modals like Settings — no matter how high
+    // their own internal z-index was set. Reported directly: the LOG
+    // button visibly floating over a Settings-screen button. Confirmed
+    // with a real Playwright stacking-context repro before fixing (moving
+    // a body-appended fixed element inside the frame correctly resolved
+    // it) rather than assumed from the spec alone. Fix: append into
+    // #viewport-dev-frame instead — the SAME parent every other overlay
+    // screen already lives in, so LOG's z-index is compared fairly
+    // against theirs (correctly loses to Settings/Onboarding/3D View,
+    // correctly still wins over the plot's own indicators/compass-tape
+    // layers, z-index 7-10). Deliberately NOT #viewport-dev-panel's own
+    // parent (document.body) — that panel is the meta-control for the
+    // viewport-emulation frame itself and has to stay outside what it's
+    // simulating/scaling, a genuinely different case from LOG's.
+    const host = document.getElementById("viewport-dev-frame") || document.body;
+    host.appendChild(toggle);
+    host.appendChild(menu);
 
     document.addEventListener("click", () => { if (_menuOpen) _close(); });
   }

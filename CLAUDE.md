@@ -10426,3 +10426,95 @@ this pass touched. Worth a real fix (tighter `.mode-toggle .mode-btn`
 padding, or letting the SCREEN label/bracket collapse below some width)
 if a genuinely sub-360px device ever gets reported, not assumed to be
 covered by this one.
+
+## LOG (and SPD) floating over full-screen overlays — a real stacking-context bug, not a positioning tweak (2026-09-14)
+
+Reported directly, with a screenshot of the Settings screen: "in some
+screens the log button is floating where it shouldn't be" — LOG visibly
+overlapping the "Below 3000 ft" low-altitude-suppression preset button
+inside Settings, rather than being hidden behind the modal the way its
+z-index (11, far below Settings' own 200) should already guarantee.
+
+**Root cause: `position:fixed` unconditionally creates a new stacking
+context, per spec, regardless of z-index value — and `#lp-toggle`/
+`#lp-menu` sit on the wrong side of one.** `#viewport-dev-shell` (the
+outer wrapper around the entire app's main UI — map, indicators,
+`#settings-screen`, `#onboarding-screen`, `#view3d-screen`, `#popup`,
+all of it) is `position: fixed; inset: 0;` with no explicit z-index —
+that alone is enough to make it establish its own local stacking
+context (this is true for `position:fixed`/`sticky` unlike `absolute`/
+`relative`, which only do so with an explicit z-index). Every z-index
+value inside that shell (`#settings-screen`'s 200, `#onboarding-screen`'s
+250, `#view3d-screen`'s 220) is scoped LOCALLY to that context — it has
+no direct bearing on anything compared from OUTSIDE it. What actually
+competes against an outside sibling is the shell's own effective level
+in the ROOT context, which — having no explicit z-index — sits at the
+"auto" layer, always beneath any sibling with a real positive z-index.
+`logPanel.js`'s `_buildPanel()` appended `#lp-toggle`/`#lp-menu` straight
+to `document.body`, OUTSIDE the shell — meaning their real, if modest,
+z-index (11 / 9999) always beat the shell's "auto" level in the root
+context, painting them above the ENTIRE app, including a fully opaque,
+full-screen Settings modal nominally z-indexed at 200. This has nothing
+to do with LOG's own dynamic `left`/`top` positioning (`setPosition()`,
+correct and unrelated) — it's purely about which stacking context the
+elements live in, and it affects EVERY overlay screen inside the shell,
+not just Settings; Settings is just the one whose button LOG's own
+last-set position happened to visually collide with.
+
+**Confirmed with a real Playwright stacking-context repro before
+touching any code** (this project's own established discipline — this
+class of CSS behavior is unambiguous per spec, but verified rather than
+assumed): a minimal `position:fixed` shell wrapping a z-index:200 "settings"
+overlay, with a `document.body`-appended, z-index:11 sibling button —
+`elementFromPoint()` at their shared position returned the LOG-equivalent
+button on top, exactly reproducing the bug; moving that button to be a
+child of the shell's own inner frame instead of `document.body` correctly
+flipped the result to the settings element.
+
+**Fix**: `logPanel.js`'s `_buildPanel()` now appends `#lp-toggle`/
+`#lp-menu` into `#viewport-dev-frame` (falling back to `document.body`
+if that element is ever missing) — the SAME parent every other overlay
+screen (`#settings-screen`/`#onboarding-screen`/`#view3d-screen`/
+`#popup`) already lives in, so LOG's z-index is compared FAIRLY against
+theirs: correctly loses to Settings/Onboarding/3D View (11 < 200/220/250),
+correctly still wins over the RAW plot's own compass-tape/indicators
+layers (11 > 10/9, preserving the intended "floats above the plot"
+behaviour). Applied the identical one-line fix to `speedSimPanel.js`'s
+`#speed-sim-panel` — the same architectural bug, just on a dev-only
+(`DevMode`-gated) panel rather than LOG's always-on one; not separately
+reported, but cheap, correct, and closes off a second copy of the exact
+same latent bug before it needs its own investigation later. **Deliberately
+NOT applied to `viewportDevPanel.js`'s own VIEW panel** — that panel is
+the meta-control FOR the viewport-emulation frame itself, and genuinely
+needs to live outside what it's simulating/scaling (nesting it inside
+`#viewport-dev-frame` would mean it gets scaled/clipped along with the
+emulated device view it's supposed to be controlling) — a real
+architectural reason to keep it where it is, not an oversight.
+
+Verified with a real Playwright harness loading the actual, unmodified
+`VCAS.css` and `logPanel.js` (via `<script>`, not retyped) against a
+markup skeleton reproducing the real `#viewport-dev-shell`/
+`#viewport-dev-frame`/`#settings-screen` nesting: (1) `#lp-toggle`/
+`#lp-menu` are now genuine children of `#viewport-dev-frame`, not
+`document.body`; (2) with Settings closed, LOG still renders on top at
+its own position (no regression to the RAW-mode "floats above the plot"
+behaviour); (3) with Settings open at that same screen position, the
+Settings content now correctly wins — `elementFromPoint()` returns the
+settings body, not `#lp-toggle`; (4) LOG's own click-to-open-menu wiring
+is unaffected. `node --check` clean on both edited files.
+
+Not done, and confirmed not actually needed rather than just assumed
+fine: `#lp-menu`'s own z-index (9999) is still numerically higher than
+Settings' (200) even after this fix — in principle, tapping the Settings
+gear while LOG's menu happens to already be open could still show that
+menu floating over the freshly-opened Settings screen. Checked directly
+rather than left as a theoretical gap: `logPanel.js` already registers a
+document-level "click anywhere closes the open menu" listener
+(unrelated to this fix, pre-existing), and since the Settings-gear click
+handler doesn't call `stopPropagation()`, that same click bubbles up and
+closes any already-open LOG menu as part of the same tap, before
+Settings' own content is shown. Verified with a real Playwright check:
+opening the LOG menu, then clicking the Settings gear, correctly closes
+the menu and opens Settings in one action — nothing left floating. No
+code change was needed for this; it already worked by virtue of the
+pre-existing document-click-close behavior, not by luck.
