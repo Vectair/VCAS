@@ -11005,3 +11005,71 @@ same `curl ... ?lat=...&dist=...` test against the live relay once this
 is deployed and reporting back whatever the `debug` field actually says
 — that will point to the real fix (e.g. a hosting-level cURL/SSL config
 issue) rather than another guess.
+
+## Relay ledger update follow-up #3: the reconstructed relay was calling a wrong/nonexistent adsb.fi URL entirely (2026-09-15, same day)
+
+The `debug` field added in the previous fix immediately paid off. Once the
+project owner deployed it and re-ran the curl test, the response changed
+from the opaque `"upstream error"` to
+`{"ok":false,"error":"upstream error","debug":"http_status=400"}` — real
+progress: cURL now successfully connects and gets an actual HTTP response
+from adsb.fi, meaning DNS/TLS/connectivity are all fine on the live host.
+adsb.fi itself was rejecting the request with a `400`.
+
+**Root cause, confirmed against two independent real sources, not
+guessed**: the reconstructed relay's `UPSTREAM_BASE`/URL-building code used
+`https://opendata.adsb.fi/api/v2/point/{lat}/{lon}/{dist}` — a URL shape
+that simply doesn't exist. Checked directly:
+1. **adsb.fi's own current docs** (`github.com/adsbfi/opendata`, fetched
+   directly): the only documented location-query endpoint is
+   `/v3/lat/[lat]/lon/[lon]/dist/[dist]` — a `v2/lat/lon/dist` endpoint is
+   explicitly called out as deprecated in favour of it, and no `v2/point`
+   endpoint is mentioned anywhere.
+2. **VCAS's own already-working app code** — `src/data/adsbExchangeClient.js`'s
+   real, tested `adsb_fi` provider builds
+   `https://opendata.adsb.fi/api/v3/lat/${lat}/lon/${lon}/dist/${dist}`
+   (confirmed by reading the file directly) — the exact shape the docs
+   above point to, and proof this exact URL construction genuinely works
+   against the real live API (this is what the app calls when the relay
+   config is blank, per "ADS-B data source" above).
+
+Both agree, and both directly contradict what the reconstructed relay was
+sending — the relay's own URL was never actually valid, at any point since
+this session's original reconstruction went out.
+
+**Fix**: `adsb-relay/relay.php`'s `UPSTREAM_BASE` changed to
+`https://opendata.adsb.fi/api/v3/lat`, and the URL-building line changed
+from `UPSTREAM_BASE . '/' . $lat . '/' . $lon . '/' . $dist` to
+`UPSTREAM_BASE . '/' . $lat . '/lon/' . $lon . '/dist/' . $dist` — matching
+`adsbExchangeClient.js`'s own construction exactly, confirmed via a direct
+PHP one-liner producing the identical string
+(`https://opendata.adsb.fi/api/v3/lat/51.5/lon/-0.1/dist/50`). The METAR
+relay was never touched by this — its own upstream (aviationweather.gov)
+and URL shape were never in question, only the ADS-B relay's.
+
+**Verified locally**: re-ran the exact same local `php -S` + mocked-upstream
+harness this whole relay-ledger update has used throughout, pointed at the
+corrected URL construction — a full request/response round-trip against
+the mock now succeeds end-to-end with the real fixed code, not just the
+isolated PHP string check.
+
+Resent as a third updated `relay-ledger-update.zip` — only
+`adsb-relay/relay.php` changed this time; METAR's file is untouched from
+Update 2. Same "paste your real key back in, it's a fresh copy" caveat as
+every prior resend in this saga.
+
+**Lesson, matching this whole investigation's own throughline**: a relay
+reconstructed from CLAUDE.md's prose description alone (no access to the
+real live file) got the AUTH/CACHE/RATE-GATE behaviour right — that's what
+was described in detail — but the actual upstream URL shape was never
+spelled out anywhere in CLAUDE.md's prose, so it had to be reconstructed
+from a plausible-looking guess instead of a real source, and the guess was
+simply wrong. The fix wasn't found by iterating on the guess — it was
+found by going to the two places that actually KNOW the real shape (the
+provider's own current docs, and this app's own already-working client
+code) rather than refining the reconstruction further. Three real,
+independent bugs found and fixed in this one relay across three rounds
+(CORS preflight, transport/error-visibility, and now the URL itself) is a
+strong argument for getting the project owner's actual live `relay.php`
+file into a future session directly, rather than reconstructing from
+memory a fourth time if this ever needs touching again.
