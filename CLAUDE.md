@@ -10943,3 +10943,65 @@ exactly at the CORS boundary, which by definition only ever matters for
 The original handoff note's own honesty about the reconstruction being
 unverified against the live file was the right call; this is the
 concrete case that honesty was flagging.
+
+## Relay ledger update follow-up #2: a real upstream-fetch failure on the live host, `file_get_contents()` replaced with cURL (2026-09-15, same day)
+
+Once the CORS fix above was deployed and the project owner replaced the
+placeholder `SHARED_KEY` with the real one from `config.js`, the ADS-B
+status pill moved from "No data (network)" to "Auth error" to (after the
+key fix) a plain `{"ok":false,"error":"upstream error"}` — confirmed
+directly via a `curl` request the project owner ran against the live
+relay from a PC. Progress at each step: CORS fixed → the browser's real
+request now reaches the server; key fixed → the server now accepts it;
+this third failure meant the relay's own outbound call to
+`opendata.adsb.fi` was failing, with `"upstream error"` being the only
+information the original reconstruction's `file_get_contents()`-based
+fetch surfaced — no way to tell from that alone whether it was a DNS
+failure, a blocked outbound connection, a TLS problem, or a real non-2xx
+response from adsb.fi itself.
+
+**Fix**: both relay.php files' upstream fetch (`file_get_contents()` +
+a stream context) replaced with a new shared `fetch_upstream($url,
+$timeoutSec)` helper using cURL as the primary transport — generally
+more reliable than `file_get_contents()` for outbound HTTPS on shared
+PHP hosting (better TLS/redirect handling), and critically, on failure
+`curl_error()` returns a real, specific reason (e.g. "Failed to
+connect", "SSL certificate problem", "Operation timed out") instead of
+a silent `false`. Falls back to the original `file_get_contents()`
+method only if the cURL extension genuinely isn't compiled into PHP on
+the host, which would be unusual. The `"upstream error"` JSON response
+now carries a temporary `"debug"` field with that real message (or the
+raw HTTP status if the upstream responded but with a non-2xx code) —
+explicitly flagged in the code as temporary/verbose, to be removed once
+the real live cause is confirmed and fixed, not a permanent addition.
+
+**Verified locally** (same "can't reach the real live domain from this
+sandbox" constraint every relay change in this project carries): a live
+local `php -S` relay against a real, reachable mock upstream server
+confirmed the cURL success path still returns the correct JSON
+unchanged; pointing the same relay at a deliberately unreachable address
+(`127.0.0.1:1`, guaranteed connection refusal) confirmed the failure
+path now returns a real, specific error —
+`"Failed to connect to 127.0.0.1 port 1 after 0 ms: Couldn't connect to
+server"` — rather than the old opaque `"upstream error"` with nothing
+further.
+
+Resent to the project owner as a second updated `relay-ledger-update.zip`
+— same file locations, only `relay.php` for both relays needs
+re-uploading again. Since this is a fresh copy of the file, the
+`SHARED_KEY` placeholder is back to its default — the real key needs to
+be pasted in again before this upload, exactly as it did for the CORS
+fix. `UPDATE_INSTRUCTIONS.md` calls this out explicitly so it isn't
+missed a second time.
+
+**Not yet confirmed working**: the real, underlying reason the live
+host's outbound call was failing is still unknown — this fix makes the
+failure mode observable (via the `debug` field) rather than fixing a
+specific diagnosed cause, since the actual live server's environment
+(is `allow_url_fopen` disabled? is outbound HTTPS to unfamiliar hosts
+blocked? was it a transient adsb.fi-side issue?) can't be inspected from
+this sandbox. The next real step is the project owner re-running the
+same `curl ... ?lat=...&dist=...` test against the live relay once this
+is deployed and reporting back whatever the `debug` field actually says
+— that will point to the real fix (e.g. a hosting-level cURL/SSL config
+issue) rather than another guess.
