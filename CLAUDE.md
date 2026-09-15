@@ -11073,3 +11073,15 @@ independent bugs found and fixed in this one relay across three rounds
 strong argument for getting the project owner's actual live `relay.php`
 file into a future session directly, rather than reconstructing from
 memory a fourth time if this ever needs touching again.
+
+**Confirmed resolved (2026-09-15, same day)**: the project owner deployed
+the corrected `relay.php` and confirmed real aircraft data is now
+flowing through. The relay's request ledger/`?stats=1` endpoint (the
+whole point of this update — see "Relay request ledger" above) is now
+live and worth checking periodically for real usage/quota trajectory,
+now that the relay itself is finally working end-to-end. `relay.php` for
+both relays is now in its correct, working state on the live Bluehost
+hosting — the real `SHARED_KEY` and the correct `/api/v3/lat/.../lon/
+.../dist/...` URL shape — should either ever need reconstructing again,
+this is the confirmed-correct version to start from, not the original
+guess.
