@@ -264,14 +264,6 @@ const UI = (() => {
     if (btn) btn.classList.toggle("hidden", !show);
   }
 
-  // ---- Loading pill ----
-
-  function setLoading(show) {
-    const el = document.getElementById("loading");
-    if (!el) return;
-    el.classList.toggle("hidden", !show);
-  }
-
   // ---- Aircraft count ----
 
   /**
@@ -1264,8 +1256,8 @@ const UI = (() => {
             <div class="raw-list-row${selected}${beyondRange}" data-hex="${_escapeHtml(a.hex)}">
               <div class="rlr-chevron" style="color:${color}">&#10094;</div>
               <div class="rlr-info">
-                <div class="rlr-callsign">${callsign}</div>
-                <div class="rlr-meta">${type} · ${altLabel} · ${rangeLabel}</div>
+                <span class="rlr-callsign">${callsign}</span>
+                <span class="rlr-meta">${type} · ${altLabel} · ${rangeLabel}</span>
               </div>
             </div>`;
         }).join("");
@@ -1578,7 +1570,6 @@ const UI = (() => {
     renderDestSearchResults,
     clearDestSearchResults,
     setRecenterVisible,
-    setLoading,
     setAircraftCount,
     setModeLabel,
     renderIndicators,

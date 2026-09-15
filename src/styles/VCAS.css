@@ -550,9 +550,15 @@ body.colorblind-safe .status-pill.stale  .dot { background: #d55e00; }
   padding: 12px 14px 14px;
   background: var(--raw-chrome-bg);
   gap: 10px;
-  /* Separates the row from the map/list content above it — absent until
-     2026-09-08, added to match the design draft's own horizontal rule
-     above its SCREEN/NAVIGATION switch banks. */
+}
+
+/* The horizontal rule above the mode row (added 2026-09-08 to match the
+   design draft's own line above its SCREEN/NAVIGATION switch banks) is
+   redundant in Hybrid/AIR — the real map content above it already reads
+   as its own visual break, per direct instruction (2026-09-15). RAW has
+   no map underneath (pure black instrument background), so it keeps the
+   rule as the only thing separating the row from the content above. */
+body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   border-top: 1px solid var(--border);
 }
 
@@ -1524,9 +1530,18 @@ body[data-theme="day"] .air-label-box {
   text-align: center;
 }
 
+/* Single line (2026-09-15, direct instruction): callsign + type/altitude/
+   range used to stack as two lines, leaving the unused width to the right
+   of the short callsign empty. Now one flex row — callsign never
+   shrinks/truncates (it's the primary identifier, always short), the
+   meta text takes whatever's left and ellipsis-truncates if it doesn't
+   fit, using exactly the space the old second line wasted. */
 .rlr-info {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .rlr-callsign {
@@ -1535,8 +1550,7 @@ body[data-theme="day"] .air-label-box {
   color: #f0f0f0;
   line-height: 1.3;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 
 .rlr-meta {
@@ -1546,6 +1560,8 @@ body[data-theme="day"] .air-label-box {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 /* ---- Popup ---- */
@@ -1664,38 +1680,6 @@ body[data-theme="day"] .air-label-box {
 #popup .pop-suppress-btn.pop-action-disabled:active {
   background: var(--btn-bg);
 }
-
-/* ---- Loading spinner ---- */
-#loading {
-  position: fixed;
-  bottom: 90px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 5px 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-#loading.hidden { display: none; }
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- Route button (in mode-row) ----
    Redesigned 2026-09-08 (design draft) as a road-sign diamond + an

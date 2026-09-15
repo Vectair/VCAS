@@ -10803,3 +10803,72 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — it has no Traffic Rules settings screen
 or status-pill row equivalent today.
+
+## Three small tweaks: RAW list single-line rows, loading pill removed, redundant mode-row divider dropped in AIR/Hybrid (2026-09-15)
+
+Direct instructions, three independent requests in one message.
+
+### RAW aircraft-list rows merged to one line
+
+`.rlr-callsign`/`.rlr-meta` (`type · altitude · range`) used to stack as
+two lines, leaving real unused width to the right of the (always short)
+callsign on line 1 — direct instruction to use that space instead.
+`.rlr-info` (`ui.js`'s `renderAircraftList()`, `VCAS.css`) is now a flex
+row: callsign stays `flex-shrink: 0` (never truncates — it's the primary
+identifier and always short), the meta text takes whatever's left and
+ellipsis-truncates only if it genuinely doesn't fit, using exactly the
+space the old second line wasted. Pure layout change — no content
+removed, `renderAircraftList()`'s own data/logic untouched.
+
+### "Fetching aircraft…" loading pill removed outright
+
+This already had a 500ms-delayed-show guard (`LOADING_INDICATOR_DELAY_MS`,
+added specifically so a fast poll never triggered it) — but real-world
+relay/network round-trips routinely exceeded 500ms anyway, so it still
+flashed on most polls in practice, exactly the "distracting, appears
+every refresh" symptom reported. Per direct instruction ("I don't think
+it's necessary in any capacity at this stage"), removed entirely rather
+than re-tuning the delay or building a lighter alternative — the ADS-B
+status pill already gives a persistent, non-flickering signal of feed
+health, so there's no real gap left once this is gone. Removed
+end-to-end: `app.js`'s `_loadingIndicatorTimer`/
+`LOADING_INDICATOR_DELAY_MS`/both `UI.setLoading()` call sites, `ui.js`'s
+`setLoading()` function and its export, `index.html`'s `#loading` markup,
+and `VCAS.css`'s `#loading`/`.spinner`/`@keyframes spin` rules (confirmed
+via grep that `.spinner`/`spin` had no other consumer before deleting).
+
+### Redundant divider above the bottom bar, dropped in AIR/Hybrid only
+
+Round 3's own `#mode-row { border-top: ... }` (added to match the design
+draft's horizontal rule above its SCREEN/NAVIGATION switch banks) applied
+app-wide, per round 11's later "chrome extended app-wide" precedent — but
+per direct instruction, that's redundant in AIR/Hybrid specifically,
+since the real map content immediately above the bar already reads as
+its own visual break ("the map itself is the break"). RAW has no map
+underneath (pure black instrument background), so it still needs the
+rule as the only separator. Scoped the border to
+`body[data-mode="nav"][data-nav-style="raw"] #mode-row` instead of the
+base `#mode-row` rule — the base rule's `[data-mode="nav"]` half also
+correctly excludes AIR even if `NavDisplayStyle` still reads "raw" from
+a lingering preference (the documented "isRaw() isn't mode-scoped"
+gotcha elsewhere in this file), since the selector gates on `data-mode`
+first.
+
+**Verified with a real Playwright/Chromium harness** loading the actual,
+unmodified `ui.js`/`VCAS.css` (via `<script>`/`<link>`, not retyped) —
+13 checks: the merged row's callsign/meta share the same vertical
+position (not stacked), meta sits to the right of callsign, both real
+content and a hex-fallback row render correctly, row height is compact
+(single-line); `#loading` doesn't exist and `UI.setLoading` is no longer
+exported; the mode-row border-top is present in RAW, absent in Hybrid,
+and absent in AIR even when `data-nav-style` is left at a stale "raw"
+value. All 13 passed, zero page errors. A real screenshot of two
+synthetic rows confirms the single-line layout reads cleanly (chevron +
+callsign + type/altitude/range all on one row). `node --check` clean on
+both edited `.js` files; grep confirms zero dangling references to the
+removed loading indicator anywhere in `src/`, `index.html`, or `VCAS.css`.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes" note as every other PWA-only fix) — its own
+`RawAircraftListView.kt` still renders two lines per row, and it never
+had an equivalent loading indicator or mode-row divider to begin with.

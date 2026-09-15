@@ -344,7 +344,6 @@
     // confirms a real key is present, set once here since it never changes
     // at runtime (see UI.setMaptilerStatus's own doc comment).
     UI.setMaptilerStatus(!!(CONFIG && CONFIG.MAPTILER_KEY));
-    UI.setLoading(false);
 
     // Dynamic status-pill sizing (2026-09-10) — UI._fitStatusPillRow()
     // already re-checks on every pill label change (_setStatusPill's own
@@ -1719,8 +1718,6 @@
   // ---- Data fetch loop ----
 
   let _fetchInFlight = false;
-  let _loadingIndicatorTimer = null;
-  const LOADING_INDICATOR_DELAY_MS = 500;
 
   // How often to re-render aircraft position between actual ADS-B polls —
   // see _currentAircraftList()/AircraftExtrapolation. Independent of (and
@@ -1790,14 +1787,13 @@
     if (_fetchInFlight) return;
     _fetchInFlight = true;
 
-    // Most polls resolve in well under a second — showing "Fetching
-    // aircraft…" on every single one flashed it on/off roughly every 3s,
-    // distracting rather than useful. Only actually show it if THIS fetch
-    // is taking a while; a fast one never triggers the timer at all.
-    _loadingIndicatorTimer = setTimeout(() => UI.setLoading(true), LOADING_INDICATOR_DELAY_MS);
+    // No loading indicator shown here at all (removed 2026-09-15, direct
+    // instruction — the prior 500ms-delayed "Fetching aircraft…" pill
+    // still flashed on most real-world polls, since actual relay/network
+    // round-trips routinely exceeded the delay; the ADS-B status pill
+    // already gives a persistent signal of feed health without a
+    // per-poll flicker on top of it).
     const result = await AdsbExchangeClient.fetchNearby(userLat, userLon, CONFIG.DEFAULT_RANGE_NM);
-    clearTimeout(_loadingIndicatorTimer);
-    UI.setLoading(false);
     _fetchInFlight = false;
 
     lastFetchTime = Date.now();
