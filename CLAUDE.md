@@ -10872,3 +10872,74 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes" note as every other PWA-only fix) — its own
 `RawAircraftListView.kt` still renders two lines per row, and it never
 had an equivalent loading indicator or mode-row divider to begin with.
+
+## Relay ledger update follow-up: a real CORS preflight bug in the reconstructed relay.php (2026-09-15)
+
+The relay request-ledger update (see "Relay request ledger" above) was
+first deployed with a real bug, found the same session it was uploaded —
+worth recording since it's the exact "reconstructed from prose
+description, not diffed against the real file" risk that update's own
+handoff notes flagged in advance, now confirmed to have actually bitten.
+
+**Symptom**: right after uploading the new `adsb-relay/relay.php`, the
+app's ADS-B status pill showed `"No data (network)"` — a genuine `fetch()`
+failure, not an HTTP error status. Pasting the exact same relay URL
+directly into a mobile browser's address bar returned the correct
+`{"ok":false,"error":"unauthorized"}`, which briefly looked like it ruled
+out a server-side problem — but a direct browser navigation and the app's
+own `fetch()` call are not the same request: the app's call carries a
+custom `X-VCAS-Key` header, which forces the browser to issue a CORS
+**preflight** (`OPTIONS`) request first, something a plain address-bar
+navigation never triggers at all.
+
+**Root cause, confirmed by reading the shipped file**: the reconstructed
+`relay.php` set `Access-Control-Allow-Origin: *` but never set
+`Access-Control-Allow-Headers` (so the browser had no confirmation
+`X-VCAS-Key` was an allowed header) and never handled `OPTIONS` requests
+at all — `require_valid_key()` ran unconditionally before any CORS header
+was even set, meaning even a 401 response carried no CORS headers. A
+failed preflight makes the browser silently block the real GET before it
+is ever sent to the server — which is exactly why this looked like a
+"network" error client-side rather than an HTTP error: the server-side
+log never saw the real request at all. Confirmed present in both relay
+copies (identical code shape in each).
+
+**Fix**: both `relay.php` files gained a CORS block that runs before ANY
+auth check, on every request path including `?stats=1` — setting
+`Access-Control-Allow-Origin`/`Access-Control-Allow-Headers: X-VCAS-Key,
+Content-Type`/`Access-Control-Allow-Methods: GET, OPTIONS`, then
+short-circuiting `OPTIONS` requests with a plain `204` before auth is
+even checked (a preflight request never itself carries the custom
+header, so gating it behind `require_valid_key()` would 401 the
+preflight and break things the same way).
+
+**Verified with a real live `php -S` server + a mocked upstream** (this
+sandbox can't reach vectair.org directly, confirmed — same blocked-domain
+category as adsb.fi/aviationweather.gov themselves): a genuine `OPTIONS`
+preflight now returns `204` with the correct three CORS headers; a `GET`
+without a key now correctly returns `401` *with* CORS headers (previously
+missing); a `GET` with a key but invalid params returns `400` with CORS
+headers; and a full successful request against a mocked local upstream
+returns `200` with the real aircraft JSON and CORS headers, with the
+ledger correctly recording both the failed and successful requests
+(confirmed via the `?stats=1` endpoint's own output). Both relay copies
+verified identically. One test-harness mistake caught and fixed along the
+way, not a code bug: an early `sed` substitution for swapping in a test
+key mangled the PHP string quoting, producing a 500 in the TEST copy only
+— caught immediately by `php -l`, unrelated to the shipped file.
+
+Resent to the project owner as an updated `relay-ledger-update.zip`, with
+`UPDATE_INSTRUCTIONS.md`'s own top section now explaining the symptom and
+fix for anyone who already deployed the first, broken version. Deploying
+this update is just re-uploading `relay.php` for both relays — the
+`ledger/`/`cache/` folders and `.htaccess` files are unchanged from the
+first version.
+
+**Lesson, matching this project's own repeated pattern**: a
+reconstruction verified against direct-navigation behaviour alone isn't
+verified against the actual client code path — the two can diverge
+exactly at the CORS boundary, which by definition only ever matters for
+`fetch()`-style requests, never for a browser's own top-level navigation.
+The original handoff note's own honesty about the reconstruction being
+unverified against the live file was the right call; this is the
+concrete case that honesty was flagging.
