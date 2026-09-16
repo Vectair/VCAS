@@ -804,11 +804,12 @@
                DevMode is on (see app.js's _refreshSettingsScreen()), same
                "not a real user-facing feature yet" posture as the VIEW/SPD
                developer panels. ORS stays the permanent default; TomTom
-               is real-time-traffic-aware but its turn-by-turn text isn't
-               wired up yet — see src/routing/tomtomProvider.js. -->
+               (Orbis) is real-time-traffic-aware but driving-only (its own
+               API only allows travelMode=car) and has no turn-by-turn text
+               yet — see src/routing/tomtomProvider.js. -->
           <section class="settings-section hidden" id="settings-section-routing-provider">
             <h3>Routing Provider (Experimental)</h3>
-            <p class="settings-hint">Dev-mode only. TomTom uses real-time traffic for ETA/route, but has no turn-by-turn text yet — ORS is always the fallback if a request fails.</p>
+            <p class="settings-hint">Dev-mode only. TomTom (Orbis) uses real-time traffic for driving routes only — ORS handles cycling/walking always, and is the fallback if a TomTom driving request fails.</p>
             <div class="settings-row">
               <span class="settings-label">Provider</span>
               <button type="button" class="settings-toggle-btn" id="btn-routing-provider-toggle">ORS</button>

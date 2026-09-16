@@ -11281,3 +11281,136 @@ code in some way the single successful GET tested here didn't cover
 params ever trigger one — they didn't in the real test, since it was a
 plain GET with no custom headers, but worth naming as the first thing to
 check rather than a fourth blind guess if it comes up).
+
+## TomTom routing provider switched from classic v1 to Orbis Routing v2 — driving only (2026-09-16)
+
+Direct follow-up the same day the classic-v1 adapter shipped. Asked "is
+Orbis theoretically better, and is there anything besides capability
+(usage policy etc.) to worry about?" — answered first from secondhand
+`WebSearch` summaries (flagged as such, not verified), then settled
+properly once the project owner pasted the actual TomTom Orbis Routing
+v2 documentation page text directly — a real primary source, not a
+summary, and the basis for everything below.
+
+**Two things the real docs settled definitively, correcting earlier
+secondhand answers:**
+- **CORS**: the documented response headers table states
+  `Access-Control-Allow-Origin: *` — a wildcard, even more permissive
+  than classic v1's origin-reflection behaviour (confirmed via the real
+  device curl the prior entry used). No relay needed for Orbis either.
+- **Pricing/quota**: TomTom's own pricing table lists "Routing API" as
+  ONE line item covering both "TomTom Maps" (classic v1) and "TomTom
+  Orbis Maps" (v2) — same free tier, same paid tiers: **free up to
+  20,000 requests/month**, then €1.00/€0.80/€0.65 per additional tier.
+  No separate cost or contract for choosing Orbis over v1. This directly
+  **corrects** the earlier secondhand "50,000 tile requests + 2,500
+  non-tile requests/day" figure quoted from a `WebSearch` summary in the
+  original "TomTom Maps API — evaluated, not adopted" research entry
+  above — that number doesn't match the real Routing-specific pricing
+  table at all, and was very likely describing a different product line
+  (map tiles) or an outdated plan description. The real, current number
+  for Routing specifically is 20K/month, not a daily tile allowance.
+
+**One real, documented capability regression this changed the actual
+design, not just a note**: Orbis v2's `travelMode` parameter is
+explicitly documented as *"Default value and only allowed value: car"* —
+Orbis Routing currently supports **driving only**, unlike classic v1
+(which this app's own prior curl test confirmed supports
+car/bicycle/pedestrian). Direct instruction once this was surfaced:
+"have orbis be for driving with ors as a fallback for orbis failure. And
+make ors be the default for walking and cycling" — i.e. TomTom is never
+even attempted for cycling/walking, not just expected to fail gracefully
+if tried; ORS is the sole provider for those two modes.
+
+**Also settled directly from the real docs, not guessed**: Orbis Routing
+v2 is explicitly marked *"This TomTom Orbis API is in public preview"*
+right in its own doc header — resolving the earlier ambiguity from
+secondhand search snippets (one result said "general availability," a
+different Orbis product's docs said "public preview"). Routing
+specifically is preview status, per its own page. A real maturity/
+stability caveat distinct from cost, contributing to why this stays
+behind the same hidden dev-mode toggle rather than becoming a real
+user-facing default.
+
+### Implementation
+
+`src/routing/tomtomProvider.js` — same file, same public shape
+(`getRoute(start, end, mode)`), rewritten internals:
+- `BASE_URL` changed from classic v1's `/routing/1/calculateRoute` to
+  Orbis v2's `/maps/orbis/routing/calculateRoute`.
+- A new required `apiVersion=2` query parameter (per the real docs — kept
+  as a query param rather than the alternative `TomTom-Api-Version: 2`
+  header, deliberately: this app already avoids custom request headers
+  on this call to sidestep any CORS-preflight risk, the exact bug class
+  this project's own ADS-B relay debugging history already hit once for
+  a *different* endpoint's missing preflight handling).
+- `traffic=live` replaces classic v1's `traffic=true` — Orbis's own
+  documented values are `live`/`historical`, not a boolean; `true` was
+  never a real accepted value for this endpoint (harmless for v1, would
+  have been silently ignored/defaulted by Orbis).
+- The old `TRAVEL_MODES` mapping table (driving→car, cycling→bicycle,
+  walking→pedestrian) is gone — `travelMode=car` is now hardcoded, and
+  `getRoute()` returns `null` immediately (never calling `fetch()` at
+  all) for any mode other than `"driving"` — a hard, explicit refusal
+  matching what Orbis itself can actually do, not a best-effort attempt
+  that would 400 at the server.
+- Response parsing (`route.legs[].points[].latitude/longitude`,
+  `route.summary.lengthInMeters/travelTimeInSeconds`) is UNCHANGED —
+  confirmed the real Orbis docs' own JSON field tables use the identical
+  field names as classic v1's response, so no shape migration was
+  needed there.
+- The `steps: []` gap (no turn-by-turn parsing) carries over unchanged —
+  the real Orbis response-structure documentation read so far (through
+  its full `routes`/`summary`/`legs`/`points`/`sections` structure) shows
+  no guidance/instructions field at all, so there was nothing new to
+  parse even if this pass had wanted to close that gap.
+
+`src/routing/activeRoutingProvider.js` — `getRoute()` now branches on
+mode BEFORE deciding whether to even consider TomTom: `wantTomTom` is
+only ever true when `effectiveMode === "driving"` (in addition to the
+existing "selected" and "key present" checks). Cycling/walking requests
+go straight to `OrsProvider.getRoute()` — logged as `reason: "primary"`,
+not `"fallback-after-tomtom-failure"`, since TomTom was never attempted
+at all, not tried-and-skipped. `TomTomProvider.getRoute()`'s own
+driving-only guard means this dispatcher-level check is technically
+redundant defense-in-depth rather than the only thing preventing a
+cycling/walking request from hitting Orbis — deliberately kept in both
+places so the contract holds even if either file is ever touched in
+isolation.
+
+Settings hint text (`index.html`) and `config.js`'s own `TOMTOM_API_KEY`
+comment both updated to state the driving-only scope plainly, rather than
+letting a future reader assume TomTom covers all three modes the way
+classic v1 did.
+
+**Verified with real Node execution against the actual shipped files**,
+same standalone-script pattern this project uses throughout — no new
+toolchain needed, this is plain JS: `test_tomtom.js` (25 checks) —
+missing-key guard, the real captured Orbis response shape parsing
+correctly, the new URL construction (`/maps/orbis/routing/calculateRoute/`,
+`apiVersion=2`, `travelMode=car`, `traffic=live`, and explicitly
+confirming `traffic=true`/classic v1's path are both ABSENT from the new
+URL), cycling/walking returning `null` with zero `fetch()` calls, an
+omitted mode still defaulting to driving and calling `fetch()`, and the
+same HTTP-error/malformed-response/too-few-coordinates/thrown-fetch
+degrade-to-null paths as before. `test_active.js` (26 checks) — the
+existing ORS-default/blank-key-safety/TomTom-success/TomTom-fallback/
+persistence/log-cap behaviour all re-verified unchanged, plus three new
+checks: TomTom selected+configured but mode is `"cycling"` never calls
+`TomTomProvider` at all and logs `reason: "primary"` on ORS (not a
+fallback); the identical check for `"walking"`; and an omitted mode
+still attempts TomTom (matching driving's default). **51 checks total,
+zero failures**, against the real, shipped code. `node --check` clean on
+all three edited `.js` files.
+
+**Honest status, unchanged from the prior entry's own caveat**: still no
+live end-to-end TomTom request from the deployed app — this sandbox
+still can't reach `api.tomtom.com` at all (confirmed again this session
+via direct `WebFetch` attempts against `developer.tomtom.com`/
+`docs.tomtom.com`/`www.tomtom.com`, all blocked at the egress proxy).
+Everything above is verified against the real, directly-pasted Orbis
+documentation text and the real URL/response-shape construction, not a
+fresh live round-trip — the actual remaining check is the project owner
+flipping the Settings toggle on a real device once this deploys and
+confirming a driving route actually renders via Orbis, and that cycling/
+walking routes still work normally via ORS.

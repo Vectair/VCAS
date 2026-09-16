@@ -9,16 +9,22 @@ const CONFIG = {
   // Free OpenRouteService "Standard" API key — https://openrouteservice.org/dev/#/home
   ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
 
-  // Optional, experimental second routing provider — TomTom's classic
-  // Routing API v1 (real-time-traffic-aware ETAs, unlike ORS's static
-  // pace). Confirmed 2026-09-16 via a real device curl with a live key:
-  // TomTom's response carries `access-control-allow-origin` (reflecting
-  // the requesting origin), so this is called directly from the browser —
-  // no CORS relay needed, unlike adsb.fi/aviationweather.gov below. Leave
-  // blank to disable entirely; see src/routing/activeRoutingProvider.js
-  // for the hidden dev-mode toggle that switches to it (ORS stays the
-  // default either way, and is always the fallback if a TomTom request
-  // fails). Get a free key at https://developer.tomtom.com.
+  // Optional, experimental second routing provider — TomTom's Orbis
+  // Routing API v2 (real-time-traffic-aware ETAs, unlike ORS's static
+  // pace), DRIVING ONLY — Orbis's own docs state travelMode's only
+  // allowed value is "car", so cycling/walking always use ORS regardless
+  // of this key (see src/routing/activeRoutingProvider.js). Confirmed
+  // 2026-09-16 directly from TomTom's own Orbis Routing docs (not a
+  // secondhand summary): the response headers table states
+  // `Access-Control-Allow-Origin: *` (wildcard) — no CORS relay needed,
+  // same as adsb.fi/aviationweather.gov's relays weren't an option for.
+  // Same docs also confirm Routing API pricing/quota (free up to 20,000
+  // requests/month) is identical whether using classic v1 or Orbis — no
+  // separate cost for choosing this. Leave blank to disable entirely; see
+  // activeRoutingProvider.js for the hidden dev-mode toggle that switches
+  // to it (ORS stays the default either way, and is always the fallback
+  // if a TomTom driving request fails). Get a free key at
+  // https://developer.tomtom.com.
   TOMTOM_API_KEY: "",
 
   // ---- ADS-B data provider(s) ----
