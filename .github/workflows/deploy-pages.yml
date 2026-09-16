@@ -3,7 +3,7 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches:
-      - claude/project-audit-review-4p0ft2
+      - main
   workflow_dispatch: {}
 
 permissions:
