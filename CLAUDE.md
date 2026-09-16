@@ -11085,3 +11085,199 @@ hosting — the real `SHARED_KEY` and the correct `/api/v3/lat/.../lon/
 .../dist/...` URL shape — should either ever need reconstructing again,
 this is the confirmed-correct version to start from, not the original
 guess.
+
+## TomTom Orbis-proposal follow-through: a real, verified second routing provider (2026-09-16)
+
+Direct follow-up to the earlier "TomTom Maps API — evaluated, not
+adopted" research and the reviewed third-party Orbis-routing proposal
+(both above) — the project owner signed up for a real TomTom developer
+account and confirmed they wanted the scoped adapter built once the one
+open technical question (CORS) was answered for real.
+
+**The CORS question, answered with a real device curl, not a guess.**
+This sandbox's own network policy blocks `api.tomtom.com` outright —
+confirmed via `curl -sS "$HTTPS_PROXY/__agentproxy/status"`, which showed
+every attempt from here rejected at the proxy/gateway level with
+`connect_rejected`/403, never reaching TomTom's servers at all (an early
+read of that same 403 was mistakenly treated as a real TomTom response
+before this was checked — worth flagging so a future session doesn't
+repeat it: a 403 with an empty body and no CORS headers from a domain
+this project has never successfully reached before is exactly what this
+sandbox's OWN blocklist looks like, not what an API's real auth rejection
+looks like). Had the project owner run the real test instead, from their
+own machine with a real generated key:
+```
+curl.exe -i -H "Origin: https://vectair.github.io" "https://api.tomtom.com/routing/1/calculateRoute/52.50931,13.42936:52.50274,13.43872/json?key=<real key>"
+```
+Real result: `HTTP/1.1 200 OK` with a genuine route (2,280m, real
+polyline) and `access-control-allow-origin: https://vectair.github.io` —
+TomTom reflects the actual requesting origin back, meaning a direct
+browser `fetch()` from the deployed app works with **no CORS relay
+needed**, unlike adsb.fi/aviationweather.gov. This was tested against
+TomTom's **classic Routing API v1** (`/routing/1/calculateRoute/...`),
+not the newer "Orbis"-branded product line the reviewed proposal
+specifically named — deliberate, not an oversight: the classic endpoint
+is the one actually proven to work with a real key/response, and it
+already includes real-time-traffic fields
+(`trafficDelayInSeconds`/`trafficLengthInMeters` — both 0 in the test
+route since it was a quiet street at a quiet time, but the fields are
+real and populate under real congestion) — the actual thing TomTom was
+wanted for. Chasing Orbis specifically for its own sake, unverified,
+would have meant a second round of this same real-device testing for no
+demonstrated benefit over what's already confirmed working.
+
+**Scope, matching the earlier research's own right-sized recommendation
+rather than the reviewed proposal's full multi-phase rollout**: a thin
+`RoutingProvider` interface, a TomTom adapter, a dispatcher that picks
+between them with ORS as the permanent default/fallback, and a basic
+request log — no quota-threshold tiers, no shadow-comparison mode, no
+formal test-journey suite.
+
+**A real, pre-existing `RoutingProvider` interface stub was found and
+reused, not duplicated.** `src/routing/routingProvider.js` already
+existed — a plain object declaring the exact `getRoute(start, end, mode)`
+→ `{geometry, distanceMeters, durationSeconds}` shape `orsProvider.js`'s
+real return value already matches, predating this session with no
+CLAUDE.md history at all and referenced by nothing (confirmed via grep —
+zero call sites anywhere, and the one *other* hit, a README bullet about
+a hypothetical local-SDR ADS-B receiver adapter, uses "RoutingProvider-
+style" only as a naming analogy for an unrelated future ADS-B idea, not
+this file). Genuinely useful prior scaffolding, not vestigial — its doc
+comment was missing `steps` from the returned shape (a real, if minor,
+staleness relative to what `orsProvider.js` actually returns), fixed
+alongside adopting it. Neither `OrsProvider` nor the new `TomTomProvider`
+literally extends/implements it via inheritance — this codebase has no
+such pattern anywhere else, so it stays the documented shape both
+conform to by duck typing, exactly as it already worked for `OrsProvider`
+before this session touched anything.
+
+**`src/routing/tomtomProvider.js`** (new) — same `getRoute(start, end,
+mode)` shape as `orsProvider.js`, using the confirmed-working classic v1
+endpoint with `travelMode`/`traffic=true` params (driving→car,
+cycling→bicycle, walking→pedestrian). Flattens every leg's real
+lat/lon points into the same `[lon,lat][]` GeoJSON `LineString`
+convention `geo.js`/`RouteGeometry` already use elsewhere in this app.
+
+**Known, deliberate gap, not silently glossed over: `steps` is always
+returned empty.** TomTom's `guidance.instructions[]` (requested via
+`instructionsType=text`) could supply real turn-by-turn data the way
+ORS's `properties.segments[].steps[]` does — but its exact field names/
+maneuver-code vocabulary was never checked against a live response with
+guidance actually requested (only the plain, no-guidance response was
+captured during the CORS test). Per this project's own repeatedly-
+learned lesson from the relay-debugging saga immediately above this
+entry — verify a schema against real execution before shipping code that
+parses it, don't reconstruct one from memory/guesswork — the honest v1
+choice was to not guess at that schema at all, rather than ship
+plausible-looking parsing code with a real chance of being subtly wrong.
+`ManeuverTracker.nextManeuver()` already degrades cleanly to
+`{exists:false}` for an empty `steps` array (confirmed by reading it
+directly, not assumed) — the guidance card falls back to the camera's
+own geometric turn detection, the exact same path `orsProvider.js`'s own
+already-documented "unexpected response shape" fallback uses. Real
+turn-by-turn from TomTom is a genuine, separately-scoped follow-up for
+whenever a live `instructionsType=text` response has actually been
+inspected — not attempted this pass.
+
+**`src/routing/activeRoutingProvider.js`** (new) — the dispatcher both
+`requestRouteTo()` and `_rerouteFromCurrentPosition()` (`app.js`) now
+call instead of a hardcoded `OrsProvider.getRoute()` reference. ORS is
+selected by default and used exclusively unless BOTH the user has
+explicitly switched to TomTom in Settings AND `CONFIG.TOMTOM_API_KEY` is
+actually set — a blank key with "tomtom" persisted as the preference
+falls back to ORS silently rather than trying and failing every time,
+matching this project's own "never a crash or a silently wrong value"
+convention already established for `MetarProvider`/`LocalObstruction`.
+If TomTom IS configured and selected but a specific request fails, that
+SAME request falls back to ORS immediately rather than surfacing a
+routing failure to the user just because the experimental provider had a
+bad moment — "ORS untouched as the default and the fallback," exactly
+the scope the earlier research entry recommended. A small in-memory
+request log (provider used, why — `"primary"` or
+`"fallback-after-tomtom-failure"` — latency, success), capped at 20
+entries, not persisted and not a server-side ledger like the ADS-B/METAR
+relays' own `?stats=1` — there's no shared infrastructure to watch here,
+just enough for the Settings screen to show "did my toggle actually do
+anything."
+
+**Settings UI — hidden behind the existing `DevMode` 7-tap-the-brand-mark
+unlock, not a new gesture.** A new "Routing Provider (Experimental)"
+section (`index.html`) sits below "Data & Logging," `.hidden` by default
+and only shown once `DevMode.isEnabled()` — reusing the exact mechanism
+that already gates the VIEW/SPD developer panels, rather than inventing
+a second hidden-feature convention. A single toggle button cycles
+ORS↔TomTom; a small text line shows the most recent request log entry.
+Deliberately NOT a primary-screen control the way mode switching or the
+route pin are — this is a one-off preference to flip and check, not
+something read continuously while driving, and TomTom's missing
+turn-by-turn text makes it a genuine trade-off rather than a strict
+upgrade, which is exactly why it stays dev-gated rather than promoted to
+a real user-facing Settings row.
+
+**Verified with real execution throughout, not reasoned through** — this
+project's own established discipline, applied here across three
+separate harnesses:
+1. **20 real Node checks** against the actual shipped `tomtomProvider.js`
+   (mocked `fetch`/`AbortController`/`CONFIG`): the missing-key guard
+   never even calls `fetch`; the real captured response shape (verbatim
+   from the live curl test above) parses into the correct
+   `distanceMeters`/`durationSeconds`/`geometry`/empty-`steps` shape,
+   with coordinates confirmed in `[lon,lat]` order; the URL construction
+   matches the exact classic-v1 shape confirmed live
+   (`/routing/1/calculateRoute/52.50931,13.42936:52.50274,13.43872/json`,
+   `travelMode=car`, `traffic=true`); all three mode mappings plus the
+   undefined-mode default; a non-ok HTTP status, a malformed
+   no-`routes[]` response, a too-few-coordinates response, and a thrown
+   `fetch()` all degrade to `null` rather than throwing.
+2. **18 real Node checks** against the actual shipped
+   `activeRoutingProvider.js` (mocked `OrsProvider`/`TomTomProvider`/
+   `localStorage`/`CONFIG`): defaults to ORS on a fresh `init()`; ORS-
+   selected calls only ORS; TomTom-selected-with-a-blank-key still calls
+   only ORS (never even attempts TomTom); TomTom-selected-with-a-real-key
+   calls only TomTom on success; a TomTom failure correctly falls back to
+   ORS for that same request, with both attempts logged in the right
+   order; an invalid provider id is rejected outright; the selection
+   persists across a simulated reload (`init()` called again); `getLog()`
+   returns a genuine defensive copy, not the live internal array; and the
+   log caps at exactly 20 entries under a 25-request burst.
+3. **13 real Playwright checks** against the actual extracted (brace-
+   matched, not retyped) `#settings-section-routing-provider` markup from
+   `index.html` and `_refreshRoutingProviderSettings()`/the click-handler
+   block from `app.js` — this project's established fallback for app.js
+   closures, same technique the Traffic Rules/manual-tilt/3D-View
+   features already used: the section is hidden by default and becomes
+   visible once `DevMode.isEnabled()` is true; the button defaults to
+   "ORS," not active; the log line correctly reads "No route requests yet
+   this session" with an empty log; a real click flips the selection to
+   TomTom (button text/`.active` class both update) and a second click
+   flips it back; and the log line correctly formats both a successful
+   and a failed real log entry, including the literal "failed" text.
+
+`sw.js`'s live-hosts comment was updated to include `api.tomtom.com`
+alongside adsb.fi/METAR/Open-Meteo — confirmed it was correctly never
+added to `STATIC_CDN_HOSTS` (the exact bug class already hit once for
+the ADS-B relay, see "PWA: real bug — the app-shell service worker" much
+earlier in this file) — and README.md's config table, file-tree listing,
+Routing & Navigation Camera section, and Developer Tools section were
+all updated to document the new files/config key/hidden Settings row,
+rather than leaving them to go stale the way the pre-existing
+`routingProvider.js` interface's own doc comment already had.
+
+**Honest status**: every piece of LOGIC here (`tomtomProvider.js`,
+`activeRoutingProvider.js`) is genuinely, fully verified via real
+execution against a real captured TomTom response shape, matching this
+project's own established discipline for pure-logic modules. What's
+NOT yet verified: an actual end-to-end route request from the deployed
+app itself with TomTom selected (this sandbox can't reach
+`api.tomtom.com` at all, confirmed via the proxy-status check above, so
+the live URL construction was verified by exact string match against the
+real captured request/response, not by a fresh live call) — the real
+remaining check is the project owner flipping the Settings toggle on a
+real device once this deploys and confirming a route actually renders.
+If it doesn't, the most likely first thing to check is whether the
+classic v1 endpoint's real CORS behavior differs by HTTP method/response
+code in some way the single successful GET tested here didn't cover
+(e.g. a preflight OPTIONS request, if `travelMode`/`traffic` as query
+params ever trigger one — they didn't in the real test, since it was a
+plain GET with no custom headers, but worth naming as the first thing to
+check rather than a fourth blind guess if it comes up).

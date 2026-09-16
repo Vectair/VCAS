@@ -98,12 +98,15 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Anything else — the ADS-B relay, the METAR relay, ORS routing/
-  // geocoding, MapTiler tiles, adsb.fi's own direct fallback, and
+  // geocoding, MapTiler tiles, adsb.fi's own direct fallback,
   // api.open-meteo.com (2026-09-08, UpperAirProvider — a live per-poll
   // data source same as the rest of this list, despite needing no relay
-  // of its own) — is intentionally left alone: no event.respondWith()
-  // call, so the browser handles it as if this service worker didn't
-  // exist. See the file-level comment above for why.
+  // of its own), and api.tomtom.com (2026-09-16, the experimental
+  // TomTomProvider — also live per-request data, also correctly needs no
+  // relay since it sends real CORS headers, but still not a static asset
+  // to cache) — is intentionally left alone: no event.respondWith() call,
+  // so the browser handles it as if this service worker didn't exist. See
+  // the file-level comment above for why.
 });
 
 async function networkFirst(req) {

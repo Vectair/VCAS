@@ -800,6 +800,22 @@
             </div>
           </section>
 
+          <!-- Experimental routing provider (2026-09-16) — hidden unless
+               DevMode is on (see app.js's _refreshSettingsScreen()), same
+               "not a real user-facing feature yet" posture as the VIEW/SPD
+               developer panels. ORS stays the permanent default; TomTom
+               is real-time-traffic-aware but its turn-by-turn text isn't
+               wired up yet — see src/routing/tomtomProvider.js. -->
+          <section class="settings-section hidden" id="settings-section-routing-provider">
+            <h3>Routing Provider (Experimental)</h3>
+            <p class="settings-hint">Dev-mode only. TomTom uses real-time traffic for ETA/route, but has no turn-by-turn text yet — ORS is always the fallback if a request fails.</p>
+            <div class="settings-row">
+              <span class="settings-label">Provider</span>
+              <button type="button" class="settings-toggle-btn" id="btn-routing-provider-toggle">ORS</button>
+            </div>
+            <p class="settings-hint" id="routing-provider-log"></p>
+          </section>
+
         </div>
       </div>
 
@@ -887,6 +903,8 @@
   <script src="src/sensors/devicePitch.js?v=__BUILD_ID__"></script>
   <script src="src/routing/routingProvider.js?v=__BUILD_ID__"></script>
   <script src="src/routing/orsProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/tomtomProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/activeRoutingProvider.js?v=__BUILD_ID__"></script>
   <script src="src/routing/orsGeocoder.js?v=__BUILD_ID__"></script>
   <script src="src/routing/routeGeometry.js?v=__BUILD_ID__"></script>
   <script src="src/navigation/maneuverTracker.js?v=__BUILD_ID__"></script>

@@ -9,6 +9,18 @@ const CONFIG = {
   // Free OpenRouteService "Standard" API key — https://openrouteservice.org/dev/#/home
   ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
 
+  // Optional, experimental second routing provider — TomTom's classic
+  // Routing API v1 (real-time-traffic-aware ETAs, unlike ORS's static
+  // pace). Confirmed 2026-09-16 via a real device curl with a live key:
+  // TomTom's response carries `access-control-allow-origin` (reflecting
+  // the requesting origin), so this is called directly from the browser —
+  // no CORS relay needed, unlike adsb.fi/aviationweather.gov below. Leave
+  // blank to disable entirely; see src/routing/activeRoutingProvider.js
+  // for the hidden dev-mode toggle that switches to it (ORS stays the
+  // default either way, and is always the fallback if a TomTom request
+  // fails). Get a free key at https://developer.tomtom.com.
+  TOMTOM_API_KEY: "",
+
   // ---- ADS-B data provider(s) ----
   // Settled decision (2026-08-14): adsb.fi only. DATA_PROVIDERS is still a
   // list — src/data/adsbExchangeClient.js round-robins across whatever's

@@ -130,6 +130,7 @@ All keys live in `src/config.js`.
 |-----|---------|-------------|
 | `MAPTILER_KEY` | `"PASTE_YOUR_MAPTILER_KEY_HERE"` | MapTiler browser token — required for road map tiles/glyphs |
 | `ORS_API_KEY` | `"PASTE_YOUR_ORS_KEY_HERE"` | Free OpenRouteService "Standard" API key — required for routing (driving/cycling/walking) |
+| `TOMTOM_API_KEY` | `""` | Optional, experimental — real-time-traffic-aware second routing provider, selectable via a hidden dev-mode Settings toggle; blank disables it and ORS is used exclusively. See [Routing & Navigation Camera](#routing--navigation-camera) |
 | `DATA_PROVIDERS` | `["adsb_fi"]` | ADS-B provider(s) — a list, round-robined if more than one is given; see `src/data/adsbExchangeClient.js` for available ids and what each needs |
 | `REFRESH_INTERVAL_SECONDS` | `3` | How often to poll — adsb.fi's public endpoint is rate-limited to ~1 req/sec, so this leaves generous headroom as a single client |
 | `REMOVE_THRESHOLD_SECONDS` | `30` | Aircraft older than this (since last seen) are dropped entirely |
@@ -247,6 +248,8 @@ Each state has its own pitch/zoom/anchor baseline, and the camera's forward-look
 
 **Off-route detection and rerouting** (`app.js`): if you stray more than `CONFIG.OFF_ROUTE_THRESHOLD_METERS` (50m) from the active route's polyline for `CONFIG.OFF_ROUTE_REROUTE_DELAY_SECONDS` (6s) continuously — hysteresis against momentary GPS noise or briefly crossing a nearby parallel road, not a real deviation — VCAS automatically requests a fresh route from your current position to the same destination and swaps it in, no manual clear-and-re-request needed. The guidance card shows "Rerouting…" while the request is out. A failed reroute (network hiccup, ORS error) doesn't spam retries — it backs off and tries again after the same dwell delay. See the Known Limitations note below on the fixed-distance threshold's caveats.
 
+**Experimental second routing provider — TomTom** (`src/routing/activeRoutingProvider.js`): both `requestRouteTo()` and the reroute path above actually go through this dispatcher, not `orsProvider.js` directly. ORS is the permanent default and remains the automatic fallback any time TomTom is selected but a request fails. TomTom is off by default — set `CONFIG.TOMTOM_API_KEY` and flip the toggle in Settings → "Routing Provider (Experimental)" (only visible once dev mode is unlocked, same hidden 7-tap-the-brand-mark gesture as the VIEW/SPD developer panels) to try it. Its real, confirmed advantage is traffic-aware ETA/route geometry from TomTom's own live traffic data, which ORS's free tier doesn't provide (`_updateRouteCard()`'s ETA is otherwise a flat proportional scaling of ORS's own static-pace total, with zero real-time signal). Its known gap: no turn-by-turn steps yet (`tomtomProvider.js` always returns an empty `steps` array) — the guidance card falls back to the camera's own geometric turn detection, the same path ORS itself uses if its response is ever malformed, so this degrades gracefully rather than breaking, but street-name instructions won't appear while TomTom is active.
+
 ---
 
 ## Theme (Day / Night / Auto)
@@ -272,6 +275,8 @@ The underlying state modules (`src/altitudeSuppressPanel.js`, `src/colorblindMod
 **VIEW** (viewport emulation — preview the app at fixed device dimensions, phone portrait/landscape, and a wide "Auto" Android-Auto-head-unit profile, without deploying to a real device; scales `#viewport-dev-frame` via CSS transform so `position:fixed` UI scopes to the emulated frame) and **SPD** (override GPS speed with a fixed value, to test speed-gated behaviour — turn-by-turn detection, the camera's `HIGHWAY_GUIDANCE` state, the GPS-vs-compass heading trust threshold — without actually moving) aren't end-user features, just scaffolding for verifying behaviour that needs real movement/device diversity to trigger.
 
 Neither is on the primary screen or in the real Settings screen (see below) — they're reachable only by tapping the **VCAS** brand mark in the top bar 7 times within 3 seconds (`src/devMode.js`), the same convention Android itself uses for unlocking its own developer options. Toggling it reloads the page; state persists in localStorage (`vcas-dev-mode`) until you do the same gesture again.
+
+The same unlock also reveals a **"Routing Provider (Experimental)"** section in the real Settings screen — the ORS-vs-TomTom toggle described under [Routing & Navigation Camera](#routing--navigation-camera) above. It lives in the ordinary Settings overlay rather than floating on the primary screen like VIEW/SPD, since it's a one-off preference to flip and check, not something read continuously while driving — but it's still dev-mode-gated, since TomTom's lack of turn-by-turn text makes it a genuine trade-off, not a strict upgrade, to switch to.
 
 ---
 
@@ -349,7 +354,9 @@ If the app actually fails to finish starting (the same inline script's own watch
       compassHeading.js             Device-compass heading fallback for stationary/slow GPS
     /routing
       routingProvider.js            Abstract routing provider interface
-      orsProvider.js                OpenRouteService adapter (driving/cycling/walking profiles)
+      orsProvider.js                OpenRouteService adapter (driving/cycling/walking profiles) — the default
+      tomtomProvider.js             TomTom adapter — optional, experimental, real-time-traffic-aware
+      activeRoutingProvider.js      Picks ORS vs TomTom (hidden dev-mode toggle), falls back to ORS on failure
       orsGeocoder.js                OpenRouteService geocoding (destination search by name/address)
       routeGeometry.js              Polyline nearest-point / forward-projection math
     /dev

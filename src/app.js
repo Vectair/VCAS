@@ -298,6 +298,7 @@
     ModeButtonOrder.init();
     _applyModeButtonOrder();
     TrafficRules.init();
+    ActiveRoutingProvider.init();
     ManualTilt.init();
     View3DClouds.init();
     _updateView3DCloudsToggleBtn();
@@ -484,6 +485,13 @@
       ModeButtonOrder.reset();
       _applyModeButtonOrder();
       _renderModeOrderList();
+    });
+
+    document.getElementById("btn-routing-provider-toggle")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const next = ActiveRoutingProvider.getSelectedId() === "ors" ? "tomtom" : "ors";
+      ActiveRoutingProvider.setSelectedId(next);
+      _refreshRoutingProviderSettings();
     });
 
     document.getElementById("btn-add-filter-rule")?.addEventListener("click", (e) => {
@@ -867,6 +875,33 @@
     }
 
     _updateColorblindToggleBtn();
+    _refreshRoutingProviderSettings();
+  }
+
+  /** Hidden-unless-DevMode section (see index.html's own comment) — shows
+   * the current provider choice and, once at least one route request has
+   * actually gone out this session, the most recent log entry
+   * (ActiveRoutingProvider.getLog()), so it's possible to confirm from the
+   * Settings screen alone that a toggle actually took effect rather than
+   * silently still calling ORS. */
+  function _refreshRoutingProviderSettings() {
+    const section = document.getElementById("settings-section-routing-provider");
+    if (section) section.classList.toggle("hidden", !DevMode.isEnabled());
+
+    const btn = document.getElementById("btn-routing-provider-toggle");
+    if (btn) {
+      const id = ActiveRoutingProvider.getSelectedId();
+      btn.textContent = id === "tomtom" ? "TomTom" : "ORS";
+      btn.classList.toggle("active", id === "tomtom");
+    }
+
+    const logEl = document.getElementById("routing-provider-log");
+    if (logEl) {
+      const last = ActiveRoutingProvider.getLog()[0];
+      logEl.textContent = last
+        ? `Last request: ${last.provider} (${last.reason}), ${last.latencyMs}ms, ${last.success ? "ok" : "failed"}`
+        : "No route requests yet this session.";
+    }
   }
 
   // ---- Core Interface Event Listeners Matrix ---- //
@@ -2624,7 +2659,7 @@
     const btn = document.getElementById("btn-test-route");
     if (btn) { btn.disabled = true; }
 
-    const route = await OrsProvider.getRoute(
+    const route = await ActiveRoutingProvider.getRoute(
       { lat: userLat, lon: userLon },
       { lat, lon },
       routeMode
@@ -2635,7 +2670,7 @@
     if (myToken !== _routeRequestToken) return; // superseded by a newer request
 
     if (!route) {
-      console.warn("Route request failed — check network or ORS availability/API key.");
+      console.warn("Route request failed — check network or routing-provider availability/API key.");
       return;
     }
 
@@ -2809,7 +2844,7 @@
     _rerouteInFlight = true;
     const myToken = ++_routeRequestToken;
 
-    const route = await OrsProvider.getRoute(
+    const route = await ActiveRoutingProvider.getRoute(
       { lat: userLat, lon: userLon },
       { lat: routeDestLat, lon: routeDestLon },
       routeMode
