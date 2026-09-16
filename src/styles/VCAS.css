@@ -1,53 +1,192 @@
 /* ---- Reset & base ---- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ---- Night theme (default) ---- */
+/* ---- Cockpit-panel theme (2026-08-22 rebrand) ----
+   VCAS's chrome (everything in this file EXCEPT the map/RAW/AIR content
+   itself — traffic colours, route line, range rings, compass tape all stay
+   exactly as already reference-matched elsewhere) is now directly modelled
+   on the real A320-family panel material: a real reference photo (MSFS
+   cockpit texture sheet) was pixel-sampled — not eyeballed — to find the
+   panel's actual colour: a robust statistical median across ~387k sampled
+   panel-coloured pixels (filtered to exclude near-black shadow gaps and
+   near-white lit text/displays) came out to RGB(85,108,122), which
+   converts to HSL(203°, 18%, 41%). Every neutral tone below (both themes)
+   is generated from that SAME hue/saturation, varying only lightness — a
+   deliberate "one material lit differently" ladder rather than separately
+   chosen dark and light palettes, so Day and Night read as the same panel
+   under different ambient light instead of one being a generic light-mode
+   skin bolted onto a dark-mode app. Contrast-checked (WCAG): every text/
+   background pairing below clears 5:1, well past the 4.5:1 AA minimum for
+   normal text.
+
+   --accent/--accent-user deliberately KEPT as the VCAS logo's own blue
+   (~#0086cc-adjacent) and lime green (car+crosshair glyph, "you, tracked")
+   rather than shifted toward the panel's own functional switch colours
+   (green=normal/amber=caution, as real A320 legend lighting actually
+   uses) — explicit call from the project owner: the panel MATERIAL
+   changes, VCAS's own brand identity doesn't. The functional-colour
+   direction was raised and deliberately not taken for now; flagged here
+   in case it's worth trialling later rather than re-litigating from
+   scratch — see CLAUDE.md. */
 :root {
-  --bg-dark:        #0e1117;
-  --bg-panel:       #161b22;
-  --bg-panel-alt:   #1c2128;
-  --border:         #30363d;
-  --text-primary:   #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted:     #484f58;
-  --accent:         #58a6ff;
-  --accent-rgb:     88,166,255;
-  --btn-bg:         #21262d;
-  --btn-hover:      #30363d;
+  --bg-dark:        #12181c;
+  --bg-panel:       #232d34;
+  --bg-panel-alt:   #2b3840;
+  --border:         #3d505c;
+  --text-primary:   #eaeef1;
+  --text-secondary: #8ba3b1;
+  --text-muted:     #56707d;
+  --accent:         #1191d8;
+  --accent-rgb:     17,145,216;
+  --accent-user:      #9cc828;
+  --accent-user-rgb:  156,200,40;
+  --btn-bg:         #33434c;
+  --btn-hover:      #475e6b;
   --btn-active-bg:  #1f6feb;
-  --radius-sm:      6px;
-  --radius:         10px;
-  --radius-lg:      14px;
+  --radius-sm:      4px;
+  --radius:         6px;
+  --radius-lg:      10px;
   --shadow:         0 4px 20px rgba(0,0,0,.6);
-  --bar-bg-rgb:     14,17,23;
-  --overlay-bg-rgb: 14,17,23;
-  --label-bg:       rgba(14,17,23,.82);
+  --bar-bg-rgb:     18,24,28;
+  --overlay-bg-rgb: 18,24,28;
+  --label-bg:       rgba(18,24,28,.82);
+  /* "Lighting" language for switch-cap-style buttons (#btn-settings,
+     .mode-btn, #btn-recenter, .dpb-mode-btn, .settings-toggle-btn,
+     .settings-preset-btn, .route-btn, #btn-raw-range, #btn-settings-close)
+     — a subtle raised bevel (light top edge + dark bottom edge, like a
+     physically-lit panel switch cap) at rest, inverting to a pressed-in
+     inset look on :active. Deliberately restrained (this reads as
+     "professional instrument panel," not "3D skeuomorphic plastic") —
+     verified visually via Playwright against both themes before shipping. */
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.4);
+  --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.6), inset 0 -1px 0 rgba(255,255,255,.04);
+  /* #bottom-bar's own fade gradient — was referencing this same variable
+     name before it existed anywhere in the stylesheet, so the gradient
+     silently never applied (an invalid var() with no fallback makes the
+     whole `background` declaration invalid, not just that one stop) and
+     the bar rendered with no fade at all. Derived from --bar-bg-rgb so it
+     automatically follows the same Day/Night/RAW-forced value as the rest
+     of the chrome, resolved at each element's own cascade rather than
+     baked in here. */
+  --bar-bot-grad:   rgba(var(--bar-bg-rgb), .92);
+  /* Colour-coded readout values — defined globally (not just in the RAW
+     palette block below) since round 4's mode-toggle bracket connector
+     uses this same green as shared, all-modes chrome, not a RAW-only
+     instrument-readout concept. RAW's own block doesn't need to
+     redeclare these (same value either way), but could override them
+     independently in future without touching this global default. */
+  --raw-value-green: #22c55e;
+  --raw-value-cyan:  #38bdf8;
+  /* Round 4 (2026-09-08): a mid slate blue-gray, pixel-sampled from the
+     project owner's own hand-drawn RAW-mode design draft (~rgb(70,92,112)
+     across its top bar/bottom bar/list-surround chrome — not the near-
+     black this file already uses for the actual ND square). One shared
+     value so the top bar, the aircraft-list "rows" region backdrop, and
+     the bottom bar all draw from the same source instead of independently-
+     typed hex literals that could drift apart. Round 11 (2026-09-08, same
+     day): promoted from a RAW-only override to a plain global default —
+     direct instruction to apply RAW's chrome look ("fixed dark, same in
+     Day and Night") to #top-bar/#bottom-bar/#mode-row/the mode-toggle
+     buttons everywhere, not just RAW. Unlike --bg-panel and friends
+     above, this one deliberately has no Day-theme override anywhere in
+     this file — same "no day mode for a cockpit instrument" reasoning
+     this file already applies to RAW's own map content, now extended to
+     this specific set of chrome elements app-wide. */
+  --raw-chrome-bg: #465c74;
 }
 
-/* ---- Day theme ---- */
-:root[data-theme="day"] {
-  --bg-dark:        #f0ede8;
-  --bg-panel:       #ffffff;
-  --bg-panel-alt:   #f5f2ed;
-  --border:         #d6d3ce;
-  --text-primary:   #1c1c1e;
-  --text-secondary: #636366;
-  --text-muted:     #aeaeb2;
+/* ---- Day theme ----
+   NOT a generic bright/white light-mode — the SAME panel hue/saturation as
+   Night above, just lit brighter (a lighter blue-grey, never pure white),
+   so Day and Night read as one physical object rather than a cockpit skin
+   for Night and an unrelated look for Day. Explicit call: readability in
+   outdoor daylight glare still matters, so this isn't literally "the same
+   lightness as the reference photo's shadowed areas" — text/background
+   contrast is still checked against WCAG (13.9:1 primary, 5.3:1 secondary,
+   both comfortably past the 4.5:1 AA minimum), same discipline as Night.
+   Matches body[data-theme="day"], not :root — _applyThemeToDom() (app.js)
+   only ever sets data-theme on <body> (also its static default in
+   index.html), never on <html>. A :root[data-theme] selector here would
+   never match, silently no-op-ing this entire block: the map tiles would
+   still switch (that's independent, driven by NavStyle/ThemeManager in JS),
+   but every panel/button/text color would stay stuck on the night values
+   regardless of theme. */
+body[data-theme="day"] {
+  --bg-dark:        #d4dde2;
+  --bg-panel:       #edf0f3;
+  --bg-panel-alt:   #e0e7eb;
+  --border:         #b6c5ce;
+  --text-primary:   #1b2328;
+  --text-secondary: #4e6674;
+  --text-muted:     #82949e;
   --accent:         #1a73e8;
   --accent-rgb:     26,115,232;
-  --btn-bg:         #ede9e3;
-  --btn-hover:      #d8d4ce;
+  --accent-user:      #6b9418;
+  --accent-user-rgb:  107,148,24;
+  --btn-bg:         #dae2e7;
+  --btn-hover:      #c2ced6;
   --btn-active-bg:  #1a73e8;
   --shadow:         0 4px 20px rgba(0,0,0,.12);
-  --bar-bg-rgb:     240,237,232;
-  --overlay-bg-rgb: 240,237,232;
-  --label-bg:       rgba(255,255,255,.92);
+  --bar-bg-rgb:     212,221,226;
+  --overlay-bg-rgb: 212,221,226;
+  --label-bg:       rgba(237,240,243,.92);
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.10);
+  --btn-shadow-active: inset 0 1px 3px rgba(0,0,0,.18), inset 0 -1px 0 rgba(255,255,255,.5);
+}
+
+/* RAW's map content (background, traffic, rings, tape, route, user marker)
+   is already forced dark regardless of Day/Night/Auto — but the app CHROME
+   around it (top/bottom bars, mode buttons, "NO DATA" pill) was still
+   following the resolved theme's own variables, so a Day-resolved RAW view
+   showed a black instrument display with a light bottom bar floating on
+   top of it: not remotely how a real cockpit instrument reads, where the
+   whole panel — chrome included — is uniformly dark. Re-declaring the
+   theme variables here wins over the Day block above via source order
+   (same technique the .indicator-label override below already uses) even
+   though data-theme="day" and data-nav-style="raw" can both be present on
+   <body> at once. Scoped to data-mode="nav" too, not data-nav-style alone —
+   that preference isn't mode-scoped and can still read "raw" after
+   switching to AIR, which must keep following the real resolved theme.
+   Identical to :root's own Night values now that Night IS the cockpit-
+   authentic palette rather than a separate dark-mode skin — kept as its
+   own explicit block (not collapsed into relying on :root's defaults)
+   since Day's own block above would otherwise win by source order here. */
+body[data-mode="nav"][data-nav-style="raw"] {
+  --bg-dark:        #12181c;
+  --bg-panel:       #232d34;
+  --bg-panel-alt:   #2b3840;
+  --border:         #3d505c;
+  --text-primary:   #eaeef1;
+  --text-secondary: #8ba3b1;
+  --text-muted:     #56707d;
+  --accent:         #1191d8;
+  --accent-rgb:     17,145,216;
+  --btn-bg:         #33434c;
+  --btn-hover:      #475e6b;
+  --btn-active-bg:  #1f6feb;
+  --shadow:         0 4px 20px rgba(0,0,0,.6);
+  --bar-bg-rgb:     18,24,28;
+  --overlay-bg-rgb: 18,24,28;
+  --label-bg:       rgba(18,24,28,.82);
+  --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.5);
+  --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.04);
+  /* --raw-chrome-bg and --raw-value-green/--raw-value-cyan all live in
+     :root now (round 11, 2026-09-08) — see :root's own comment on
+     --raw-chrome-bg for why. Not redeclared here, this block would just
+     be repeating the global default. */
 }
 
 html, body {
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* B612 — Airbus's own flight-deck typeface (see index.html's Google
+     Fonts link for why). Only weights 400/700 are loaded; the 600/800/900
+     weights used elsewhere in this file fall back to the nearest of those
+     two rather than a synthesized in-between — a normal, accepted
+     simplification, not a bug. System-font fallback chain kept after it in
+     case the Google Fonts request itself fails (e.g. offline first paint
+     before the PWA's cached copy catches up). */
+  font-family: 'B612', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg-dark);
   color: var(--text-primary);
   font-size: 14px;
@@ -83,9 +222,37 @@ html, body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgba(var(--accent-rgb),.1);
-  border: 1.5px solid rgba(var(--accent-rgb),.22);
+  background: rgba(var(--accent-user-rgb),.14);
+  border: 1.5px solid rgba(var(--accent-user-rgb),.3);
   animation: halo-pulse 2.5s ease-in-out infinite;
+}
+
+/* RAW's basemap is always near-black regardless of Day/Night/Auto, but the
+   user marker's own colour still followed the resolved theme, which read as
+   dim/low-contrast against RAW's black, same problem as the indicator
+   labels and range rings below — so it's forced here instead, same as
+   colorRaw already does for traffic symbols. Colour is pure yellow
+   (255,255,0), pixel-sampled directly from a real ND reference photo's own
+   ownship symbol (measured peak (254,254,18)) — not the olive/yellow-green
+   this used to be. Sets `color` (not a `path`-specific fill rule) because
+   the car-icon body+wheels (map.js's _createUserMarker) are drawn with
+   fill="currentColor" across a mix of <rect>/<path> elements — overriding
+   the cascade point once here covers all of them, and keeps working
+   unchanged if the icon shape/element mix ever changes again (e.g. a future
+   bike/pedestrian vehicle icon). The windshield keeps its own explicit dark
+   fill either way, so it still reads as glass against the yellow body. */
+/* Round 9 (2026-09-08, design-draft comparison): the draft's own ownship
+   icon has no glow/halo behind it at all — a flat yellow silhouette on
+   black, unlike Hybrid/AIR's glowing marker over a real map (where the
+   glow helps it stand out against busy tile imagery; RAW's own pure-black
+   background needs no such help). Hides the halo outright and drops the
+   drop-shadow filter, RAW only — Hybrid/AIR keep the glow unchanged. */
+body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
+  display: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
+  filter: none;
+  color: #ffff00;
 }
 
 .user-marker-nav {
@@ -94,8 +261,8 @@ html, body {
   width: 18px;
   height: 26px;
   overflow: visible;
-  color: var(--accent);
-  filter: drop-shadow(0 0 6px rgba(var(--accent-rgb),.75));
+  color: var(--accent-user);
+  filter: drop-shadow(0 0 6px rgba(var(--accent-user-rgb),.75));
   transition: transform .4s ease;
 }
 
@@ -117,28 +284,80 @@ html, body {
   flex-direction: column;
 }
 
-/* ---- Top bar ---- */
+/* ---- Top bar ----
+   Solid slate chrome panel (round 4's RAW-only look, round 11: applied
+   app-wide) rather than the near-black gradient this used to fall back
+   to in Hybrid/AIR — see --raw-chrome-bg's own :root comment for the
+   full history and why this doesn't vary by Day/Night. */
 #top-bar {
   pointer-events: all;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px 8px;
-  background: linear-gradient(to bottom, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
+  background: var(--raw-chrome-bg);
 }
 
 #top-bar .brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: .05em;
   color: var(--text-primary);
 }
 
-#top-bar .brand span {
-  color: var(--accent);
+/* Brand icon badge (round 9, 2026-09-08) — the real app icon
+   (assets/icons/favicon-64.png, the same TCAS-radar/car logo variant
+   used everywhere else this app appears, see CLAUDE.md's icon-redesign
+   history), matching the design draft's own top-left badge. Reuses the
+   existing favicon asset rather than a new export — it's already the
+   right small size and the right artwork, no reason to duplicate it.
+   Round 10 (2026-09-08): the separate "VCAS" text next to it was
+   removed — the icon's own artwork already has the wordmark baked in,
+   the text was a literal duplicate, and dropping it freed real
+   horizontal room the 3-pill status row needed (see #status-pill-row's
+   own comment). Sized up slightly (24px -> 30px) now that it's the
+   sole brand mark rather than sharing the row with text. */
+.brand-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  flex-shrink: 0;
 }
 
-/* ---- Top-right controls (ADS-B status + theme picker) ---- */
+#top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#btn-settings {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+  transition: background .15s, color .15s;
+}
+
+#btn-settings:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+/* ---- Top-right controls (status pills + credit) ----
+   Was previously unused CSS with no matching element (a leftover from an
+   earlier design iteration — #theme-picker, styled a few rules down, is
+   the same story and is still unused) — revived 2026-08-23 to stack the
+   ADS-B status pill and its data-source credit vertically, right-aligned,
+   instead of writing a fresh wrapper. */
 #top-right-controls {
   display: flex;
   flex-direction: column;
@@ -146,22 +365,70 @@ html, body {
   gap: 5px;
 }
 
-#adsb-status {
+/* Bolder pill treatment (2026-09-08), matching a hand-drawn design draft's
+   own status-pill row — larger, bold, near-white text rather than the
+   original's small muted uppercase, and shared by every real data-source
+   pill (`#adsb-status`, `#maptiler-status`, `#upper-air-status`) via one
+   class rather than several near-duplicate id-scoped rules. See CLAUDE.md
+   for why each of these three exist and why nothing else does — every one
+   is a real, live dependency VCAS actually has (or, for MapTiler, a real
+   static config it's actually keyed to), never a fabricated indicator for
+   a service the app doesn't use. `#metar-status` (a 4th pill, briefly)
+   was removed the same day once Open-Meteo's own pill took over as the
+   app's weather-status indicator and citation link — METAR data itself is
+   untouched, only its dedicated pill is gone.
+   Dynamic sizing (2026-09-10), superseding the round-10 flex-wrap fix
+   below: wrapping to a second line was itself the thing asked to go -
+   three pills should always read as one row, not fold onto a line of
+   their own on a narrow device. #status-pill-row is now a strict single
+   line (flex-wrap: nowrap); UI._fitStatusPillRow() (ui.js) measures the
+   REAL rendered width after every pill-label change (it's called from
+   the one place all three pills' text is ever written, _setStatusPill())
+   and toggles a `.compact` class - smaller font/padding/dot - only when
+   the full-size row would actually overflow #top-bar, the same "measure
+   the real DOM, don't guess with a media query" discipline this project
+   already applies to chrome-height measurement elsewhere (see CLAUDE.md's
+   camera-anchor-math history). A discrete two-tier class swap rather than
+   a continuous JS-computed font-size - cheaper, and matches this app's
+   own preference for a handful of named states over an interpolated
+   value nothing else reads. The .label max-width/ellipsis rule below is
+   the safety net for the one case font-shrinking alone can't fully
+   solve: adsb.fi's error/stale pill text is NOT a fixed short string
+   (`"No data (" + result.error + ")"` in app.js can be arbitrarily long)
+   - truncated with an ellipsis rather than ever being allowed to blow
+   out the row's width regardless of font size. */
+#status-pill-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+#status-pill-row.compact { gap: 4px; }
+
+.status-pill {
   display: flex;
   align-items: center;
   gap: 6px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--text-primary);
+  box-shadow: var(--btn-shadow);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+#status-pill-row.compact .status-pill {
+  gap: 3px;
+  padding: 2px 6px;
+  font-size: 9px;
 }
 
-#adsb-status .dot {
+.status-pill .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -169,11 +436,62 @@ html, body {
   flex-shrink: 0;
   transition: background .4s;
 }
+#status-pill-row.compact .status-pill .dot {
+  width: 5px;
+  height: 5px;
+}
 
-#adsb-status.active .dot   { background: #4caf50; }
-#adsb-status.stale  .dot   { background: #ff9800; }
-#adsb-status.error  .dot   { background: #9e9e9e; }
-#adsb-status.active { color: var(--text-primary); }
+/* Safety net, not the primary fit mechanism - see #status-pill-row's own
+   comment above for why a pill's label text isn't always a fixed short
+   string. inline-block (anchors/spans are inline by default, and
+   text-overflow:ellipsis needs a box to clip against) plus a generous
+   max-width that never triggers on the three real fixed names
+   ("adsb.fi"/"MapTiler"/"Open-Meteo" all sit comfortably under it). */
+.status-pill .label {
+  display: inline-block;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#status-pill-row.compact .status-pill .label {
+  /* Just above "Open-Meteo"'s own real compact-size rendered width (the
+     longest of the three real fixed names, ~54px measured directly) —
+     tight enough that even 3 pills at once, one showing a pathologically
+     long error string, still fit a narrow device; verified, not guessed. */
+  max-width: 58px;
+}
+
+.status-pill.active .dot   { background: #4caf50; }
+.status-pill.stale  .dot   { background: #ff9800; }
+.status-pill.error  .dot   { background: #9e9e9e; }
+
+/* Colourblind-safe override (2026-09-14) — the plain active/stale pair
+   above (green/orange) is a real, unambiguous accessibility bug: green
+   vs. orange is one of the classic collisions under the most common
+   forms of red-green colour blindness, exactly the pairing accessible-
+   design guides call out first. .error's grey is untouched — it already
+   has no hue to confuse, safe under every CVD type as-is. Swapped to the
+   standard safe blue/vermillion pair (Okabe-Ito's own recommended
+   categorical duo) rather than anything hand-picked. Toggled via
+   body.colorblind-safe, the same class app.js's _updateColorblindToggleBtn()
+   already sets/clears for the Traffic Rules safe swatches above. */
+body.colorblind-safe .status-pill.active .dot { background: #56b4e9; }
+body.colorblind-safe .status-pill.stale  .dot { background: #d55e00; }
+
+/* adsb.fi attribution (round 6, 2026-09-08) — the #adsb-status pill's own
+   label IS now the required link to adsb.fi's homepage, replacing the
+   separate #adsb-credit line this used to be (moved here from a Settings
+   sub-screen 2026-08-23, then folded into the pill itself once the pill's
+   text became "adsb.fi" — two lines making the same citation in the same
+   top bar was redundant, not two separate obligations). A plain <a> resets
+   to browser defaults (blue, underlined) unless overridden — this keeps it
+   reading as ordinary pill text, still a real functional link underneath. */
+.status-pill-link {
+  color: inherit;
+  text-decoration: none;
+}
 
 /* ---- Theme picker ---- */
 #theme-picker {
@@ -183,6 +501,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 2px 3px;
+  box-shadow: var(--btn-shadow);
 }
 
 .theme-btn {
@@ -202,48 +521,45 @@ html, body {
 .theme-btn.active {
   background: var(--btn-active-bg);
   color: #fff;
-}
-
-/* ---- Mode label strip ---- */
-#mode-strip {
-  display: flex;
-  justify-content: center;
-  margin-top: 2px;
-}
-
-#mode-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2px 10px;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* ---- Spacer ---- */
 .spacer { flex: 1; }
 
-/* ---- Bottom bar ---- */
+/* ---- Bottom bar ----
+   Solid slate chrome (round 4/5's RAW-only look, round 11: applied
+   app-wide) — matches the top bar and the aircraft-list backdrop instead
+   of the near-black gradient this and #mode-row used to fall back to in
+   Hybrid/AIR. See --raw-chrome-bg's own :root comment for the full
+   history. */
 #bottom-bar {
   pointer-events: all;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 14px 16px;
-  background: linear-gradient(to top, var(--bar-bot-grad) 80%, transparent);
+  background: var(--raw-chrome-bg);
 }
 
-/* Mode row: [NAV|AIR toggle] | count | route */
+/* Mode row: [Hybrid|Raw|Air toggle] | count | route */
 #mode-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 14px 14px;
-  background: linear-gradient(to top, rgba(var(--bar-bg-rgb),.92) 80%, transparent);
+  padding: 12px 14px 14px;
+  background: var(--raw-chrome-bg);
   gap: 10px;
+}
+
+/* The horizontal rule above the mode row (added 2026-09-08 to match the
+   design draft's own line above its SCREEN/NAVIGATION switch banks) is
+   redundant in Hybrid/AIR — the real map content above it already reads
+   as its own visual break, per direct instruction (2026-09-15). RAW has
+   no map underneath (pure black instrument background), so it keeps the
+   rule as the only thing separating the row from the content above. */
+body[data-mode="nav"][data-nav-style="raw"] #mode-row {
+  border-top: 1px solid var(--border);
 }
 
 .mode-btn {
@@ -257,40 +573,165 @@ html, body {
   font-weight: 700;
   letter-spacing: .08em;
   cursor: pointer;
+  box-shadow: var(--btn-shadow);
   transition: background .15s;
   -webkit-appearance: none;
 }
 
-.mode-btn:active       { background: var(--btn-hover); }
-.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; }
+.mode-btn:active       { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+.mode-btn.active-mode  { background: var(--btn-active-bg); border-color: var(--btn-active-bg); color: #fff; box-shadow: var(--btn-shadow-active); }
 
-/* NAV/AIR co-located as one segmented control (same pattern as #theme-row
-   below) rather than two independent buttons at opposite ends of the bar —
-   switching modes on a touchscreen shouldn't mean reaching across the width
-   of the screen. */
+/* Hybrid/Raw/Air, grouped under the "SCREEN" bracket (see .mode-row-group
+   below) rather than independent buttons at opposite ends of the bar —
+   switching modes on a touchscreen shouldn't mean reaching across the
+   width of the screen. Individually bordered boxes with a small gap
+   between them (2026-09-08, replacing the earlier single merged/
+   segmented pill) per the design draft — each button reads as its own
+   switch cap rather than three flush segments in one recessed housing.
+   Tighter padding/font than the base .mode-btn (which the standalone
+   route-pin button also uses) — three labels including "HYBRID" need to
+   fit one row alongside the aircraft count and route button on a narrow
+   phone. */
 .mode-toggle {
   display: flex;
   align-items: center;
-  gap: 0;
-  background: var(--btn-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
+  gap: 5px;
 }
 
+/* High-contrast black/white switch caps, pixel-sampled straight from the
+   RAW design draft's own mode-toggle row (round 9, 2026-09-08 — solid
+   black buttons, bold white border+text when inactive) — round 11
+   (2026-09-08, same day): promoted from a RAW-only override to the
+   default everywhere, direct instruction to bring RAW's chrome look to
+   Hybrid/AIR too. Fixed black regardless of Day/Night, same "no day mode
+   for a cockpit instrument" reasoning as --raw-chrome-bg (see its own
+   :root comment) — overrides the base .mode-btn's --btn-bg/--border. */
 .mode-toggle .mode-btn {
-  border: none;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  background: #000;
+  border-color: #fff;
+  color: #fff;
 }
 
-.mode-toggle .mode-btn:last-child { border-right: none; }
+/* Active button reads via a coloured border+text, not a filled
+   background — matches the draft's own treatment (the active RAW button
+   is outlined, not solid-filled) and overrides the base .mode-btn.
+   active-mode rule (still a filled blue background elsewhere, e.g. a
+   .route-btn that ever carried this class) without touching it globally.
+   Bold cyan (--raw-value-cyan, the same token the merged nav-status
+   card's distance figures already use — one shared colour, not a second
+   independently-typed hex), also promoted to everywhere in round 11. */
+.mode-toggle .mode-btn.active-mode {
+  background: #000;
+  border-color: var(--raw-value-cyan);
+  color: var(--raw-value-cyan);
+  box-shadow: var(--btn-shadow);
+}
+.mode-toggle .mode-btn.active-mode:active { box-shadow: var(--btn-shadow-active); }
+
+/* ---- Mode row switch-bank labels + divider (2026-09-07) ----
+   Direct instruction, from the same hand-drawn RAW-mode design draft as
+   the flight-plan-line/nav-status-card work above: group the existing
+   screen-mode toggle and the existing route-pin button under small
+   engraved-style captions ("SCREEN"/"NAV" — shortened from the reference
+   draft's full "NAVIGATION", which crowded #aircraft-count into a 3-line
+   wrap on a narrow 360px phone; confirmed via Playwright), like a real EFIS
+   control panel labels its own switch banks — explicitly "a style choice,
+   not an actual redesign": same buttons, same behaviour, same bevel
+   treatment the 2026-08-22 cockpit-panel rebrand already gave
+   .mode-toggle/.route-btn, just visually grouped and captioned now. */
+.mode-row-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mode-row-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* "SCREEN"'s own bordered capsule (2026-09-08, matching the draft) — "NAV"
+   stays plain text, per the draft's own distinction between the two
+   labels (only SCREEN gets a boxed outline there). */
+.mode-row-label-boxed {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 8px;
+}
+
+/* Bracket connecting the "SCREEN" label down to the three mode buttons —
+   purely decorative (the same tree-connector the draft draws by hand),
+   drawn once as a relative-unit SVG (viewBox 0 0 6 1.4, stretched via
+   CSS width to whatever the actual button row measures) rather than
+   computed from real button positions — the three drop points (x=1,3,5)
+   assume three roughly-equal-width buttons, which HYBRID/RAW/AIR already
+   are. .mode-bracket-stem is the short vertical link between the label
+   and the bracket's own horizontal bar. */
+.mode-bracket-stem {
+  width: 1px;
+  height: 6px;
+  background: var(--border);
+}
+
+.mode-bracket {
+  width: 100%;
+  height: 10px;
+  display: block;
+}
+
+.mode-row-divider {
+  align-self: stretch;
+  width: 1px;
+  flex-shrink: 0;
+  background: var(--border);
+  /* Pushes itself + the NAV group after it to the row's right edge,
+     collecting whatever free space #aircraft-count's own flex:1 doesn't
+     claim first — this is what keeps SCREEN-left/NAV-right correct
+     whether or not #aircraft-count is present (it's hidden in RAW, see
+     that rule below) rather than needing two different #mode-row
+     layouts for the two cases. */
+  margin-left: auto;
+}
 
 #aircraft-count {
   flex: 1;
+  /* Real bug fix (2026-09-14): flex items default to min-width:auto, which
+     floors them at their own text's intrinsic width rather than letting
+     them actually shrink — on a narrower real device (~360px, not the
+     412px this project's own checks have mostly used), the "3 of 12 shown
+     — tap for more" overflow-cycling string (setAircraftCount()'s longest
+     case) refused to shrink and pushed the NAVIGATION group's OFF/ON
+     button past the right edge, clipped off-screen. RAW never showed this
+     (#aircraft-count is display:none there, see below) — only Hybrid/AIR,
+     where it's visible, and only after btn-3d widened the SCREEN group
+     enough to leave no slack. Same "measure/shrink-to-fit + ellipsis
+     safety net" fix already established for the top-bar status pills
+     (see UI._fitStatusPillRow) — min-width:0 actually lets it shrink,
+     the rest keeps it legible once it does. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: center;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+/* RAW's own aircraft-list panel already titles itself "AIRCRAFT NEARBY
+   {count}" (see .raw-list-title-bar) — direct instruction (2026-09-08):
+   that count shouldn't ALSO show here, redundantly, in the bottom bar.
+   Hybrid/AIR have no such list panel, so they keep this exactly as
+   before — it's their only "how many aircraft nearby" indicator. */
+body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
+  display: none;
 }
 
 #aircraft-count.clickable {
@@ -300,17 +741,16 @@ html, body {
   text-underline-offset: 2px;
 }
 
-/* Theme row: Day | Auto | Night */
-#theme-row {
+/* Day/Auto/Night segmented control (used inside the settings screen) */
+.theme-toggle-group {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 0;
   background: var(--btn-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  align-self: center;
+  box-shadow: var(--btn-shadow);
 }
 
 .theme-btn {
@@ -328,11 +768,13 @@ html, body {
   -webkit-appearance: none;
 }
 
-.theme-btn:last-child   { border-right: none; }
+.theme-toggle-group .theme-btn:last-child { border-right: none; }
+
 .theme-btn:active       { background: var(--btn-hover); }
 .theme-btn.active-theme {
   background: var(--btn-active-bg);
   color: #ffffff;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* ---- GPS unavailable message ---- */
@@ -409,6 +851,217 @@ html, body {
 
 #compass-permission-banner.hidden { display: none; }
 
+/* ---- Recenter button (floats above the VIEW/SPD dev-panel stack) ---- */
+#btn-recenter {
+  position: fixed;
+  bottom: calc(14px + 94px + var(--bottom-toast-offset, 0px));
+  right: 14px;
+  z-index: 30;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow), var(--btn-shadow);
+  -webkit-appearance: none;
+  transition: bottom .3s, opacity .15s, transform .15s;
+}
+
+#btn-recenter:active { opacity: .75; transform: scale(.94); box-shadow: var(--shadow), var(--btn-shadow-active); }
+#btn-recenter.hidden { display: none; }
+
+/* ND-style range selector (RAW only) — sits in the corner of the square
+   plot itself, matching where a real ND prints its own current range,
+   rather than a separate floating control that would need its own layout
+   negotiation against the Stage 3 list panel. left/top (set per-render in
+   ui.js's renderRangeSelector) is the square's own top-right corner; the
+   translateX below anchors the button's RIGHT edge there regardless of
+   its rendered width (driven by how many digits the range number has),
+   instead of guessing the width up front. Always dark regardless of Day/
+   Night/Auto, same reasoning as the compass tape/range rings/list panel —
+   RAW has no "day mode" instrument and this only ever shows inside RAW. */
+#btn-raw-range {
+  position: fixed;
+  z-index: 11;
+  transform: translateX(-100%);
+  padding: 4px 8px;
+  border: 1px solid rgba(240,240,240,.3);
+  border-radius: var(--radius-sm);
+  background: rgba(14,17,23,.85);
+  color: #f0f0f0;
+  /* B612 Mono — a real ND prints its current range digits in the same
+     monospace face as its other digital readouts. */
+  font-family: 'B612 Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), inset 0 -1px 2px rgba(0,0,0,.5);
+}
+#btn-raw-range:active { background: rgba(240,240,240,.15); box-shadow: inset 0 1px 3px rgba(0,0,0,.6); }
+#btn-raw-range.hidden { display: none; }
+
+/* ---- Hybrid-only manual camera-tilt override (2026-09-09) ---- */
+/* Toggle — a small floating circular button at the top-right, positioned
+   per-render by app.js's _positionManualTiltControls() (same "measure the
+   real chrome once, position from that" pattern #btn-recenter and every
+   other floating Hybrid/RAW control in this file already use — see that
+   function's own comment). Dark panel look at rest (not filled --accent
+   like #btn-recenter, so it doesn't read as equally "always-on" chrome),
+   filling solid --accent only once the override is actually engaged. */
+#btn-manual-tilt-toggle {
+  position: fixed;
+  right: 14px;
+  z-index: 30;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow), var(--btn-shadow);
+  -webkit-appearance: none;
+  transition: top .2s, opacity .15s, transform .15s, background .15s;
+}
+#btn-manual-tilt-toggle:active { transform: scale(.94); box-shadow: var(--shadow), var(--btn-shadow-active); }
+#btn-manual-tilt-toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (distraction/safety) — dimmed and
+   inert, same treatment #lp-toggle.lp-toggle-disabled already establishes
+   for the identical reason, so it reads as "temporarily unavailable," not
+   broken or gone. */
+#btn-manual-tilt-toggle.manual-tilt-toggle-disabled { opacity: .35; cursor: not-allowed; }
+#btn-manual-tilt-toggle.hidden { display: none; }
+
+/* Reset — only shown alongside the panel below, top-left so it never
+   collides with the toggle's own top-right corner. A word, not a digit
+   readout, so it stays on the app's regular display face rather than
+   B612 Mono (matching this project's own "digits get mono, words don't"
+   convention already established for e.g. #btn-raw-range vs. its
+   surrounding labels). */
+#btn-manual-tilt-reset {
+  /* Top-left, same row as the toggle/panel (2026-09-09 clarification) —
+     LOG itself is what moved, into Hybrid/AIR's own bottom-left position
+     mirroring RAW; see _positionManualTiltControls()'s own comment in
+     app.js and refreshIndicators()/refreshAirMode() in app.js for where
+     LOG is now positioned instead. */
+  position: fixed;
+  left: 14px;
+  z-index: 30;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--shadow), var(--btn-shadow);
+  transition: top .2s;
+}
+#btn-manual-tilt-reset:active { box-shadow: var(--shadow), var(--btn-shadow-active); }
+#btn-manual-tilt-reset.hidden { display: none; }
+
+/* Slider panel — a compact vertical strip under the toggle. The actual
+   <input type="range"> is a normal HORIZONTAL slider rotated -90deg inside
+   a fixed-footprint wrapper (a well-established cross-browser technique
+   for a vertical slider that doesn't depend on WebKit-only
+   `-webkit-appearance: slider-vertical`, which Firefox never implemented)
+   — rotate(-90deg) specifically, not 90deg, so the slider's own MAX end
+   (right, at rest) lands at the visual TOP: dragging the thumb UP
+   increases tilt (more oblique/dashcam-like), matching the intuitive
+   "up = more" reading of a vertical control, confirmed by working through
+   the actual rotation math (a rightward point rotates to the 12 o'clock
+   position under a -90deg/CCW rotation) rather than assumed. */
+#manual-tilt-panel {
+  position: fixed;
+  right: 14px;
+  z-index: 29;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel-alt);
+  box-shadow: var(--shadow);
+  transition: top .2s;
+}
+#manual-tilt-panel.hidden { display: none; }
+
+.manual-tilt-value {
+  /* A real digital readout (degrees), not a label — B612 Mono per this
+     project's established "digital readout vs. display label" split. */
+  font-family: 'B612 Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.manual-tilt-slider-wrap {
+  position: relative;
+  width: 36px;
+  height: 160px;
+}
+.manual-tilt-slider-wrap input[type="range"] {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 28px;
+  margin: 0;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center center;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.manual-tilt-slider-wrap input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.manual-tilt-slider-wrap input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+.manual-tilt-slider-wrap input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.manual-tilt-slider-wrap input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5);
+}
+
 /* ---- Destination-pick hint ---- */
 #dest-pick-banner {
   position: fixed;
@@ -416,19 +1069,115 @@ html, body {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(320px, 86vw);
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 18px;
+  padding: 12px 18px;
+  box-shadow: var(--shadow);
+}
+
+#dest-pick-banner.hidden { display: none; }
+
+.dpb-text {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
-  box-shadow: var(--shadow);
   pointer-events: none;
 }
 
-#dest-pick-banner.hidden { display: none; }
+.dpb-search-row {
+  width: 100%;
+  pointer-events: all;
+}
+
+.dpb-search-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+  -webkit-appearance: none;
+}
+
+.dpb-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dpb-search-input::placeholder { color: var(--text-secondary); }
+
+#dpb-search-results {
+  width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: all;
+}
+
+#dpb-search-results.hidden { display: none; }
+
+.dpb-result-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  cursor: pointer;
+  -webkit-appearance: none;
+  transition: background .15s;
+}
+
+.dpb-result-btn:active { background: var(--btn-hover); }
+
+.dpb-result-empty {
+  width: 100%;
+  padding: 6px 2px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dpb-modes {
+  display: flex;
+  gap: 0;
+  width: 100%;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  pointer-events: all;
+  box-shadow: var(--btn-shadow);
+}
+
+.dpb-mode-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background .15s;
+  -webkit-appearance: none;
+}
+
+.dpb-mode-btn:last-child   { border-right: none; }
+.dpb-mode-btn:active       { background: var(--btn-hover); }
+.dpb-mode-btn.active-mode  { background: var(--btn-active-bg); box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
 
 #compass-permission-btn {
   flex-shrink: 0;
@@ -446,36 +1195,123 @@ html, body {
 #compass-permission-btn:active { opacity: .8; }
 
 /* ---- Edge indicators (driving view) ---- */
+/* .indicator itself carries NO transform and NO layout (no flex/gap) — its
+   own left/top (set in ui.js to ind.x/ind.y) is the aircraft's true
+   plotted position, full stop, and nothing below is allowed to move it.
+   .indicator-shape and .indicator-label are each independently absolutely
+   positioned children instead of flex-stacked siblings, specifically so
+   the icon's own centre can be pinned exactly at that point while the
+   label is free to sit at any offset around it — see UI.
+   declutterRenderedIndicators's own doc comment for why this split
+   matters (a real device report: the whole icon+arrow+label bundle was
+   visibly sliding together off the aircraft's true position whenever
+   labels needed to deconflict, which is never correct — the icon's own
+   centre IS where the aircraft is). */
 .indicator {
   position: absolute;
   pointer-events: all;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
   cursor: pointer;
-  transform: translate(-50%, -50%);
   transition: opacity .3s;
 }
 
 .indicator.stale { opacity: .45; }
 
+/* Cross-highlight with the Stage 3 aircraft-list panel (RAW only) — tapping
+   the icon highlights the matching list row and vice versa (see
+   UI.selectAircraft in ui.js). A glow rather than fighting .indicator-label's
+   own inline border-color (set per-aircraft by _borderColor()) avoids
+   needing !important to win the specificity fight against an inline style. */
+.indicator.selected .indicator-shape { filter: drop-shadow(0 0 4px #ffff00) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.indicator.selected .indicator-label { box-shadow: 0 0 0 2px #ffff00; }
+
+/* User-defined highlight rules (src/logic/trafficRules.js) — same glow-ring
+   shape as .selected above, but the colour is per-rule and user-chosen, so
+   it's threaded through as a CSS custom property set inline per-element
+   (--rule-highlight-color) rather than a second hardcoded colour. Applied
+   independently of .selected — an aircraft can be both selected (tapped)
+   and rule-highlighted at once, and both rings simply stack. */
+.indicator.rule-highlight .indicator-shape { filter: drop-shadow(0 0 5px var(--rule-highlight-color)) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.indicator.rule-highlight .indicator-label { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
+
+/* "Something's out there" edge marker (RAW range selector, ui.js's
+   renderSuppressedDots) — traffic beyond the currently-selected ND range
+   but still relevant/tracked, matching how a real ND shows out-of-range-
+   but-in-envelope traffic as a bare mark at the display's edge rather
+   than a full symbol. Deliberately minimal: no shape, no label, no
+   direction arrow — just a coloured dot, same visibility colour a full
+   label would use. */
+.suppressed-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  pointer-events: all;
+  box-shadow: 0 0 2px rgba(0,0,0,.7);
+}
+.suppressed-dot.selected { box-shadow: 0 0 0 2px #ffff00; }
+.suppressed-dot.rule-highlight { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
+
+/* Leader line — the 8-point candidate label placement's backup tier
+   (ui.js's declutterRenderedIndicators): only appears for an aircraft
+   whose label had to be pushed beyond the normal fixed radius to clear a
+   genuinely crowded cluster, so the connection back to its icon stays
+   obvious even once the label is no longer tucked right up against it.
+   Anchored at .indicator's own origin (its icon), sized/rotated per-
+   aircraft in JS — a plain 1px line is deliberately unobtrusive, this is
+   a wayfinding aid, not something meant to draw the eye on its own. */
+.indicator-leader {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  transform-origin: 0 50%;
+  opacity: .55;
+  pointer-events: none;
+}
+
 .indicator-shape {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
 }
 
+/* Direction-of-travel indicator — anchored at the shape's own centre (not
+   the whole .indicator column, which also includes the label below), then
+   rotated + pushed outward per-aircraft via inline style. */
+.direction-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+}
+
+/* Default position: 24px straight below the icon's own centre (angle 0 in
+   UI.declutterRenderedIndicators's own icon-local polar system), centred
+   via the transform below — matches the old flex-stacked look closely
+   enough for the common (no-overlap) case. Only ui.js's decluttering pass
+   ever changes left/top/transform from here, and only for aircraft whose
+   label actually collides with another aircraft's label or icon; it never
+   touches .indicator's or .indicator-shape's own position. */
 .indicator-label {
+  position: absolute;
+  left: 0;
+  top: 24px;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   background: var(--label-bg);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  min-width: 52px;
+  padding: 3px 7px;
+  min-width: 56px;
   text-align: center;
 }
 
@@ -483,17 +1319,55 @@ body[data-theme="day"] .indicator-label {
   background: rgba(245,243,238,.88);
 }
 
-.indicator-label .callsign {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .04em;
-  line-height: 1.3;
+/* RAW's map/traffic colours are always forced dark regardless of Day/
+   Night/Auto (see colorRaw in visibility.js), but the label BOX itself
+   still followed the resolved theme — Day's near-white background behind
+   a white diamond icon, both rendered over RAW's forced-black map, is
+   illegible in every direction at once. Wins over the Day override above
+   via source order (this rule comes later) even though data-theme="day"
+   and data-nav-style="raw" are both present on <body> simultaneously.
+   (Border colour isn't set here — .indicator-label's border-color is
+   inline per-element, from _borderColor() in ui.js, which is RAW-aware
+   for the same reason.) */
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label {
+  background: rgba(14,17,23,.88);
+}
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label .actype,
+body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude {
+  color: #f0f0f0;
 }
 
 .indicator-label .actype {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.indicator-label .indicator-altitude {
+  /* --text-muted is too low-contrast against the day theme's pale label
+     background (tuned for subtle chrome, not label text) — reuse
+     --text-secondary, same as .actype, just one size smaller. B612 Mono —
+     a real TCAS/ND traffic tag's altitude readout is a digital/monospace
+     figure, unlike the type string above it, which stays on B612. */
+  font-family: 'B612 Mono', monospace;
   font-size: 9px;
   color: var(--text-secondary);
   line-height: 1.3;
+  margin-top: 1px;
+}
+
+/* RAW's ND-style compass tape (#nav-compass-ring, ui.js's renderCompassRing)
+   is built as raw SVG <text> elements via innerHTML, not CSS classes — this
+   catches all of them (heading tick labels, the digital heading box, the
+   speed/route info strip) with one rule rather than threading a
+   font-family into every inline `style="..."` string in ui.js. B612 Mono
+   here specifically because this whole tape is VCAS's own equivalent of a
+   real ND's heading/data tape, rendered in the same monospace face on the
+   actual aircraft. None of ui.js's inline SVG text styles set font-family
+   themselves, so this external rule always applies rather than being
+   overridden by a same-property inline style. */
+#nav-compass-ring text {
+  font-family: 'B612 Mono', monospace;
 }
 
 /* ---- Air mode aircraft markers ---- */
@@ -510,6 +1384,7 @@ body[data-theme="day"] .indicator-label {
 }
 
 .air-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -524,20 +1399,169 @@ body[data-theme="day"] .indicator-label {
   text-align: center;
 }
 
+/* User-defined highlight rules (src/logic/trafficRules.js) — AIR mode's
+   equivalent of .indicator.rule-highlight above. .air-icon already carries
+   its own drop-shadow, so the override combines both into one filter value
+   rather than replacing it (a later `filter` declaration doesn't merge with
+   an earlier one the way box-shadow's comma-list does). */
+.air-marker-inner.rule-highlight .air-icon {
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.8)) drop-shadow(0 0 5px var(--rule-highlight-color));
+}
+.air-marker-inner.rule-highlight .air-label-box { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
+
 body[data-theme="day"] .air-label-box {
   background: rgba(245,243,238,.88);
 }
 
 .air-label-box .callsign {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   line-height: 1.3;
 }
 
 .air-label-box .actype {
+  font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.air-label-box .indicator-altitude {
+  /* Same reasoning as .indicator-label .indicator-altitude above — a
+     digital altitude readout, not display-face label text. */
+  font-family: 'B612 Mono', monospace;
   font-size: 8px;
   color: var(--text-secondary);
   line-height: 1.3;
+}
+
+/* ---- RAW mode aircraft list panel (Stage 3) ---- */
+/* Fills whichever side margin the circular plot's own edge leaves empty on
+   wider screens (see UI.renderAircraftList) — the reference TCAS/ND this
+   whole RAW display emulates doesn't have one, but VCAS isn't square-
+   screen-only (phone portrait/landscape + car infotainment — see
+   CLAUDE.md's "at least 3 types of sizing" discussion), so how much
+   leftover side space there is varies hugely by device. Hidden entirely
+   (not just empty) when there's no usable width — see MIN_PANEL_WIDTH_PX
+   in ui.js; on a narrow phone portrait the plot already spans nearly
+   edge-to-edge, so there's nothing to fill there and the panel doesn't
+   render at all. Always dark regardless of Day/Night/Auto, same reasoning
+   as the compass tape/range rings overlay: RAW has no "day mode"
+   instrument, and this panel only ever exists inside RAW. */
+#raw-aircraft-list {
+  position: fixed;
+  z-index: 9;
+  pointer-events: all;
+  background: rgba(14,17,23,.85);
+  border: 1px solid rgba(240,240,240,.18);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#raw-aircraft-list.hidden { display: none; }
+
+/* Positioned/sized from Geo.computePlotLayout's own `rows` rect —
+   see index.html's comment on the element itself for why this exists. */
+#raw-rows-backdrop { background: var(--raw-chrome-bg); }
+#raw-rows-backdrop.hidden { display: none; }
+
+/* Plain, non-interactive title bar (2026-09-08) — a label, not the
+   removed sort-button row, see renderAircraftList()'s own doc comment
+   in ui.js for why bringing this back doesn't reopen the "less
+   interaction" concern that removal was actually about. */
+.raw-list-title-bar {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(240,240,240,.18);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-align: center;
+  color: #f0f0f0;
+}
+
+.raw-list-title-count { color: var(--raw-value-green); }
+
+.raw-list-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.raw-list-empty {
+  padding: 10px 8px;
+  font-size: 11px;
+  color: rgba(240,240,240,.45);
+  text-align: center;
+}
+
+.raw-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(240,240,240,.08);
+  cursor: pointer;
+}
+.raw-list-row:last-child { border-bottom: none; }
+.raw-list-row:active { background: rgba(240,240,240,.08); }
+.raw-list-row.selected { background: rgba(255,255,0,.14); }
+
+/* Dimmed, not hidden — this aircraft is still in the list (it's relevant
+   and tracked), it just doesn't have a full plot icon right now because
+   the ND range selector is dialled below its distance; it shows as a bare
+   suppressed-dot on the plot instead (or nothing, if also outside the
+   FOV). Distinguishes "no icon because out of range" from "no icon
+   because it didn't make the priority cut" (which just isn't in this
+   list's row set differently — everything relevant IS in the list). */
+
+/* Chevron, not a round dot (round 9, 2026-09-08, direct instruction to
+   match a design draft) — coloured the exact same way the dot was
+   (per-aircraft visibility colour, _displayColor(ind.vis)), so the list
+   still carries the same at-a-glance colour-coding, just via a different
+   glyph. */
+.rlr-chevron {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  width: 12px;
+  text-align: center;
+}
+
+/* Single line (2026-09-15, direct instruction): callsign + type/altitude/
+   range used to stack as two lines, leaving the unused width to the right
+   of the short callsign empty. Now one flex row — callsign never
+   shrinks/truncates (it's the primary identifier, always short), the
+   meta text takes whatever's left and ellipsis-truncates if it doesn't
+   fit, using exactly the space the old second line wasted. */
+.rlr-info {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rlr-callsign {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f0f0f0;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rlr-meta {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f0f0f0;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 /* ---- Popup ---- */
@@ -585,7 +1609,11 @@ body[data-theme="day"] .air-label-box {
 
 #popup .pop-row:last-child { border-bottom: none; }
 #popup .pop-key   { color: var(--text-secondary); }
-#popup .pop-val   { font-weight: 600; }
+/* B612 Mono — this is VCAS's own data-page (Distance/Altitude/Bearing/
+   Speed/Updated), the same kind of aligned numeric readout an MCDU/ND
+   secondary page renders in monospace on a real aircraft. The key labels
+   beside these values stay on B612's regular display face. */
+#popup .pop-val   { font-family: 'B612 Mono', monospace; font-weight: 600; }
 
 #popup .pop-vis-badge {
   display: inline-block;
@@ -639,50 +1667,66 @@ body[data-theme="day"] .air-label-box {
 #popup .pop-log-btn:active { background: var(--btn-hover); }
 #popup .pop-log-btn-done   { background: rgba(76, 175, 80, .5); }
 
-/* ---- Loading spinner ---- */
-#loading {
-  position: fixed;
-  bottom: 90px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (2026-08-24) — same distraction/
+   safety gate and same dimmed-not-hidden treatment as #lp-toggle's own
+   .lp-toggle-disabled. The popup itself and its read-only info stay fully
+   visible; only these action buttons (record/suppress something) disable. */
+#popup .pop-log-btn.pop-action-disabled,
+#popup .pop-suppress-btn.pop-action-disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+#popup .pop-log-btn.pop-action-disabled:active,
+#popup .pop-suppress-btn.pop-action-disabled:active {
+  background: var(--btn-bg);
+}
+
+/* ---- Route button (in mode-row) ----
+   Redesigned 2026-09-08 (design draft) as a road-sign diamond + an
+   OFF/ON rocker-switch-style readout, replacing the plain pin-emoji
+   circle — same element/id/click behaviour as before ("the current
+   version of this is the Pin," per direct instruction), just restyled.
+   OFF/ON reflects a REAL state (body.route-active, already toggled by
+   requestRouteTo()/clearActiveRoute() — see app.js), not a fabricated
+   indicator: OFF highlighted with no active route, ON highlighted once
+   one exists. */
+.route-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 5px 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  gap: 6px;
+  background: var(--btn-bg);
+  border-color: var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
 }
 
-#loading.hidden { display: none; }
-
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .7s linear infinite;
+.route-btn-icon {
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
+  /* Dark red/maroon, pixel-sampled from the design draft's own diamond
+     icon (round 4's original amber guess predated a real sample). */
+  color: #9c3b42;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ---- Route button (in mode-row) ---- */
-.route-btn {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-  font-size: 16px;
-  padding: 10px 16px;
+.route-btn-toggle {
+  display: flex;
+  flex-direction: column;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  line-height: 1.3;
 }
+
+.route-btn-off, .route-btn-on { opacity: .4; transition: opacity .2s, color .2s; }
+.route-btn-off { opacity: 1; color: #9c3b42; /* matches the diamond icon, see .route-btn-icon */ }
+body.route-active .route-btn-off { opacity: .4; }
+body.route-active .route-btn-on  { opacity: 1; color: #4caf50; }
 
 .route-btn:active   { opacity: .75; }
 .route-btn:disabled { opacity: .5; pointer-events: none; }
 .route-btn.picking  { background: #ff6b6b; border-color: #ff6b6b; animation: btn-armed-pulse 1.2s ease-in-out infinite; }
+.route-btn.picking .route-btn-icon { color: #ffffff; }
 
 @keyframes btn-armed-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,.55); }
@@ -794,7 +1838,16 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
   flex-wrap: wrap;
 }
 
+/* B612 Mono — this ETA/time/distance strip is VCAS's own equivalent of a
+   real ND's flight-data readout (GS/TAS/ILS APP/arrival time, see
+   CLAUDE.md's "Vehicle/route info strip" entry), so it gets the same
+   monospace face those digital readouts actually use, not the display
+   face (B612) the rest of the app's labels use. Only weight 400 ships for
+   B612 Mono — font-weight 800/600 below fall back to the browser's own
+   synthesized bold rather than a real bold face, same simplification as
+   B612 itself (see the html/body rule's own comment). */
 .route-eta-time {
+  font-family: 'B612 Mono', monospace;
   font-size: 32px;
   font-weight: 800;
   color: var(--text-primary);
@@ -803,6 +1856,7 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 }
 
 .route-eta-arrival {
+  font-family: 'B612 Mono', monospace;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -815,6 +1869,13 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Only the numeric distance readout, not .route-eta-sub as a whole — that
+   span also holds #route-dest-name (a place name), which stays on the
+   regular B612 display face like any other text label. */
+#route-dist-text {
+  font-family: 'B612 Mono', monospace;
 }
 
 .route-sep { color: var(--text-muted); }
@@ -840,16 +1901,146 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 .route-card-clear:active { background: var(--btn-hover); }
 .route-card-clear.guidance-text-off { opacity: .5; }
 
-/* Route active: hide normal bottom bar behind the ETA card */
-body.route-active[data-mode="nav"] #bottom-bar {
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .3s;
+/* ---- RAW: merge the guidance card + ETA card into one top nav-status
+   panel (2026-09-06) ----
+   Direct instruction, from a hand-drawn design draft compared against a
+   real MSFS A320 ND reference photo: RAW's own turn-instruction/ETA
+   content should read like the reference's top data row (GS/TAS/ILS APP),
+   not Hybrid's separate Google-Maps-style top banner + bottom-pinned ETA
+   card. Both elements' own population logic (app.js's _updateGuidanceCard/
+   _updateRouteCard) is completely unchanged — this is a position + colour
+   override only. #route-card's actual repositioning (fixed `top`, not
+   `bottom`) is set from app.js's _rawChromeInsets(), which already
+   measures #top-bar/#nav-guidance-card's real heights for the square
+   plot's own layout — this CSS only handles the visual merge (matching
+   background, no seam) once it's there. Same rgba(14,17,23,.85)/
+   rgba(240,240,240,.18) panel colours #raw-aircraft-list already uses, so
+   every RAW-only panel reads as the same material. */
+/* 2026-09-08 (round 5): the Hybrid card's own scale — a 44px icon, 26px
+   monospace-forced action text, and generous padding, all sized for a
+   Google-Maps-style banner with nothing else sharing its row — badly
+   overflowed once .ngc-eta (added the same round) joined the same row:
+   a genuinely short instruction ("Turn right onto Rice Lane — 200 m")
+   wrapped to 3 lines and inflated the whole card to ~150px tall, eating
+   directly into the "radar should push up to the top bar" / rows-region
+   budget below it. Sized down to an actual compact instrument-readout
+   scale instead, and dropped the B612-Mono override on the full
+   sentence (monospace is for short digit-only readouts elsewhere in
+   this row — SPD/DIST below, the digital heading tape — not a whole
+   prose instruction, which only needs the extra width that costs). */
+body[data-mode="nav"][data-nav-style="raw"] #nav-guidance-card,
+body[data-mode="nav"][data-nav-style="raw"].route-active #nav-guidance-card {
+  background: rgba(14,17,23,.85);
+  border-bottom: none;
+  box-shadow: none;
+  padding: 10px 14px 8px;
+  gap: 10px;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-maneuver,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-maneuver {
+  color: #f0f0f0;
+  font-size: 22px;
+  min-width: 26px;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-action,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-action {
+  color: #f0f0f0;
+  font-size: 16px;
+  line-height: 1.3;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-dest,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dest {
+  color: rgba(240,240,240,.75);
+  font-size: 12px;
 }
 
-/* ---- NAV mode: ADS-B indicators are secondary ---- */
-body[data-mode="nav"] .indicator { opacity: 0.45; }
-body[data-mode="nav"] .indicator:hover { opacity: 0.80; }
+/* .ngc-eta — the arrival clock, RAW-only (2026-09-08). Hidden by default
+   (Hybrid keeps its own #route-eta-arrival, unchanged, down in
+   #route-card); .ngc-body's own flex:1 pushes this to the row's right
+   edge automatically once it's a flex sibling, no extra positioning
+   needed. */
+.ngc-eta {
+  display: none;
+  flex-shrink: 0;
+  font-family: 'B612 Mono', monospace;
+  font-size: 20px;
+  font-weight: 800;
+  align-self: center;
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-eta {
+  display: block;
+  color: var(--raw-value-green);
+}
+
+body[data-mode="nav"][data-nav-style="raw"] #route-card {
+  border-top: 1px solid rgba(240,240,240,.18);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: rgba(14,17,23,.85);
+  box-shadow: none;
+  animation: none; /* the slide-up-from-bottom entrance makes no sense once this lives at the top */
+}
+
+/* RAW's own one-row speed+distance readout (2026-09-08), replacing
+   Hybrid's duration+arrival row (moved to .ngc-eta above) and distance+
+   destName sub-line (destName already covered by .ngc-dest in the
+   guidance card) — see index.html's own comment on #route-card for why
+   both rows are always populated by the same app.js writes and only
+   CSS decides which one shows. */
+.route-eta-row-raw { display: none; }
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-row {
+  display: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-sub {
+  display: none;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-row-raw {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: 'B612 Mono', monospace;
+  font-size: 20px;
+  font-weight: 800;
+}
+body[data-mode="nav"][data-nav-style="raw"] .route-eta-speed { color: var(--raw-value-green); }
+body[data-mode="nav"][data-nav-style="raw"] #route-dist-text-raw { color: var(--raw-value-cyan); }
+
+/* Colour-coded readout values, RAW only (round 4, 2026-09-08) — Hybrid's
+   own guidance/route card keeps its plain text colours unchanged, this is
+   specifically an ND-instrument-readout convention. .ngc-dist-value/
+   .ngc-direction-value are new spans app.js's _updateGuidanceCard() wraps
+   around the distance figure/direction word (see that function) rather
+   than writing the whole sentence as one flat textContent string. */
+body[data-mode="nav"][data-nav-style="raw"] .ngc-dist-value,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dist-value {
+  color: var(--raw-value-cyan);
+}
+body[data-mode="nav"][data-nav-style="raw"] .ngc-direction-value,
+body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-direction-value {
+  color: var(--raw-value-green);
+}
+
+/* Route active in Hybrid/AIR: #bottom-bar (mode-toggle/nav-pin row) used
+   to be hidden outright here to avoid visually colliding with
+   #route-card, which shares the same bottom-pinned position — this also
+   hid the ONLY way to switch to RAW/AIR/3D or reach any other bottom-bar
+   control while navigating in Hybrid (reported directly, 2026-09-16:
+   "there is no way to change between raw, hybrid and air when navigation
+   is on"). RAW's own version of this same collision was already solved
+   properly back on 2026-09-06 (see "merge the guidance/ETA card" above)
+   by REPOSITIONING #route-card rather than hiding anything — app.js's
+   _rawChromeInsets() now does the same for Hybrid/AIR: stacks #route-card
+   directly above #bottom-bar's own real height (JS-driven, since both
+   heights are dynamic and CSS alone can't measure them), so both stay
+   visible and reachable and neither needs hiding here anymore. */
+
+/* ---- NAV mode: ADS-B indicators are secondary to the road map in Hybrid
+   (where traffic is an overlay on top of real navigation), but NOT in Raw —
+   there's no map underneath Raw for traffic to be secondary to, it IS the
+   display, and dimming it there was washing out the reference-matched TCAS/
+   ND colours down to a uniform grey. ---- */
+body[data-mode="nav"]:not([data-nav-style="raw"]) .indicator { opacity: 0.45; }
+body[data-mode="nav"]:not([data-nav-style="raw"]) .indicator:hover { opacity: 0.80; }
 
 /* ---- Navigation state body attributes ---- */
 /* Used for state-driven cartography suppression and future CSS hooks. */
@@ -859,7 +2050,6 @@ body[data-nav-state="turn_approach"] { }
 
 /* ---- Responsive tweaks ---- */
 @media (max-width: 400px) {
-  .indicator-label .callsign { font-size: 9px; }
   .indicator-label .actype   { font-size: 8px; }
   .indicator-shape svg       { width: 17px; height: 17px; }
   .theme-btn                 { padding: 2px 5px; }
@@ -1060,27 +2250,32 @@ body[data-nav-state="turn_approach"] { }
   border-color: #505aaa;
 }
 
-/* ---- LOG button + ground-truth panel (mirrors VIEW, opposite corner) ---- */
-#log-panel {
-  position: fixed;
-  bottom: calc(14px + var(--bottom-toast-offset, 0px));
-  left: 14px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-  pointer-events: all;
-  transition: bottom .3s;
-}
+/* ---- LOG button + ground-truth panel ----
+   2026-08-24 follow-up: the toggle first moved into #top-bar-right (fixing
+   a real overlap with the RAW aircraft-list panel's own rows, which can
+   reach the bottom-left in portrait) but landed on its own row, separate
+   from the RAW range/SPD readouts. Direct follow-up request put it back on
+   fixed positioning, left/top now set by logPanel.js's setPosition() (app.js
+   calls it right where it positions the range selector) so it stays on the
+   SAME row as SPD/range rather than a second, disconnected fixed-position
+   formula that could drift from theirs. */
 
 #lp-toggle {
+  position: fixed;
+  /* Default before the first real setPosition() call lands (first GPS fix
+     or dev speed change) — a reasonable approximation of the SPD/range
+     row's own typical position, not a flash at the fixed-element default
+     of the viewport's top-left corner. */
+  left: 14px;
+  top: 100px;
+  z-index: 11;
+  flex-shrink: 0;
   background: rgba(18, 18, 36, 0.90);
   color: #7b8cde;
   border: 1px solid #3a3a5e;
   border-radius: 6px;
   padding: 5px 10px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .12em;
@@ -1095,7 +2290,23 @@ body[data-nav-state="turn_approach"] { }
   color: #a0b4ff;
 }
 
+/* Above CONFIG.GPS_HEADING_MIN_SPEED_MPH (2026-08-24, distraction/safety) —
+   dimmed and inert rather than hidden, so it reads as "temporarily
+   unavailable" and reappears usable the moment you stop, not as broken. */
+#lp-toggle.lp-toggle-disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+#lp-toggle.lp-toggle-disabled:hover {
+  background: rgba(18, 18, 36, 0.90);
+  color: #7b8cde;
+}
+
 #lp-menu {
+  position: fixed;
+  /* left/top set by logPanel.js's setPosition() — just below the toggle's
+     own current position, wherever that ends up. */
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1105,9 +2316,11 @@ body[data-nav-state="turn_approach"] { }
   border: 1px solid #3a3a5e;
   border-radius: 8px;
   padding: 8px;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 32px rgba(0,0,0,.7);
   overflow: hidden;
+  pointer-events: all;
 }
 
 #lp-menu.hidden { display: none; }
@@ -1195,3 +2408,871 @@ body[data-nav-state="turn_approach"] { }
 }
 
 .lp-btn:hover { background: rgba(255,255,255,.14); }
+
+/* ---- 3D View (planetarium-style free-view mode, 2026-09-09) ----
+   A full-screen modal overlay, same structural pattern as #settings-screen
+   below (fixed inset:0, z-index high enough to sit above the map/RAW
+   chrome, toggled purely via .hidden) — see index.html's own comment on
+   why this is a modal ON TOP of whatever mode was already active, not a
+   real 4th `mode`/NavDisplayStyle value. The CHROME (header bar, close
+   button) is fixed-dark, same --raw-chrome-bg every other bar in this app
+   now uses regardless of theme (see the round-11 chrome-unification entry
+   in CLAUDE.md) — but the WORLD content inside #view3d-body (the sky/
+   ground split below) DOES follow real Day/Night, a deliberate reversal
+   of this section's own earlier "always dark, no day mode" reasoning:
+   unlike RAW's abstract instrument readout, this screen depicts the
+   literal real sky the user is pointing at, so a blue daytime look vs. a
+   dark starlit one is genuinely more honest here, not less. */
+#view3d-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+#view3d-screen.hidden { display: none; }
+
+#view3d-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raw-chrome-bg);
+}
+
+#view3d-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: .04em;
+}
+
+#view3d-count {
+  flex: 1;
+  font-size: 12px;
+  color: var(--raw-value-green);
+  font-family: 'B612 Mono', monospace;
+  text-align: right;
+}
+
+#btn-3d-view-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+}
+
+/* Manual "Set North" calibration button (2026-09-13) — see
+   app.js's onCalibrateNorthClick()/_updateCalibrateNorthButton(). Plain
+   black/white pill matching the close button's own material; switches to
+   the same cyan this project already uses elsewhere for "active/on" state
+   (--raw-value-cyan) once a calibration is actually in effect, so it reads
+   as a real toggle, not a one-shot action button. */
+#btn-3d-calibrate-north {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid #fff;
+  background: #000;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#btn-3d-calibrate-north.view3d-calibrated {
+  border-color: var(--raw-value-cyan);
+  color: var(--raw-value-cyan);
+}
+
+#view3d-body {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: #000;
+}
+
+/* World building — a lightweight procedural sky/ground split at the real
+   horizon (see index.html's own comment on why this isn't a real 3D map),
+   positioned every refresh from View3DLogic.horizonScreenY() via
+   UI.render3DWorld(): #view3d-sky spans 0 to the horizon's current Y,
+   #view3d-ground spans the horizon down to the bottom of the screen — as
+   the phone tilts, the horizon (and the sky/ground split) moves exactly
+   the same way an aircraft dot would if it sat at true elevation 0.
+   Colours are a flat top-to-bottom gradient WITHIN each div's own current
+   height, not physically anchored to true elevation across a tilt — a
+   deliberate v1 simplification (see CLAUDE.md), not a bug: a real,
+   continuously-anchored sky gradient would need to know the full 180°
+   sky-to-ground range in advance, whereas this only needs "which side of
+   the horizon is each pixel on," which is what actually matters for
+   reading the scene at a glance.
+
+   Pass 2 (2026-09-09, same day) adds four more static/cheap layers plus
+   one animated one on top of this same split, all still "compute once,
+   don't fight the render loop" per this project's own established
+   discipline — see CLAUDE.md's own writeup for the full reasoning:
+     - A haze band: a third gradient stop lightening the sky near the
+       horizon (skies read paler near the horizon, not a flat fade).
+     - A horizon silhouette (#view3d-horizon): a repeating hill-shape SVG
+       data-URI, positioned as a child of #view3d-ground with a NEGATIVE
+       top offset so it sits exactly on the sky/ground seam automatically,
+       with zero extra JS — it moves with the horizon for free because its
+       parent already does.
+     - A flat (non-perspective) ground texture: a repeating grid pattern
+       layered under the existing solid gradient via multiple
+       background-image layers — same visual idea as the perspective-warp
+       proof-of-concept explored and declined for the "warp a MapLibre
+       tile" question, just without the transform (see CLAUDE.md).
+     - Drifting cloud blobs (#view3d-clouds): the ONE layer here with an
+       ongoing per-frame cost (a continuous GPU-composited CSS transform
+       animation) — gated on View3DClouds's own settings toggle via a
+       plain .hidden class, toggled by UI.render3DWorld()'s new 4th
+       cloudsEnabled param. */
+#view3d-sky {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  overflow: hidden; /* clip drifting clouds to the sky's own current height */
+  background: linear-gradient(to bottom, #0a1a33 0%, #4488c8 78%, #9ad0ec 100%);
+}
+#view3d-sky.night {
+  background: linear-gradient(to bottom, #000000 0%, #0a1830 78%, #1c3d5c 100%);
+}
+/* A handful of fixed points, not a real star field — cheap "this is night"
+   texture on the night sky only, static so it costs nothing to redraw. */
+#view3d-sky.night::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, #fff, transparent),
+    radial-gradient(1px 1px at 60% 12%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 80% 40%, #fff, transparent),
+    radial-gradient(1px 1px at 35% 60%, #fff, transparent),
+    radial-gradient(1px 1px at 90% 70%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 15% 80%, #fff, transparent),
+    radial-gradient(1px 1px at 50% 45%, #fff, transparent),
+    radial-gradient(1px 1px at 70% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 5% 50%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 45% 85%, #fff, transparent);
+  opacity: .85;
+}
+
+/* Drifting clouds — soft blurred ellipses, each with its own size/height/
+   animation-duration/animation-delay set inline in index.html (a handful of
+   fixed, hand-placed shapes, not procedurally generated — same "decorative,
+   not simulated" honesty as the static night starfield above). Negative
+   animation-delay values start each cloud already mid-flight rather than
+   every cloud beginning stacked at the same left edge on open. Day and
+   night share the same drift animation; only colour/opacity differ. Toggled
+   off entirely (no animation running, nothing painted) via the .hidden
+   class when View3DClouds.isEnabled() is false. */
+#view3d-clouds {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#view3d-clouds.hidden { display: none; }
+.view3d-cloud {
+  position: absolute;
+  left: -220px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.55);
+  filter: blur(7px);
+  animation-name: view3d-cloud-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+#view3d-sky.night .view3d-cloud {
+  background: rgba(160,180,210,.22);
+}
+@keyframes view3d-cloud-drift {
+  from { transform: translateX(0); }
+  to   { transform: translateX(160vw); }
+}
+
+/* Horizon silhouette — a repeating hill-shape strip, positioned as a CHILD
+   of #view3d-ground with a negative top offset so it always sits exactly
+   on the sky/ground seam: #view3d-ground's own top is repositioned every
+   refresh by UI.render3DWorld(), and this child inherits that same
+   positioned-ancestor origin for free, no separate JS needed to keep it
+   in sync. Deliberately the SAME silhouette shape/colour for day and
+   night (real distant terrain reads as a dark silhouette regardless of
+   time of day) — only overall opacity differs, dimmer at night so it
+   doesn't compete with the starfield above it. */
+#view3d-horizon {
+  position: absolute;
+  left: 0; right: 0;
+  top: -22px;
+  height: 30px;
+  background-repeat: repeat-x;
+  background-position: bottom;
+  background-size: 200px 30px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='30' viewBox='0 0 200 30'><path d='M0,30 L0,18 L18,9 L34,15 L52,4 L70,13 L90,7 L108,16 L128,2 L148,12 L168,6 L184,14 L200,9 L200,30 Z' fill='%23111a14'/></svg>");
+  opacity: .8;
+}
+#view3d-ground.night #view3d-horizon {
+  opacity: .55;
+}
+
+/* Ground texture — a flat (non-perspective) repeating grid, layered under
+   the existing solid gradient via a second background-image rather than
+   replacing it. Deliberately NOT the perspective-warped version explored
+   for the "warp a MapLibre tile" question (see CLAUDE.md) — same visual
+   family, without that approach's WebGL-context/battery cost. */
+#view3d-ground {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.06) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 1px, transparent 1px 34px),
+    linear-gradient(to bottom, #3a2f1e, #14100a);
+}
+#view3d-ground.night {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.03) 0 1px, transparent 1px 34px),
+    linear-gradient(to bottom, #0a0a08, #000000);
+}
+
+/* Compass-tick strip — pinned along the top edge (not repositioned by
+   pitch, unlike the sky/ground split), driven by the phone's live azimuth
+   via View3DLogic.compassTicks()/UI.renderCompassTicks(). Same FOV window
+   the aircraft dots themselves use, so a tick and a dot at the same
+   bearing always land at the same x. */
+#view3d-compass-ticks {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 34px;
+  pointer-events: none;
+}
+.view3d-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.view3d-tick::before {
+  content: "";
+  width: 1.5px;
+  height: 9px;
+  background: rgba(255,255,255,.75);
+}
+.view3d-tick.major::before { height: 14px; background: var(--raw-value-cyan); }
+.view3d-tick-label {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--raw-value-cyan);
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+
+/* Fixed at dead-centre — represents "where the phone is currently
+   pointing", the same anchor View3DLogic.projectTo3DPosition()
+   measures every aircraft's offset against. Never moves; the aircraft
+   dots move around it as the phone's own azimuth/pitch change. */
+#view3d-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+#view3d-crosshair::before,
+#view3d-crosshair::after {
+  content: "";
+  position: absolute;
+  background: var(--raw-value-cyan);
+}
+#view3d-crosshair::before { left: 0; right: 0; top: 50%; height: 1.5px; transform: translateY(-50%); }
+#view3d-crosshair::after  { top: 0; bottom: 0; left: 50%; width: 1.5px; transform: translateX(-50%); }
+
+#view3d-items {
+  position: absolute;
+  inset: 0;
+}
+
+.view3d-dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.view3d-dot-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.85);
+  box-shadow: 0 0 6px rgba(0,0,0,.6);
+}
+
+.view3d-dot-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0,0,0,.6);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+#view3d-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--text-muted, #9099a8);
+  text-align: center;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
+#view3d-blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 32px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0,0,0,.92);
+}
+#view3d-blocked.hidden { display: none; }
+
+/* 3D mode button — dimmed/unusable above the same speed threshold the
+   overlay itself is gated on, same visual language as
+   .manual-tilt-toggle-disabled/.lp-toggle-disabled elsewhere in this app. */
+#btn-3d.view3d-toggle-disabled { opacity: .35; cursor: not-allowed; }
+
+/* Real bug fix (2026-09-13 review): #popup lives outside #view3d-screen's
+   own DOM subtree at its normal z-index (60) — #view3d-screen's opaque
+   full-screen background sits at z-index 220, so tapping an aircraft dot
+   in 3D View called UI.showAirPopup() correctly, but the resulting card
+   rendered entirely behind the overlay, invisible. Confirmed directly via
+   a real elementFromPoint() check before fixing, not assumed. app.js's
+   open3DView()/close3DView() toggle this class on #popup itself (not a
+   body-level flag) so every other z-index-200+ overlay (Settings,
+   onboarding, the crash banner) keeps its existing relationship with the
+   popup exactly as before — this only raises it specifically for 3D
+   View's own case, where nothing above it is ever supposed to be showing
+   at the same time as an aircraft tap anyway. */
+#popup.view3d-popup-active { z-index: 230; }
+
+/* ---- Settings screen ---- */
+#settings-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dark);
+  animation: settings-in .2s ease-out;
+}
+
+#settings-screen.hidden { display: none; }
+
+@keyframes settings-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+#settings-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+#settings-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#btn-settings-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+#btn-settings-close:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+#settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.settings-section {
+  margin-top: 22px;
+}
+
+.settings-section h3 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child { border-bottom: none; }
+
+.settings-credit {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 10px;
+}
+
+.settings-credit a {
+  color: var(--text-secondary);
+}
+
+.settings-label {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.settings-toggle-btn {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+  transition: background .15s, color .15s;
+}
+
+.settings-toggle-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+.settings-toggle-btn.active {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-bg);
+  color: #fff;
+  box-shadow: var(--btn-shadow-active);
+}
+
+.settings-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+
+.settings-preset-btn {
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+  transition: background .15s, color .15s;
+}
+
+.settings-preset-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+.settings-preset-btn.active {
+  background: var(--btn-active-bg);
+  border-color: var(--btn-active-bg);
+  color: #fff;
+  box-shadow: var(--btn-shadow-active);
+}
+
+/* Mode-button reorder control (round 9, 2026-09-08) — three rows, each
+   the mode's own name plus up/down move buttons, reflecting
+   ModeButtonOrder's current saved order top-to-bottom (same order the
+   real #mode-row buttons are in). Tap-based move, not drag-to-reorder —
+   this app's own established "no drag gestures on a driving-app control"
+   convention (see CLAUDE.md's RAW range-selector redesign notes) applies
+   here too. */
+.settings-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 12px;
+}
+
+.settings-order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+}
+
+.settings-order-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-primary);
+}
+
+.settings-order-moves {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.settings-order-move-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+.settings-order-move-btn:active:not(:disabled) { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+.settings-order-move-btn:disabled { opacity: .35; cursor: default; }
+
+/* ---- Traffic Rules (settings screen) — hide (filter) or mark (highlight)
+   aircraft by type/category/altitude/military-vs-civil, one shared rule
+   list + one shared rule-builder form, per-rule mode toggle. Rows/form
+   fields built by app.js's _renderTrafficRulesList()/_renderTrafficRuleForm();
+   this is just the styling. ---- */
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: -4px 0 10px;
+}
+
+.traffic-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.traffic-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+}
+
+.traffic-rule-row.disabled { opacity: .5; }
+
+.traffic-rule-swatch {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+}
+
+.traffic-rule-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traffic-rule-row-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+.traffic-rule-row-btn:active { background: var(--btn-hover); }
+
+.traffic-rule-form {
+  padding: 4px 0 0;
+}
+#traffic-rule-form.hidden { display: none; }
+#tr-color-row.hidden { display: none; }
+
+/* Colourblind-safe highlight-colour shortcuts (2026-09-14) — hidden by
+   default (and always hidden for a filter-mode rule, via the higher-
+   specificity #tr-safe-swatches.hidden rule below — an ID selector beats
+   this class-only one regardless of colourblind state), shown only once
+   ColorblindMode.isEnabled() is true, mirrored onto <body> as this class
+   by app.js's _updateColorblindToggleBtn(). Direct instruction: "free
+   picker + safe presets," not a restriction — #tr-color itself is
+   completely untouched and stays usable either way; these are just a
+   faster, curated path onto four colours drawn from the same safe family
+   the visibility-tier palette already uses (visibility.js's own
+   colorblindSafe/colorblindSafeDay), deliberately excluding the three
+   hues (pink, yellow, blue) those tiers already claim, plus black/white
+   (RAW's own colorRaw uses pure white for two tiers; a black swatch would
+   be invisible against RAW's own black background). */
+.tr-safe-swatches { display: none; }
+body.colorblind-safe .tr-safe-swatches { display: flex; align-items: center; }
+#tr-safe-swatches.hidden { display: none; }
+
+.tr-safe-swatch-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tr-safe-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+.tr-safe-swatch:active { transform: scale(.92); }
+
+.traffic-rule-input, .traffic-rule-select {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  color: var(--text-primary);
+  font-size: 13px;
+  -webkit-appearance: none;
+}
+
+.traffic-rule-input { width: 130px; }
+.traffic-rule-input-narrow { width: 80px; }
+
+.traffic-rule-altitude {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.traffic-rule-color {
+  flex-shrink: 0;
+  width: 40px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+/* ---- First-launch onboarding (index.html #onboarding-screen) ----
+   Shown once, not on every open — see app.js's ONBOARDING_SEEN_KEY gate.
+   Styled as a normal app overlay (same family as #settings-screen) rather
+   than the splash's pure-inline styles, since this only ever shows AFTER
+   a successful init(), when VCAS.css is already known-good. */
+
+#onboarding-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 14, 23, .72);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+#onboarding-screen.hidden { display: none; }
+
+#onboarding-panel {
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+#onboarding-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px 20px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.onboarding-section {
+  margin-bottom: 22px;
+}
+
+.onboarding-section h3 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.onboarding-section p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.onboarding-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.onboarding-tag {
+  flex-shrink: 0;
+  min-width: 58px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+#onboarding-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.onboarding-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.onboarding-legend-icon {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-legend-icon svg { display: block; filter: drop-shadow(0 0 2px rgba(0,0,0,.5)); }
+
+.onboarding-legend-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.onboarding-legend-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.onboarding-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+#onboarding-footer {
+  flex-shrink: 0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.onboarding-cta {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+.onboarding-cta:active { box-shadow: var(--btn-shadow-active); }

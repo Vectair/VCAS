@@ -132,7 +132,28 @@ const RouteGeometry = (() => {
     return { lon: absoluteFinalNode[0], lat: absoluteFinalNode[1] };
   }
 
-  return { nearestOnLine, projectAlong };
+  /**
+   * Distance (metres) from a snapped position (segIdx/t, as returned by
+   * nearestOnLine) forward along the route to a given coordinate-array
+   * index — the "how far until the next named turn" figure ManeuverTracker
+   * needs, since ORS's own steps reference maneuver locations by index
+   * into this same coordinate array, not by distance.
+   */
+  function distanceToIndex(coords, segIdx, t, targetIdx) {
+    if (!coords || coords.length < 2 || targetIdx <= segIdx) return 0;
+
+    const a = coords[segIdx];
+    const b = coords[Math.min(segIdx + 1, coords.length - 1)];
+    const startPt = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+
+    let total = _dist(startPt, b);
+    for (let i = segIdx + 1; i < targetIdx && i < coords.length - 1; i++) {
+      total += _dist(coords[i], coords[i + 1]);
+    }
+    return total;
+  }
+
+  return { nearestOnLine, projectAlong, distanceToIndex };
 })();
 
 if (typeof module !== "undefined") module.exports = RouteGeometry;

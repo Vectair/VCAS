@@ -13,6 +13,15 @@ const NavigationCameraEvaluator = (() => {
     HIGHWAY_GUIDANCE: { pitch: 60, zoom: 14.2, anchorY: 0.85, anchorX: 0.5 },
     TURN_APPROACH:    { pitch: 35, zoom: 16.8, anchorY: 0.70, anchorX: 0.5 },
     AIR:              { pitch: 0,  zoom: 10.0, anchorY: 0.50, anchorX: 0.5 },
+    // Selectable NAV display style (NavDisplayStyle.RAW) — flat plan-
+    // position view, heading-up (bearing still tracks the user, unlike
+    // AIR's north-up), anchored low like the tilted views so ownship sits
+    // near the bottom with room ahead. zoom 11.2 is sized so the relevance
+    // teardrop's own ~15nm dead-ahead range comfortably fits the screen
+    // (Web Mercator ground resolution ≈156543*cos(lat)/2^zoom m/px; at
+    // ~51°N that puts roughly 15nm across a typical viewport height) —
+    // approximate by nature, not tied to a precise on-screen distance.
+    NAV_RAW:          { pitch: 0,  zoom: 11.2, anchorY: 0.80, anchorX: 0.5 },
   };
 
   // ---- PERSISTENT CACHE CORE (Maintains memory state across frames) ---- //
@@ -29,9 +38,6 @@ const NavigationCameraEvaluator = (() => {
   // Time Horizon parameters for turn approaches
   const T_IMPACT_APPROACH_S = 18.0; // Start turn transition 18 seconds before arrival
   const TURN_THRESH_DEG     = 25;   // Angular trajectory deviation threshold
-
-  const MIN_LOOKAHEAD_M  = 80;
-  const MAX_LOOKAHEAD_M  = 1200;
 
   // Viewport structural bias presets
   const VIEWPORT_BIASES = {
@@ -112,8 +118,13 @@ const NavigationCameraEvaluator = (() => {
       const {
         mode, routeActive, routeGeometry,
         userLat, userLon, userSpeedMph,
-        viewportPreset,
+        viewportPreset, navDisplayStyle,
       } = ctx;
+      // ctx also optionally carries viewportWidth/viewportHeight/
+      // squareContentTop/squareContentHeight — real DOM-measured numbers
+      // (not destructured above since only NAV_RAW's square-anchor branch,
+      // step 9b below, reads them) used to align this state's anchor with
+      // RAW's own screen-space square plot. See that branch for why.
 
       const currentTimeMs = Date.now();
       const rawSpeedMph   = userSpeedMph || 0;
@@ -131,6 +142,13 @@ const NavigationCameraEvaluator = (() => {
 
       if (mode === "air") {
         targetState = "AIR";
+      } else if (navDisplayStyle === "raw") {
+        // A deliberate, explicit user preference — not a speed-driven
+        // automatic state — so it bypasses the urban/highway/turn state
+        // machine entirely, including the maneuver-driven TURN_APPROACH
+        // framing. Guidance data (maneuver, below) still computes normally;
+        // only the camera framing itself goes flat/rudimentary.
+        targetState = "NAV_RAW";
       } else if (!routeActive) {
         targetState = "NAV_IDLE";
       } else if (turnMetrics.exists) {
@@ -144,35 +162,18 @@ const NavigationCameraEvaluator = (() => {
         }
       }
 
-      // 4. Enforce State Dwell Lock timers
+      // 4. Enforce State Dwell Lock timers — except into/out of NAV_RAW,
+      // which (like AIR) is a direct user choice that should apply on the
+      // very next frame, not smoothed behind the same hysteresis meant for
+      // noisy automatic speed-based transitions.
       if (targetState !== lastEvaluatedState) {
-        if ((currentTimeMs - stateDwellTimestamp) > MIN_STATE_DWELL_MS) {
+        if (targetState === "NAV_RAW" || lastEvaluatedState === "NAV_RAW"
+            || (currentTimeMs - stateDwellTimestamp) > MIN_STATE_DWELL_MS) {
           lastEvaluatedState = targetState;
           stateDwellTimestamp = currentTimeMs;
         } else {
           targetState = lastEvaluatedState; // Clamp execution state to cache memory
         }
-      }
-
-      // 5. Compute Logarithmic Lookahead Target Vector Bounds
-      let lookAheadMeters = MIN_LOOKAHEAD_M;
-      if (targetState !== "AIR" && speedMs > 1.0) {
-        const scalingExponent = (targetState === "HIGHWAY_GUIDANCE") ? 1.6 : 1.1;
-        const computedMeters = speedMs * 4.0 * Math.log10(speedMs * scalingExponent);
-        lookAheadMeters = Math.max(MIN_LOOKAHEAD_M, Math.min(MAX_LOOKAHEAD_M, computedMeters));
-      }
-
-      if (targetState === "TURN_APPROACH") {
-        // Force lookahead vector mapping to focus directly on upcoming vertex nodes
-        lookAheadMeters = Math.max(MIN_LOOKAHEAD_M, turnMetrics.distance);
-      }
-
-      // 6. Trace coordinates down active line path
-      let routeTarget = null;
-      if (routeActive && coords && coords.length >= 2) {
-        const nearest = RouteGeometry.nearestOnLine(coords, userLon, userLat);
-        const ahead   = RouteGeometry.projectAlong(coords, nearest.segIdx, nearest.t, lookAheadMeters);
-        if (ahead) routeTarget = { lat: ahead.lat, lon: ahead.lon };
       }
 
       // 7. Base Camera Param Extraction
@@ -190,12 +191,60 @@ const NavigationCameraEvaluator = (() => {
       const bias = VIEWPORT_BIASES[vp] || VIEWPORT_BIASES["full"];
 
       pitch   = pitch + (bias.pitchBias || 0);
-      anchorY = (bias.anchorYOverride !== null && bias.anchorYOverride !== undefined) 
-        ? bias.anchorYOverride 
+      anchorY = (bias.anchorYOverride !== null && bias.anchorYOverride !== undefined)
+        ? bias.anchorYOverride
         : anchorY + (bias.anchorYBias || 0);
-      anchorX = (bias.anchorXOverride !== null && bias.anchorXOverride !== undefined) 
-        ? bias.anchorXOverride 
+      anchorX = (bias.anchorXOverride !== null && bias.anchorXOverride !== undefined)
+        ? bias.anchorXOverride
         : anchorX;
+
+      // 9b. NAV_RAW's anchor is a special case, computed AFTER (superseding)
+      // the viewport-bias blending above rather than through it. RAW's own
+      // screen-space plot (dots/rings/list — see Geo.computePlotLayout,
+      // app.js's refreshIndicators) lives inside a box sized to fit the
+      // available content area, not the raw full viewport — portrait pins
+      // it to the top (full width), landscape pins it to the left (full
+      // height); its OTHER axis is sized to just fit the plot's own real
+      // content rather than always matching the first 1:1 (2026-09-08,
+      // see computePlotLayout's own doc comment for why a literal square
+      // left real dead space between the plot and its own box edge). The
+      // REAL map camera's anchor (which positions the real user-marker
+      // MapLibre layer, map.js's _userMarker) has to land at that SAME
+      // point or the marker visibly drifts from the screen-space dots/
+      // rings around it — exactly the anchor-mismatch bug class this
+      // project has hit more than once (see CLAUDE.md's "Camera anchor
+      // math"). ctx.squareContentTop/squareContentHeight/plotSafeInset/
+      // plotFovHalfAngleDeg are plain values the caller (CameraController.
+      // followNav, itself relaying app.js's _rawChromeInsets()) passes
+      // through once per call — not re-measured/re-guessed here, so this
+      // function stays free of DOM access itself and can't type a
+      // different safeInset/fovHalfAngleDeg than refreshIndicators()'s own
+      // Geo.computePlotLayout() call uses for the screen-space rendering.
+      //
+      // basePreset.anchorY (0.80) is passed through as computePlotLayout's
+      // OWN desiredAnchorY seed — same "ownship sits low, room ahead"
+      // convention, just no longer assumed to be the fraction actually in
+      // effect: the ACTUAL anchor fraction is whatever computePlotLayout
+      // derives (its own `anchorY` return field) once the plot's box has
+      // been tightened to fit its real content, read back here rather than
+      // recomputed independently. The viewport-bias phone-p/phone-l/auto
+      // overrides above are deliberately NOT applied to NAV_RAW: they're
+      // coarse per-device-class nudges for states whose anchor is
+      // otherwise a flat constant, superseded here by a per-frame
+      // calculation that already adapts exactly to the real portrait/
+      // landscape aspect and real plot content, not just a device-class
+      // guess at either.
+      if (targetState === "NAV_RAW" && ctx.viewportWidth && ctx.viewportHeight && ctx.squareContentHeight != null) {
+        const plot = Geo.computePlotLayout(ctx.viewportWidth, ctx.squareContentTop || 0, ctx.squareContentHeight, {
+          desiredAnchorY: STATE_PRESETS.NAV_RAW.anchorY,
+          safeInset: ctx.plotSafeInset,
+          fovHalfAngleDeg: ctx.plotFovHalfAngleDeg,
+        });
+        const anchorXPx = plot.plotLeft + plot.plotWidth * 0.5;
+        const anchorYPx = plot.plotTop + plot.plotHeight * plot.anchorY;
+        anchorX = anchorXPx / ctx.viewportWidth;
+        anchorY = anchorYPx / ctx.viewportHeight;
+      }
 
       if (bias.maxPitch !== null && bias.maxPitch !== undefined) {
         pitch = Math.min(pitch, bias.maxPitch);
@@ -218,8 +267,6 @@ const NavigationCameraEvaluator = (() => {
         zoom,
         anchorY,
         anchorX,
-        lookAheadMeters,
-        routeTarget,
         suppressionLevel,
         transitionProfile,
         bearingMode: (targetState === "TURN_APPROACH") ? "DECOUPLED_MANEUVER" : "VEHICLE_TRACKING",

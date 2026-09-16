@@ -134,6 +134,19 @@ const NavStyle = (() => {
       // Sky
       sky:               "#0e1117",
     },
+
+    // "raw" — the Raw NAV display style's instrument-screen look, as close
+    // as practical to a real TCAS/ND: no road/building/label detail at all
+    // (an ND doesn't show roads either), just the background the range
+    // rings/traffic/route line render over. Always dark regardless of the
+    // Day/Night/Auto preference — there's no such thing as a "day mode"
+    // cockpit instrument. Pure black — sampled directly from a real ND
+    // reference photo (the display background measured as flat (0,0,0),
+    // not the near-black-with-a-hint-of-blue this used to be).
+    raw: {
+      background: "#000000",
+      sky:        "#000000",
+    },
   };
 
   // ---- Helpers ----------------------------------------------------------- //
@@ -147,6 +160,41 @@ const NavStyle = (() => {
   function _layers(theme) {
     const p   = P[theme];
     const src = SOURCE_ID;
+
+    // raw: visually nothing but a plain background — matching a real
+    // TCAS/ND's total absence of road/building/label detail — but (as of
+    // 2026-09-02) two genuinely rendered, zero-opacity layers are added
+    // purely so their tile data gets loaded for LocalObstruction's own
+    // querySourceFeatures() calls (src/logic/localObstruction.js). This
+    // does NOT visually change RAW at all — confirmed with a real
+    // MapLibre+Playwright harness before writing this: a layer with
+    // `layout: {visibility: "none"}` does NOT cause its tiles to load at
+    // all (0 network requests, querySourceFeatures always empty, even
+    // with a real tile available) — only a genuinely rendered layer
+    // (opacity 0, not hidden via visibility) actually triggers tile
+    // loading. `fill-opacity: 0` was the one confirmed-working option;
+    // don't "simplify" this back to `visibility: "none"` without
+    // re-verifying — it looks equivalent and isn't.
+    if (theme === "raw") {
+      return [
+        { id: "background", type: "background", paint: { "background-color": p.background } },
+        {
+          id: "raw-obstruction-building", type: "fill",
+          source: src, "source-layer": "building",
+          paint: { "fill-color": "#000000", "fill-opacity": 0 },
+        },
+        {
+          id: "raw-obstruction-landcover-forest", type: "fill",
+          source: src, "source-layer": "landcover",
+          // Same wood/forest class filter as the real "landcover-forest"
+          // layer above (day/night styles) — proven against this exact
+          // tile source already, not re-guessed from generic OpenMapTiles
+          // docs.
+          filter: ["in", ["get", "class"], ["literal", ["wood", "forest"]]],
+          paint: { "fill-color": "#000000", "fill-opacity": 0 },
+        },
+      ];
+    }
 
     return [
 
@@ -211,10 +259,12 @@ const NavStyle = (() => {
         source: src, "source-layer": "landuse",
         filter: ["in", ["get", "class"],
           ["literal", ["residential", "suburb", "neighbourhood"]]],
-        paint: { "fill-color": p.residential, "fill-opacity": 0 },
+        paint: { "fill-color": p.residential, "fill-opacity": 0.4 },
       },
 
-      // ── Buildings — hidden; route corridor is the scene ──────────────────
+      // ── Buildings — subtle fill for real urban texture/orientation cues,
+      // not fully suppressed any more (that made NAV read as empty/bare
+      // next to a real nav app, especially away from the route itself) ────
       {
         id: "building-fill", type: "fill",
         source: src, "source-layer": "building",
@@ -222,7 +272,7 @@ const NavStyle = (() => {
         paint: {
           "fill-color": p.buildings,
           "fill-antialias": true,
-          "fill-opacity": 0,
+          "fill-opacity": 0.55,
         },
       },
 
@@ -247,7 +297,11 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.minorCasing,
           "line-width": _rampW(12, 0.8, 15, 2, 18, 4),
-          "line-opacity": 0,  // minor roads fully suppressed — route dominates
+          // Previously fully suppressed on the theory the route alone was
+          // "the scene" — in practice that made the whole map read as
+          // empty/bare away from the route line, with no street context to
+          // orient by at a glance. Local streets now render like they do
+          // in any real nav app.
         },
       },
       {
@@ -322,7 +376,6 @@ const NavStyle = (() => {
         paint: {
           "line-color": p.minor,
           "line-width": _rampW(12, 0.5, 15, 2.5, 18, 8),
-          "line-opacity": 0,  // minor roads fully suppressed
         },
       },
       {
@@ -403,13 +456,16 @@ const NavStyle = (() => {
       },
 
       // ── Labels ───────────────────────────────────────────────────────────
-      // Road name labels — major roads only; minor street names suppressed.
+      // Road name labels — now that minor/residential streets render at all
+      // (see road-minor-fill above), label them too, the same way any real
+      // nav app names the street you're actually on.
       {
         id: "road-label", type: "symbol",
         source: src, "source-layer": "transportation_name",
         minzoom: 15,
         filter: ["in", ["get", "class"],
-          ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary"]]],
+          ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary",
+                        "minor", "residential", "unclassified", "living_street"]]],
         layout: {
           "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
           "text-font": ["Noto Sans Regular", "Noto Sans Bold"],
@@ -513,7 +569,35 @@ const NavStyle = (() => {
   // ---- Public API -------------------------------------------------------- //
 
   function getStyle(theme) {
-    const t = (theme === "day") ? "day" : "night";
+    const t = (theme === "day") ? "day" : (theme === "raw") ? "raw" : "night";
+
+    // raw visually draws nothing but a flat background colour (see
+    // _layers()'s own comment for why the source below is declared here
+    // anyway, as of 2026-09-02: LocalObstruction's queries need it, even
+    // though nothing from it is ever actually painted). glyphs IS still
+    // needed regardless: MapLibre requires a style-level `glyphs` URL for
+    // ANY symbol layer using `text-field` to validate at all, regardless
+    // of whether the style has a tile source — without it, EosMap's
+    // dynamically-added range-ring nm labels (added via addLayer(), not
+    // declared in this style's own layers) fail validation entirely and
+    // never render. Confirmed directly against a real MapLibre instance:
+    // the exact "requires a style glyphs property" error this omission
+    // produces (2026-08-21).
+    if (t === "raw") {
+      return {
+        version: 8,
+        glyphs: _glyphsUrl(),
+        sources: {
+          [SOURCE_ID]: {
+            type:        "vector",
+            url:         _sourceUrl(),
+            attribution: ATTR,
+          },
+        },
+        layers: _layers(t),
+      };
+    }
+
     return {
       version: 8,
       glyphs:  _glyphsUrl(),
@@ -530,10 +614,16 @@ const NavStyle = (() => {
 
   /** Resolved sky colour for a theme — used to set #map-container background. */
   function skyColor(theme) {
-    return (theme === "day") ? P.day.sky : P.night.sky;
+    if (theme === "day") return P.day.sky;
+    if (theme === "raw") return P.raw.sky;
+    return P.night.sky;
   }
 
-  return { getStyle, skyColor };
+  // Exposed so map.js's queryLocalDensity() (src/logic local-obstruction
+  // feature, 2026-09-02) can reference the exact same source id its
+  // querySourceFeatures() calls need — one source of truth, not a second
+  // hardcoded "omvt" string that could drift from this one.
+  return { getStyle, skyColor, SOURCE_ID };
 })();
 
 if (typeof module !== "undefined") module.exports = NavStyle;

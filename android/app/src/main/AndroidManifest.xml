@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Phase 1 had no real functionality — no location, no network, no
+         ADS-B — and existed purely to prove the app registers as a car app
+         and launches at all (see CLAUDE.md's "Android Auto — native
+         rewrite scoping" note, step 1). Phase 2 (2026-08-25) adds the
+         first real content, MapLibre Native rendered onto the car's own
+         Surface — INTERNET is now genuinely needed for map tile loading,
+         not added preemptively. As of 2026-08-26, MainActivity (the
+         phone-side screen) needs it too, for the same reason (map tiles)
+         plus adsb.fi polling via AdsbFiClient. ACCESS_BACKGROUND_LOCATION
+         still waits for the foreground-service work (phase 4) — both the
+         car-Surface camera-driving GPS wiring and MainActivity's own only
+         ever run while actually visible/foregrounded, so the plain
+         (foreground-only) ACCESS_FINE_LOCATION below is sufficient for
+         both. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- REQUIRED to drive the camera off real GPS fixes (2026-08-25,
+         phase 2 follow-up) — LocationManager.requestLocationUpdates()
+         throws SecurityException without it. Confirmed against Google's
+         own official navigation sample (android/car-samples,
+         NavigationSession.java's requestLocationUpdates()), which uses
+         the exact same plain android.location.LocationManager API this
+         project does (not Play Services' FusedLocationProviderClient,
+         which would need a dl.google.com-hosted dependency this sandbox
+         can't verify — LocationManager needs no extra dependency at all
+         and is what the authoritative sample itself uses). As of
+         2026-08-26, MainActivity requests this too, via the plain
+         Activity#requestPermissions() runtime-permission flow (no
+         androidx.activity dependency needed, same "avoid a new,
+         dl.google.com-unverifiable dependency" discipline already
+         established elsewhere in this project) rather than
+         CarContext#requestPermissions(), which is car-app-specific. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+
+    <!-- REQUIRED to render onto a custom Surface at all (2026-08-25,
+         phase 2) — without this, AppManager.setSurfaceCallback() has
+         nothing to hand a Surface to. Confirmed against BOTH the real
+         official Car App Library navigation sample (android/car-samples)
+         AND MapLibre's own official Android Auto sample
+         (maplibre/MapLibre-Android-Auto-Sample) — both declare exactly
+         this permission for exactly this purpose, nothing more (the
+         community sample additionally declares
+         androidx.car.app.MAP_TEMPLATES, which Google's own official
+         sample does NOT need for the same setMapActionStrip()/Action.PAN
+         functionality — followed the official sample's leaner manifest
+         over the community one where they disagreed). -->
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE"/>
+
+    <!-- REQUIRED for the NAVIGATION category specifically (2026-08-25,
+         found the hard way — see CLAUDE.md's phase-1 real-device debug
+         log): without this, Android Auto doesn't just hide the app, it
+         never registers it as a valid car app candidate at all — VCAS was
+         absent from BOTH the visible and "Hidden apps" lists on a real
+         Kia head unit's launcher customisation screen, not merely sitting
+         unchecked in the hidden list. Confirmed via Google's own Car App
+         Library navigation-category docs (developer.android.com/training/
+         cars/apps/navigation), unreachable directly from this sandbox
+         (dl.google.com is blocked) but fetched via WebFetch instead. -->
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES"/>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.VCAS">
+
+        <!-- Phone-side entry point. Originally added (2026-08-25) purely
+             for Car App Library sample parity and to clear a harmless
+             "Default Activity not found" Android Studio warning — a
+             placeholder with no real content. As of 2026-08-26, this is a
+             genuinely functional standalone screen (real MapLibre map,
+             GPS, ADS-B, aircraft markers — see MainActivity.kt's own doc
+             comment) per direct instruction: VCAS should work like Google
+             Maps, independently useful when tapped directly on the phone
+             (walking) as well as when projected via Android Auto (driving).
+             Still not required for Android Auto's own discovery of
+             VcasCarAppService below (that runs off this service's own
+             intent-filter, independent of any launcher activity existing
+             or not) — the two are one APK with two independent entry
+             points, not one standing in for the other. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Declares this app as a car app, and its category — "navigation"
+             is what VCAS actually is (turn-by-turn + a live traffic
+             overlay), not "poi"/"parking"/"charging". Confirmed current and
+             required (2026-08-25) by checking the real, current official
+             sample manifest (android/car-samples, car_app_library/
+             navigation/mobile/src/main/AndroidManifest.xml) directly — an
+             earlier doubt about this being legacy, based on a docs-page
+             summary that simply didn't repeat it, was wrong. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- The actual missing piece (2026-08-25) — found by diffing
+             against the same official sample manifest above after VCAS was
+             confirmed completely invisible to Android Auto's own app scan
+             on a real Kia head unit (zero binding attempts, zero log
+             activity referencing VCAS's package from Gearhead at all,
+             across multiple real-device capture sessions — not merely
+             hidden or rejected). Every real sample declares this alongside
+             the meta-data above; without it, Android Auto has no minimum
+             Car API level to negotiate a session against and apparently
+             never even considers the app a candidate. Not yet re-verified
+             against the real head unit — update this comment once
+             confirmed either way. -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+
+        <service
+            android:name=".VcasCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>

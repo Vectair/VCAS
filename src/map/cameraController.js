@@ -39,6 +39,192 @@ const CameraController = (() => {
     _map = mapInstance;
   }
 
+  // ---- Per-frame anchor-preserving camera animation ----
+  //
+  // followNav() used to hand center/bearing/pitch/zoom straight to
+  // MapLibre's own easeTo(), which tweens each of those independently.
+  // That's fine for a camera that's just "moving," but our center isn't
+  // the real target — it's a screen-space anchor offset from the user's
+  // actual position. Deriving that offset once per call (via project()/
+  // unproject() against whatever the camera happened to show at that
+  // instant) and then handing MapLibre a single center+bearing to tween
+  // toward independently meant the two drifted apart mid-transition —
+  // bearing partway rotated, center partway panned, neither matching the
+  // assumption the offset was computed under — so the user's marker
+  // visibly floated near its anchor point instead of staying pinned to
+  // it. Driving the animation ourselves, frame by frame, and re-deriving
+  // the anchor-correct camera at each frame from that frame's own
+  // already-applied bearing/pitch/zoom (via jumpTo() to center exactly on
+  // the target, then panBy() to shift off-center by a plain screen-space
+  // pixel amount) keeps "user marker sits exactly at the anchor point"
+  // true at every rendered frame, not just at the start/end of a tween —
+  // panBy() always operates against whatever transform was just applied,
+  // so there's no possibility of a stale-bearing mismatch.
+  const ANIM_DURATION_MS = 400;
+
+  let _animFrameHandle = null;
+  let _animFrom = null; // { lat, lon, bearing, pitch, zoom, anchorY, startTime }
+  let _animTo   = null; // { lat, lon, bearing, pitch, zoom, anchorY }
+
+  function _lerp(a, b, t) { return a + (b - a) * t; }
+
+  // Shortest-path bearing interpolation — a naive lerp breaks at the 0/360 wrap.
+  function _lerpBearing(fromDeg, toDeg, t) {
+    const delta = ((toDeg - fromDeg + 540) % 360) - 180;
+    return fromDeg + delta * t;
+  }
+
+  function _currentAnimState(now) {
+    if (!_animFrom || !_animTo) return null;
+    const t = Math.min(1, (now - _animFrom.startTime) / ANIM_DURATION_MS);
+    return {
+      lat:     _lerp(_animFrom.lat, _animTo.lat, t),
+      lon:     _lerp(_animFrom.lon, _animTo.lon, t),
+      bearing: _lerpBearing(_animFrom.bearing, _animTo.bearing, t),
+      pitch:   _lerp(_animFrom.pitch, _animTo.pitch, t),
+      zoom:    _lerp(_animFrom.zoom, _animTo.zoom, t),
+      anchorY: _lerp(_animFrom.anchorY, _animTo.anchorY, t),
+      anchorX: _lerp(_animFrom.anchorX, _animTo.anchorX, t),
+      done: t >= 1,
+    };
+  }
+
+  function _renderAnchoredFrame(state) {
+    if (!_map) return;
+
+    // 1. Center exactly on the target coordinate under THIS frame's own
+    //    bearing/pitch/zoom — by construction it's dead-center right now.
+    _map.jumpTo({
+      center: [state.lon, state.lat],
+      bearing: state.bearing,
+      pitch: state.pitch,
+      zoom: state.zoom,
+    });
+
+    // 2. Shift it off-center by a plain screen-space pixel pan — computed
+    //    against the transform just applied above, so it's always correct
+    //    regardless of how bearing/pitch changed to get here.
+    //
+    //    MapLibre's panBy(offset) negates the offset internally before
+    //    applying it (confirmed against the library's own source — it's
+    //    implemented as panTo(center, {offset: offset.mult(-1)})), so a
+    //    *positive* Y here actually moves the rendered content *up*, not
+    //    down. We want anchorY > 0.5 (target pushed toward the bottom of
+    //    the screen) to mean the content moves DOWN — hence the negation
+    //    below undoes MapLibre's own negation. Without it, anchorY 0.8
+    //    was rendering the user's own position in the upper third of the
+    //    screen instead of near the bottom.
+    //
+    //    jumpTo({center}) does NOT put the target at the container's raw
+    //    geometric middle when the map has non-zero setPadding() (set by
+    //    setViewportPadding() below to clear the top/bottom UI chrome) — it
+    //    places it at the *padded*-center instead (verified against a real
+    //    MapLibre instance: with a 200px bottom pad on an 800px container,
+    //    jumpTo alone put the target at y=300, not y=400). Panning by the
+    //    unpadded offset on top of that lands anchorY 0.8 at 67.5% of the
+    //    screen instead of 80% — exactly the gap between the range rings
+    //    (ui.js, which assumes a plain anchorY*containerHeight) and the
+    //    marker's real position that showed up as a Hybrid/RAW mismatch
+    //    (RAW carries much less bottom padding than Hybrid's guidance
+    //    card + bottom bar, so its error was smaller and easy to miss).
+    //    Deriving the pan from the padded-center jumpTo actually produced,
+    //    rather than assuming it's the raw center, keeps anchorY*containerHeight
+    //    true regardless of how much padding is currently set.
+    //
+    //    anchorX gets the same treatment as anchorY, added 2026-08-21 for
+    //    RAW's square-region plot (see NavigationCameraEvaluator's NAV_RAW
+    //    branch): previously state.anchorX was computed by the evaluator
+    //    but silently dropped here — every state's real anchor was always
+    //    horizontally centered regardless of what anchorX said, which never
+    //    mattered while every state's own anchorX really was 0.5 (or, for
+    //    the unused "auto" viewport bias's 0.35 override, apparently never
+    //    exercised in practice). RAW's square anchor can now be genuinely
+    //    off-center (landscape pins the square to the LEFT), so this can no
+    //    longer be silently ignored — left/right has no padding concept the
+    //    way top/bottom does (setViewportPadding only ever sets top/bottom),
+    //    so the padded-center X is just the container's raw geometric middle.
+    const containerHeight = _map.getContainer().offsetHeight;
+    const containerWidth  = _map.getContainer().offsetWidth;
+    const pad = _map.getPadding();
+    const paddedCenterY = (containerHeight + pad.top - pad.bottom) / 2;
+    const paddedCenterX = containerWidth / 2;
+    const offsetY = containerHeight * state.anchorY - paddedCenterY;
+    const offsetX = containerWidth * (state.anchorX != null ? state.anchorX : 0.5) - paddedCenterX;
+    if (offsetY !== 0 || offsetX !== 0) {
+      _map.panBy([-offsetX, -offsetY], { animate: false });
+    }
+  }
+
+  /**
+   * Halt any in-flight anchor-preserving animation immediately.
+   *
+   * MapLibre's own camera methods (easeTo/flyTo) are auto-cancelled the
+   * moment the user starts a manual drag/zoom/rotate/pitch gesture — the
+   * library recognizes its own animations and steps aside. Our per-frame
+   * jumpTo()+panBy() loop is invisible to MapLibre in exactly that way: it's
+   * not "an animation" as far as the library is concerned, just a sequence
+   * of instant transform-sets, so it never yields to a gesture on its own.
+   * Left unchecked, a followNav() animation still mid-flight when a drag
+   * starts keeps calling jumpTo() every rendered frame for the remainder of
+   * its ~400ms, silently overwriting the drag delta before it ever paints —
+   * net effect: the gesture does nothing. Call this the instant a real user
+   * gesture begins (see map.js's dragstart/zoomstart/rotatestart/pitchstart
+   * wiring) so the loop stops before it can fight the next input frame.
+   */
+  function cancelFollow() {
+    if (_animFrameHandle != null) {
+      cancelAnimationFrame(_animFrameHandle);
+      _animFrameHandle = null;
+    }
+    _animFrom = null;
+    _animTo = null;
+  }
+
+  function _stepAnimation(now) {
+    const state = _currentAnimState(now);
+    if (!state) { _animFrameHandle = null; return; }
+    _renderAnchoredFrame(state);
+    _animFrameHandle = state.done ? null : requestAnimationFrame(_stepAnimation);
+  }
+
+  /**
+   * Kick off (or smoothly redirect) the anchor-preserving camera animation
+   * toward a new target. If a segment is already in flight, resumes from
+   * wherever it currently is — not its original start, not its final
+   * target — so a new GPS/compass tick arriving mid-glide redirects
+   * smoothly instead of snapping back or restarting the clock.
+   */
+  function _startAnimTo(target) {
+    if (!_map) return;
+    const now = performance.now();
+    const inProgress = _currentAnimState(now);
+
+    let fromState;
+    if (inProgress) {
+      fromState = inProgress;
+    } else {
+      // Bootstrap from the map's actual live transform — anchorX/anchorY
+      // 0.5 (true center) since a not-yet-anchored map has no prior offset
+      // to inherit from.
+      const c = _map.getCenter();
+      fromState = {
+        lat: c.lat, lon: c.lng,
+        bearing: _map.getBearing(),
+        pitch: _map.getPitch(),
+        zoom: _map.getZoom(),
+        anchorY: 0.5,
+        anchorX: 0.5,
+      };
+    }
+
+    _animFrom = { ...fromState, startTime: now };
+    _animTo = target;
+
+    if (_animFrameHandle == null) {
+      _animFrameHandle = requestAnimationFrame(_stepAnimation);
+    }
+  }
+
   /**
    * Set the active viewport emulation configuration profile.
    */
@@ -68,8 +254,20 @@ const CameraController = (() => {
   /**
    * Process and synchronize active vehicle tracking telemetry frames.
    * Reconnected to NavigationCameraEvaluator for dynamic driving/routing state tracking.
+   *
+   * @param {object} [rawLayout]  { viewportWidth, viewportHeight,
+   *   squareContentTop, squareContentHeight, plotSafeInset,
+   *   plotFovHalfAngleDeg } — only consumed by NAV_RAW's plot-anchor
+   *   branch inside the evaluator. Passed straight through from app.js's
+   *   _rawChromeInsets(), the SAME numbers app.js's own refreshIndicators()
+   *   calls Geo.computePlotLayout with for the screen-space dots/rings/
+   *   list — deliberately not re-measured/re-guessed here, so the real
+   *   map's user-marker anchor and the screen-space plot can never drift
+   *   apart the way independently-derived geometry has before in this
+   *   codebase (see CLAUDE.md). Omit for non-RAW callers/states; the
+   *   evaluator's NAV_RAW branch simply no-ops without it.
    */
-  function followNav(lat, lon, heading, speedMph) {
+  function followNav(lat, lon, heading, speedMph, rawLayout) {
     if (!_map) return;
 
     // 1. Package current runtime state telemetry vectors for the evaluator brain
@@ -81,7 +279,14 @@ const CameraController = (() => {
       heading: heading || 0,
       routeActive: _routeActive,
       routeGeometry: _routeGeometry,
-      viewportPreset: _currentPreset.id
+      viewportPreset: _currentPreset.id,
+      navDisplayStyle: (typeof NavDisplayStyle !== "undefined") ? NavDisplayStyle.get() : "hybrid",
+      viewportWidth: rawLayout ? rawLayout.viewportWidth : undefined,
+      viewportHeight: rawLayout ? rawLayout.viewportHeight : undefined,
+      squareContentTop: rawLayout ? rawLayout.squareContentTop : undefined,
+      squareContentHeight: rawLayout ? rawLayout.squareContentHeight : undefined,
+      plotSafeInset: rawLayout ? rawLayout.plotSafeInset : undefined,
+      plotFovHalfAngleDeg: rawLayout ? rawLayout.plotFovHalfAngleDeg : undefined,
     };
 
     // 2. Compute live camera values using NavigationCameraEvaluator state machine
@@ -94,78 +299,84 @@ const CameraController = (() => {
         pitch: _currentPreset.pitch,
         zoom: _currentPreset.zoom,
         anchorY: _currentPreset.anchorY,
-        lookAheadMeters: _routeActive ? 150 : 0,
-        routeTarget: null,
+        anchorX: 0.5,
         maneuver: { exists: false, distanceMeters: 0, bearingDeltaDeg: 0 },
       };
+    }
+
+    // Hybrid-only manual tilt override (manualTilt.js, 2026-09-09) — a
+    // direct request, confirmed via AskUserQuestion as a HARD override:
+    // whatever pitch the evaluator just computed for the current driving
+    // state (idle/urban/highway/turn) is replaced outright the instant
+    // ManualTilt.isEnabled() is true, with zoom/anchorY/anchorX/bearing all
+    // left exactly as the evaluator computed them — only pitch is frozen.
+    // Deliberately RAW-excluded (evaluatorInput.navDisplayStyle, already
+    // resolved above) — RAW has no MapLibre-camera-driven tilt concept of
+    // its own (NAV_RAW's pitch is always flat 0, and its "camera" is really
+    // the screen-space square plot, see NavigationCameraEvaluator's own
+    // NAV_RAW doc comment) and was never part of what was asked for here.
+    // ManualTilt's own setSpeedMph() already force-disables the override
+    // above CONFIG.GPS_HEADING_MIN_SPEED_MPH (called from app.js's
+    // applySpeedOverrideIfActive() ahead of every followNav() call in the
+    // real GPS path), so no speed check is needed here — isEnabled() alone
+    // is already speed-aware by the time this runs.
+    if (typeof ManualTilt !== "undefined" && ManualTilt.isEnabled() && evaluatorInput.navDisplayStyle !== "raw") {
+      cameraState.pitch = ManualTilt.getPitchDeg();
     }
 
     // Extract calculated, speed-smoothed metrics from the evaluator brain
     const pitch = cameraState.pitch;
     const zoom  = cameraState.zoom;
     const anchorY = cameraState.anchorY;
-    const lookaheadMeters = cameraState.lookAheadMeters || 0;
+    const anchorX = cameraState.anchorX != null ? cameraState.anchorX : 0.5;
 
     // Save evaluation snapshot for downstream data layers (e.g. frozen indicator pipelines)
     _lastEvaluated = {
       pitch: pitch,
       zoom: zoom,
       anchorY: anchorY,
+      anchorX: anchorX,
       heading: heading,
       maneuver: cameraState.maneuver,
       timestamp: Date.now()
     };
 
-    // 3. Process dynamic lookahead projection tracking along current vector.
-    // When a route is active, trace forward along the actual route geometry
-    // (curves/turns) instead of a straight line off raw heading.
-    let targetLat = lat;
-    let targetLon = lon;
-
-    if (cameraState.routeTarget) {
-      targetLat = cameraState.routeTarget.lat;
-      targetLon = cameraState.routeTarget.lon;
-    } else if (lookaheadMeters > 0) {
-      // Simple geodesic approximations for computing projection lookahead coordinate offsets
-      const metersPerDegreeLat = 111111;
-      const metersPerDegreeLon = 111111 * Math.cos((lat * Math.PI) / 180);
-      const headingRad = (heading * Math.PI) / 180;
-
-      targetLat += (lookaheadMeters * Math.cos(headingRad)) / metersPerDegreeLat;
-      targetLon += (lookaheadMeters * Math.sin(headingRad)) / metersPerDegreeLon;
-    }
-
-    // 4. Map calculated position to screen coordinates and apply structural anchorY offsets
-    const centerPoint = _map.project([targetLon, targetLat]);
-    const containerHeight = _map.getContainer().offsetHeight;
-
-    // Calculate vertical offset relative to the evaluated horizon focus axis
-    const desiredY = containerHeight * anchorY;
-    const offsetY = desiredY - (containerHeight / 2);
-
-    const headingRad = (heading * Math.PI) / 180;
-    const targetPoint = [
-      centerPoint.x + offsetY * Math.sin(headingRad),
-      centerPoint.y - offsetY * Math.cos(headingRad)
-    ];
-
-    const targetCoords = _map.unproject(targetPoint);
-
-    // 5. Render smooth framing updates onto active map viewport canvas
-    _map.jumpTo({
-      center: targetCoords,
-      zoom: zoom,
+    // 3. The anchor target is always the user's own true GPS position — never
+    // a lookahead-projected point. The user marker (map.js, placed at the
+    // literal lat/lon) is drawn wherever that true position actually
+    // projects on screen, so the camera has to land it exactly at the
+    // anchor point or the two visibly diverge. This used to shift the
+    // center ahead by evaluator.lookAheadMeters/
+    // routeTarget to "lead" the view, but that broke the anchor guarantee: at
+    // RAW's flat pitch/zoomed-out framing the resulting few-pixel offset was
+    // invisible, but in Hybrid's pitched, tighter-zoom views the same offset —
+    // amplified by ground-plane perspective foreshortening — pushed the real
+    // marker well off its anchor point, sometimes off the bottom of the screen
+    // entirely. "More room ahead" is already delivered by anchorY alone
+    // (pushing the anchor toward the bottom leaves the top of the screen free
+    // for what's ahead), so no separate center shift is needed.
+    //
+    // 4. Hand the true position (not yet anchor-offset — that's done fresh
+    // every rendered frame, see _renderAnchoredFrame above) to the
+    // frame-driven animator, which smoothly carries the camera there while
+    // keeping the user's marker pinned to its anchor point throughout.
+    _startAnimTo({
+      lat: lat,
+      lon: lon,
       bearing: heading,
       pitch: pitch,
+      zoom: zoom,
+      anchorY: anchorY,
+      anchorX: anchorX,
     });
   }
 
   /**
    * Hard transition initialization into Driving Navigation View.
    */
-  function transitionToNav(lat, lon, heading) {
+  function transitionToNav(lat, lon, heading, rawLayout) {
     if (!_map) return;
-    followNav(lat, lon, heading, 0);
+    followNav(lat, lon, heading, 0, rawLayout);
   }
 
   /**
@@ -215,6 +426,7 @@ const CameraController = (() => {
     setViewportPreset,
     setViewportPadding,
     followNav,
+    cancelFollow,
     transitionToNav,
     transitionToAir,
     setRouteActive,

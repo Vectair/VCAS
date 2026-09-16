@@ -2,26 +2,64 @@
  * ObservationLogger — records ground-truth "was this actually visible"
  * observations, logged via the dev log panel (src/dev/logPanel.js).
  *
- * Primary path: POST to the local logging server (logServer.py), which
- * appends each observation as one line to logs/observations.jsonl on disk —
- * a real, inspectable file, not just browser-local state.
+ * Primary path: POST to CONFIG.LOG_ENDPOINT — a real internet endpoint
+ * (see logs/README or the deploy notes for the Bluehost PHP script this
+ * points at) so every device logs to the same central place automatically.
+ * Falls back to the relative "/api/log" when LOG_ENDPOINT isn't configured,
+ * which only resolves to anything when running logServer.py locally — kept
+ * for local dev without needing config.js changes.
  *
- * Fallback: if that POST fails (e.g. the plain `python -m http.server` is
- * running instead of logServer.py, so there's no /api/log endpoint), the
- * observation is kept in localStorage instead of being silently dropped,
- * with an export() to pull it out as a downloadable file later.
+ * Fallback: if that POST fails (offline, endpoint down, or nothing
+ * configured and logServer.py isn't running), the observation is kept in
+ * localStorage instead of being silently dropped, with an export() to pull
+ * it out as a downloadable file later.
  */
 const ObservationLogger = (() => {
-  const LOG_ENDPOINT      = "/api/log";
+  const LOG_ENDPOINT =
+    (typeof CONFIG !== "undefined" && CONFIG.LOG_ENDPOINT) ? CONFIG.LOG_ENDPOINT : "/api/log";
+  const LOG_ENDPOINT_KEY =
+    (typeof CONFIG !== "undefined" && CONFIG.LOG_ENDPOINT_KEY) ? CONFIG.LOG_ENDPOINT_KEY : "";
   const LOCAL_STORAGE_KEY = "vcas-observation-log-fallback";
 
   // Shared outcome vocabulary — used by the LOG panel's per-row buttons and
-  // by the same four buttons embedded directly in the NAV/AIR popups.
+  // by the same buttons embedded directly in the NAV/AIR popups.
+  //
+  // not_visible_weather (2026-08-27) splits "not visible" into a third
+  // reason, distinct from both obstruction (a physical object in the way)
+  // and missed (no identifiable reason) — cloud cover between the observer
+  // and the aircraft, or the aircraft being above an overcast layer, or
+  // precipitation heavy enough to obscure it. Direct instruction: this is
+  // specifically to build a real dataset correlating logged outcomes
+  // against METAR conditions at the time, since Visibility.estimate()'s
+  // METAR cloud/visibility adjustment (see README's "Visibility Categories"
+  // section) has never been calibrated against real sightings — a
+  // not_visible_weather observation is real evidence the model's METAR
+  // handling was right (or wrong) for that case, which a not_visible_missed
+  // entry (no identifiable reason at all) can't provide, and which an
+  // obstruction entry would wrongly attribute to terrain/buildings instead.
+  //
+  // visible_lights (2026-08-27, same day) — a third "visible" reason,
+  // alongside airframe and contrail: the aircraft itself (or its shape)
+  // isn't what was actually spotted, its nav/strobe/beacon lights are —
+  // specifically a night or low-visibility-weather sighting, per direct
+  // instruction. This is the same "distinct sighting mechanism, not just a
+  // finer visible/not-visible label" reasoning visible_contrail was already
+  // built on: Visibility.estimate()'s own doc comment states its model
+  // assumes "daylight" — night-time visibility (where a light source, not
+  // angular size/shape, is what's actually being resolved) isn't modelled
+  // at all today. Logging a lights-only sighting under the old plain
+  // visible_airframe code would have silently overstated how visible the
+  // *airframe* itself was in the dark; recording it separately is what
+  // would let a future night/lights-aware adjustment be built on real
+  // evidence, the same way not_visible_weather now can be for the METAR
+  // adjustment.
   const OUTCOMES = [
     { code: "visible_airframe",        label: "✈",  title: "Visible — airframe" },
     { code: "visible_contrail",        label: "〜", title: "Visible — contrail only" },
+    { code: "visible_lights",          label: "✦",  title: "Visible — lights only (night/low visibility)" },
     { code: "not_visible_obstruction", label: "▨",  title: "Not visible — obstruction" },
-    { code: "not_visible_missed",      label: "✕",  title: "Not visible — just not seen" },
+    { code: "not_visible_weather",     label: "☁",  title: "Not visible — weather/cloud" },
+    { code: "not_visible_missed",      label: "✕",  title: "Not visible — no other reason" },
   ];
 
   /**
@@ -31,13 +69,29 @@ const ObservationLogger = (() => {
    * buttons can't drift apart.
    *
    * @param {object} item        { aircraft, vis, relevance, distanceNm, relativeBearing }
-   * @param {object} userState   { lat, lon, heading, speedMph }
+   * @param {object} userState   { lat, lon, heading, speedMph, mode }
    * @param {string} outcomeCode One of OUTCOMES[].code
    */
   function buildObservation(item, userState, outcomeCode) {
     const a = item.aircraft;
     return {
       timestamp: new Date().toISOString(),
+      // Which of the three main screens was active when this was logged —
+      // "raw" | "hybrid" | "air", from app.js's own _activeDisplayMode().
+      // Added 2026-09-08: every field below already answered "what was the
+      // model's own input/output for this sighting," but nothing recorded
+      // which screen the sighting was actually made from, which matters
+      // for exactly the kind of question a calibration pass needs to ask
+      // (e.g. does a null localObstruction mean the feature wasn't live
+      // yet, or that this screen's map state couldn't query it). Optional
+      // on read — records logged before this field existed simply won't
+      // have it, no migration needed.
+      mode: userState.mode || null,
+      // 2026-09-13 — see installId.js's own doc comment for the full
+      // reasoning: a thin, anonymous, per-install correlation key so
+      // multiple observations can be recognised as coming from the same
+      // physical device/tester without recording any real identity.
+      installId: (typeof InstallId !== "undefined") ? InstallId.get() : null,
       user: {
         lat: userState.lat, lon: userState.lon,
         heading: userState.heading, speedMph: userState.speedMph,
@@ -49,6 +103,12 @@ const ObservationLogger = (() => {
         lastSeenSeconds: a.lastSeenSeconds,
       },
       computed: {
+        // 2026-09-13 — see visibility.js's own MODEL_VERSION comment: lets
+        // a future calibration pass tell whether an "outcome vs predicted"
+        // mismatch reflects the CURRENT scoring model or one that's since
+        // changed, without cross-referencing observation timestamps
+        // against the CLAUDE.md changelog by hand.
+        modelVersion: (typeof Visibility !== "undefined") ? Visibility.MODEL_VERSION : null,
         distanceNm: item.distanceNm,
         relativeBearing: item.relativeBearing,
         visibility: {
@@ -57,6 +117,40 @@ const ObservationLogger = (() => {
           slantRangeNm: item.vis.slantRangeNm,
         },
         relevance: item.relevance,
+        // Snapshot of whatever METAR context (if any) was actually applied
+        // to this observation's own visibility score — added 2026-09-01
+        // after real not_visible_weather log entries turned out impossible
+        // to diagnose without this: every one of them showed the model at
+        // high/full confidence with no way to tell, after the fact,
+        // whether that was because METAR data was unavailable at that
+        // moment (fetch failure, no nearby station) or because the METAR
+        // that WAS available genuinely didn't report occluding conditions
+        // (e.g. isolated cloud a station-based report can't see). Read via
+        // MetarProvider.getCached() — a synchronous snapshot of whatever's
+        // currently cached, same data _applyMetarAdjustment() itself would
+        // have used for this exact observation. Null when no METAR is
+        // cached at all (fetch never succeeded, or none nearby).
+        metar: (typeof MetarProvider !== "undefined") ? MetarProvider.getCached() : null,
+        // Same reasoning as the metar snapshot above, added 2026-09-02
+        // alongside the local-obstruction feature itself: without this,
+        // a not_visible_obstruction/visible_airframe entry can't be
+        // checked against the actual density data that was (or wasn't)
+        // applied to it, only the final tier. Deliberately just the raw
+        // LocalObstruction.getCached() snapshot, no separately-computed
+        // "did the adjustment actually fire" boolean — same pattern the
+        // metar field above already established (raw context, not a
+        // derived flag); whether it fired is reconstructable from this
+        // plus the logged elevationDeg above and visibility.js's own
+        // LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG/DENSE_THRESHOLD constants.
+        localObstruction: (typeof LocalObstruction !== "undefined") ? LocalObstruction.getCached() : null,
+        // Same "raw context, not a derived flag" pattern as metar/
+        // localObstruction above, added 2026-09-08 alongside
+        // UpperAirProvider itself — without this, a future
+        // not_visible_weather/visible_airframe entry involving a mid/
+        // high-altitude aircraft can't be checked against the actual
+        // Open-Meteo band data that was (or wasn't) applied to it, only
+        // the final tier.
+        upperAir: (typeof UpperAirProvider !== "undefined") ? UpperAirProvider.getCached() : null,
       },
       outcome: outcomeCode,
     };
@@ -87,9 +181,12 @@ const ObservationLogger = (() => {
    */
   async function record(observation) {
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (LOG_ENDPOINT_KEY) headers["X-VCAS-Key"] = LOG_ENDPOINT_KEY;
+
       const res = await fetch(LOG_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(observation),
       });
       if (!res.ok) throw new Error("log server responded " + res.status);

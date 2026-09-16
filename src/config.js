@@ -6,9 +6,81 @@ const CONFIG = {
   // ---- API Configurations ----
   // IMPORTANT: Replace with your restricted MapTiler browser token
   MAPTILER_KEY: "IIq8EPZSZfg9swGWgqbH",
-  
+  // Free OpenRouteService "Standard" API key — https://openrouteservice.org/dev/#/home
+  ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
+
+  // Optional, experimental second routing provider — TomTom's Orbis
+  // Routing API v2 (real-time-traffic-aware ETAs, unlike ORS's static
+  // pace), DRIVING ONLY — Orbis's own docs state travelMode's only
+  // allowed value is "car", so cycling/walking always use ORS regardless
+  // of this key (see src/routing/activeRoutingProvider.js). Confirmed
+  // 2026-09-16 directly from TomTom's own Orbis Routing docs (not a
+  // secondhand summary): the response headers table states
+  // `Access-Control-Allow-Origin: *` (wildcard) — no CORS relay needed,
+  // same as adsb.fi/aviationweather.gov's relays weren't an option for.
+  // Same docs also confirm Routing API pricing/quota (free up to 20,000
+  // requests/month) is identical whether using classic v1 or Orbis — no
+  // separate cost for choosing this. Leave blank to disable entirely; see
+  // activeRoutingProvider.js for the hidden dev-mode toggle that switches
+  // to it (ORS stays the default either way, and is always the fallback
+  // if a TomTom driving request fails). Get a free key at
+  // https://developer.tomtom.com.
+  TOMTOM_API_KEY: "",
+
+  // ---- ADS-B data provider(s) ----
+  // Settled decision (2026-08-14): adsb.fi only. DATA_PROVIDERS is still a
+  // list — src/data/adsbExchangeClient.js round-robins across whatever's
+  // in it, with same-tick fallback to the rest if one errors — so adding a
+  // second provider back (e.g. "adsb_lol") is just adding another id here,
+  // no code change needed. Deliberately single-provider for now rather than
+  // defaulting to spreading load across multiple free services: that was
+  // this app's own mitigation while the data-source decision was still
+  // open, not a requirement once a specific provider has been chosen.
+  // See adsbExchangeClient.js's own header comment for what each provider
+  // id needs (adsb_exchange requires ADSB_API_KEY/ADSB_API_HOST below; the
+  // rest are free/anonymous).
+  //
+  // PERMANENTLY EXCLUDED, by explicit project-owner directive: never add
+  // Airplanes.live back to this list under any circumstances — VCAS is
+  // boycotting them as an organization, not just avoiding a withdrawn free
+  // tier. See CLAUDE.md's "ADS-B data source" section for the full history.
+  DATA_PROVIDERS: ["adsb_fi"],
+
+  // adsb.fi's API doesn't send the CORS header a browser needs to read its
+  // response directly — confirmed via a real device test: the exact same
+  // URL works fine typed straight into a browser (proving the API and the
+  // data are healthy), but VCAS's own in-page fetch() fails, because that's
+  // subject to the browser's cross-origin restriction and plain navigation
+  // isn't. Independently corroborated by a Windy.com plugin-dev thread
+  // hitting the identical wall with adsb.fi and concluding a browser-side
+  // integration wasn't feasible. Routes adsb_fi's requests through a small
+  // server-side relay (deploy/adsb-relay.php, not committed to this repo —
+  // handed to the project owner directly, same pattern as LOG_ENDPOINT
+  // below) when set — the relay does the actual request server-to-server,
+  // which isn't subject to the browser restriction, and returns the result
+  // with the header VCAS's browser needs. Leave both blank to fall back to
+  // calling adsb.fi directly, which still works outside a browser context
+  // (e.g. curl/Node) but will fail with a generic "network" error in the
+  // deployed app until the relay is set up.
+  ADSB_RELAY_URL: "https://vectair.org/adsb-relay/relay.php",
+  ADSB_RELAY_KEY: "D5ed4yHUumftDFscQpLb2xN5H8v-Ylnb5jud5o61scs",
+
+  // Same CORS-relay pattern as ADSB_RELAY_URL above, for aviationweather.gov
+  // (src/logic/metarProvider.js) — that API sends no CORS header either, so
+  // a direct browser fetch() silently fails, meaning the visibility model's
+  // METAR-based weather adjustment has likely never actually fired in the
+  // deployed app (confirmed via real ground-truth log data, 2026-09-01 —
+  // see CLAUDE.md). Leave both blank to fall back to calling
+  // aviationweather.gov directly, same fallback behaviour as ADSB_RELAY_URL.
+  METAR_RELAY_URL: "https://vectair.org/metar-relay/relay.php",
+  METAR_RELAY_KEY: "yLzDuqVXmYesxciEnjbwVZsPTj6xfGiy4EsKg4BcIDs",
+
   // ---- Telemetry & Refresh Intervals ----
-  REFRESH_INTERVAL_SECONDS: 10,
+  // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
+  // leaves generous headroom below that ceiling for a single client while
+  // cutting worst-case "aircraft already climbed hundreds of feet before it
+  // appears" lag by more than 3x versus the original 10s interval.
+  REFRESH_INTERVAL_SECONDS: 3,
   REMOVE_THRESHOLD_SECONDS: 30,
   STALE_THRESHOLD_SECONDS: 15,
   
@@ -21,6 +93,24 @@ const CONFIG = {
   // stays hidden from NAV indicators before becoming eligible again.
   SUPPRESS_DURATION_SECONDS: 180,
 
+  // ---- Off-route detection / rerouting ----
+  // How far (perpendicular distance to the route polyline) counts as
+  // "off route" — generous enough to absorb ordinary GPS error and minor
+  // lane/carriageway offsets without false-triggering, tight enough to
+  // still catch a genuinely missed turn. Not mode-scoped (driving/cycling/
+  // walking all share it) — a V1 simplification, revisit if walking/cycling
+  // field use shows this needs its own tighter value the way GPS_HEADING_
+  // MIN_SPEED_MPH does.
+  OFF_ROUTE_THRESHOLD_METERS: 50,
+  // How long the user must stay CONTINUOUSLY beyond that threshold before
+  // a reroute actually fires — hysteresis against momentary GPS noise or
+  // briefly crossing a nearby parallel road/overpass, not a real deviation.
+  // Also doubles as the retry backoff if a reroute request itself fails
+  // (network hiccup, ORS error) — see _rerouteFromCurrentPosition() in
+  // app.js — so this stays reasonably short rather than tuned purely for
+  // the detection side.
+  OFF_ROUTE_REROUTE_DELAY_SECONDS: 6,
+
   // ---- Ground/Low-Altitude Clutter Suppression ----
   // Similar to a TCAS altitude filter — hides aircraft below a fixed height
   // so busy airports don't flood the display with taxiing/ground traffic.
@@ -28,10 +118,39 @@ const CONFIG = {
   // level), not height above YOUR position. There's no terrain/elevation
   // data source in this app, so this is a sea-level-referenced cutoff, not
   // true "above ground" — near a high-elevation airport it may under- or
-  // over-suppress. Adjust SUPPRESS_LOW_ALTITUDE_FT for your region if
-  // needed, or set SUPPRESS_LOW_ALTITUDE_ENABLED to false to see everything.
-  SUPPRESS_LOW_ALTITUDE_ENABLED: true,
+  // over-suppress.
+  // Defaults to OFF (show everything) now that manual control exists — the
+  // ALT button (bottom-left, src/altitudeSuppressPanel.js) overrides both
+  // live, persisted in localStorage, so day-to-day adjustment doesn't need
+  // a config edit/redeploy. A hardcoded-on default turned out to actively
+  // hide exactly the close/low traffic (e.g. departures) this app exists to
+  // surface; better to let it be an opt-in choice. Change these two only to
+  // shift the app's out-of-the-box starting state.
+  SUPPRESS_LOW_ALTITUDE_ENABLED: false,
   SUPPRESS_LOW_ALTITUDE_FT: 500,
+
+  // ---- Central Observation Log ----
+  // Ground-truth "was this actually visible" log (src/dev/observationLogger.js,
+  // logged via the dev LOG panel/popup buttons). Points at a real internet
+  // endpoint so every device — phone, PC, whatever — logs to the SAME place
+  // automatically, instead of each device only having its own local
+  // logServer.py / localStorage fallback. Leave blank ("") to fall back to
+  // the old relative "/api/log" behaviour (only works when running
+  // logServer.py locally) — useful for local dev without touching this file.
+  //
+  // LOG_ENDPOINT_KEY is sent as the X-VCAS-Key header on every request. It's
+  // NOT a real secret — this is a static site, so anything here ships to
+  // every visitor's browser and can be read from the deployed JS. Treat it
+  // as a low-effort deterrent against random bots hitting the endpoint
+  // blindly, not as actual access control; the endpoint's own server-side
+  // logic is what should enforce anything that actually matters.
+  // Deployed 2026-08-23: Bluehost-hosted log.php (not committed to this
+  // repo — handed to the project owner directly, same pattern as
+  // ADSB_RELAY_URL above), mirroring each observation into the private
+  // github.com/Vectair/vcas-logs repo too. See CLAUDE.md's "Central
+  // observation log" entry for the full deploy history.
+  LOG_ENDPOINT: "https://vectair.org/vcas-log/log.php",
+  LOG_ENDPOINT_KEY: "k8uBvSSbtZ_5lTB8dAaImH9ozO3wYd5pJpY72tHkr50",
 };
 
 if (typeof module !== "undefined") module.exports = CONFIG;

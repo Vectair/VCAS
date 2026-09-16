@@ -62,7 +62,13 @@ const SpeedSimPanel = (() => {
 
     panel.appendChild(toggle);
     panel.appendChild(menu);
-    document.body.appendChild(panel);
+    // Same real stacking-context bug/fix as LogPanel's own #lp-toggle (see
+    // its own doc comment, 2026-09-14) — appending straight to document.body
+    // puts this outside #viewport-dev-frame, where #viewport-dev-shell's own
+    // unconditional position:fixed stacking context traps every full-screen
+    // overlay (Settings/Onboarding/3D View) below this panel's z-index
+    // regardless of their own, much higher, internal z-index values.
+    (document.getElementById("viewport-dev-frame") || document.body).appendChild(panel);
 
     document.addEventListener("click", () => { if (_menuOpen) _closeMenu(); });
 

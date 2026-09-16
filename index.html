@@ -2,25 +2,276 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+
+  <!-- Beta crash/error reporter — inline, literally the first thing in
+       <head>, deliberately NOT a separate src/dev/*.js file. Its whole
+       purpose is catching failures in the 25+ script tags below (see
+       CLAUDE.md's "Recurring: blank screen" entry) — including the exact
+       documented case where an early script fails to load and a LATER one
+       throws a ReferenceError using its missing globals. If this were its
+       own external script it could be the one thing that fails to load,
+       defeating the point; being inline HTML means it's always present the
+       moment the document parses, before anything else gets a chance to
+       break. Self-contained on purpose: LOG_ENDPOINT/LOG_ENDPOINT_KEY are
+       duplicated from config.js rather than read from it, since config.js
+       itself may not have loaded yet when the failure this exists to catch
+       happens. Keep these two values in sync with config.js by hand if
+       either ever changes.
+
+       Registered in the CAPTURE phase (the `true` third argument) — a
+       <script>/<link> that fails to LOAD fires a plain (non-bubbling)
+       Event on that element itself, not on window, so only a capture-phase
+       listener on an ancestor sees it at all; a genuine runtime error
+       (including the downstream ReferenceError case above) fires a real
+       ErrorEvent on window directly either way. One listener distinguishes
+       both by checking event.target. -->
+  <script>
+  (function () {
+    "use strict";
+    var LOG_ENDPOINT     = "https://vectair.org/vcas-log/log.php";
+    var LOG_ENDPOINT_KEY = "k8uBvSSbtZ_5lTB8dAaImH9ozO3wYd5pJpY72tHkr50";
+    // Hard cap + de-dup so something throwing in a tight loop (e.g. every
+    // animation frame) can't flood the endpoint or a tester's data plan —
+    // one real crash is useful signal, a few hundred copies of it aren't.
+    var MAX_REPORTS = 20;
+    var reportCount = 0;
+    var seen = {};
+
+    function report(payload) {
+      var sig = payload.message + "@" + payload.source + ":" + payload.line;
+      if (seen[sig] || reportCount >= MAX_REPORTS) return;
+      seen[sig] = true;
+      reportCount++;
+
+      payload.kind      = "error";
+      payload.timestamp = new Date().toISOString();
+      payload.url       = location.href;
+      payload.userAgent = navigator.userAgent;
+
+      if (typeof fetch !== "function") return;
+      try {
+        var headers = { "Content-Type": "application/json" };
+        if (LOG_ENDPOINT_KEY) headers["X-VCAS-Key"] = LOG_ENDPOINT_KEY;
+        // .catch(noop) is load-bearing, not decorative — an unhandled
+        // rejection from OUR OWN reporting fetch would otherwise be caught
+        // by our own unhandledrejection listener below and try to report
+        // itself, forever. keepalive:true lets the request survive if the
+        // tab closes right as it fires.
+        fetch(LOG_ENDPOINT, { method: "POST", headers: headers, body: JSON.stringify(payload), keepalive: true })
+          .catch(function () {});
+      } catch (e) {
+        // fetch() itself throwing synchronously (e.g. a strict CSP) must
+        // never cascade into another error report.
+      }
+    }
+
+    // ---- Visible "reload" prompt — the user-facing half of the same fix ----
+    //
+    // The reporter above only RECORDS a failure; this is what a tester
+    // actually SEES when the documented blank-screen bug hits them, instead
+    // of a dead screen with no explanation. Pure inline styles, no
+    // dependency on VCAS.css classes — that stylesheet could itself be one
+    // of the things that failed to load, and this has to render legibly
+    // either way.
+    var bannerShown = false;
+    function showReloadBanner() {
+      if (bannerShown) return;
+      bannerShown = true;
+
+      var overlay = document.createElement("div");
+      overlay.id = "vcas-crash-banner";
+      overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;" +
+        "align-items:center;justify-content:center;background:rgba(10,14,23,.92);" +
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;" +
+        "padding:24px;box-sizing:border-box;";
+
+      var card = document.createElement("div");
+      card.style.cssText = "background:#1a2128;border:1px solid #3d505c;border-radius:10px;" +
+        "padding:24px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.6);" +
+        "box-sizing:border-box;";
+
+      var title = document.createElement("div");
+      title.textContent = "VCAS didn't load correctly";
+      title.style.cssText = "font-size:17px;font-weight:700;color:#eaeef1;margin-bottom:8px;";
+
+      var body = document.createElement("div");
+      body.textContent = "Something went wrong while starting the app. This is usually fixed by reloading.";
+      body.style.cssText = "font-size:14px;color:#8ba3b1;margin-bottom:18px;line-height:1.4;";
+
+      var reloadBtn = document.createElement("button");
+      reloadBtn.textContent = "Reload";
+      reloadBtn.style.cssText = "width:100%;padding:12px;border:none;border-radius:6px;" +
+        "background:#1191d8;color:#fff;font-size:15px;font-weight:700;cursor:pointer;-webkit-appearance:none;";
+      reloadBtn.onclick = function () { location.reload(); };
+
+      var dismissBtn = document.createElement("button");
+      dismissBtn.textContent = "Dismiss";
+      dismissBtn.style.cssText = "width:100%;padding:10px;margin-top:8px;border:none;" +
+        "background:transparent;color:#56707d;font-size:13px;cursor:pointer;-webkit-appearance:none;";
+      dismissBtn.onclick = function () { overlay.parentNode && overlay.parentNode.removeChild(overlay); };
+
+      card.appendChild(title);
+      card.appendChild(body);
+      card.appendChild(reloadBtn);
+      card.appendChild(dismissBtn);
+      overlay.appendChild(card);
+      (document.body || document.documentElement).appendChild(overlay);
+
+      // Self-heals if the app actually finishes starting shortly after this
+      // fired (an unusually slow but ultimately successful load, say) —
+      // don't leave a false-alarm banner sitting over a working app.
+      var recoveryInterval = setInterval(function () {
+        if (window._vcasAppReady) {
+          clearInterval(recoveryInterval);
+          overlay.parentNode && overlay.parentNode.removeChild(overlay);
+        }
+      }, 500);
+    }
+
+    window.addEventListener("error", function (event) {
+      var t = event.target;
+      if (t && t !== window && t.tagName && (t.tagName === "SCRIPT" || t.tagName === "LINK")) {
+        // A script/stylesheet failed to LOAD — the actual root cause of
+        // the documented blank-screen bug, not just its downstream symptom.
+        report({
+          type: "resource-load-error",
+          message: "Failed to load: " + (t.src || t.href || ""),
+          source: t.src || t.href || "",
+          line: 0, col: 0, stack: "",
+        });
+        // Only a failed SCRIPT (not a stylesheet) means the app is
+        // actually broken, not just unstyled — that's the specific,
+        // unambiguous signal worth interrupting the tester for immediately
+        // rather than waiting out the watchdog below.
+        if (t.tagName === "SCRIPT") showReloadBanner();
+        return;
+      }
+      report({
+        type: "onerror",
+        message: event.message || "",
+        source: event.filename || "",
+        line: event.lineno || 0,
+        col: event.colno || 0,
+        stack: (event.error && event.error.stack) ? String(event.error.stack) : "",
+      });
+    }, true); // capture phase — required to see non-bubbling resource load errors
+
+    window.addEventListener("unhandledrejection", function (event) {
+      var reason = event.reason;
+      report({
+        type: "unhandledrejection",
+        message: (reason && reason.message) ? reason.message : String(reason),
+        source: "", line: 0, col: 0,
+        stack: (reason && reason.stack) ? String(reason.stack) : "",
+      });
+    });
+
+    // Watchdog — catches whatever the two listeners above miss (a script
+    // that parses and runs but throws somewhere inside app.js's own init(),
+    // for instance, with no failed resource and nothing left uncaught).
+    // window._vcasAppReady is set as literally the last line of init()
+    // (app.js) — if it's still unset this long after the document started
+    // loading, something above prevented the app from ever finishing
+    // startup, whether or not it happened to throw a catchable error.
+    setTimeout(function () {
+      if (window._vcasAppReady) return;
+      report({
+        type: "watchdog-timeout",
+        message: "App did not finish initializing within the watchdog window",
+        source: "", line: 0, col: 0, stack: "",
+      });
+      showReloadBanner();
+    }, 8000);
+  })();
+  </script>
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#0e1117" />
+  <!-- Kept in sync BY HAND with VCAS.css's --bg-dark (Night, #12181c) and
+       manifest.json's background_color/theme_color — three places that
+       can't read a CSS custom property (a meta tag, a static manifest, and
+       this file's own pre-CSS-load launch screen below) and drifted apart
+       from the real 2026-08-22 cockpit-rebrand palette until the
+       2026-08-24 "double load screen / background inconsistency" fix
+       caught it — see CLAUDE.md. -->
+  <meta name="theme-color" content="#12181c" />
+  <!-- GitHub Pages doesn't let us set real Cache-Control headers, and this
+       top-level document has no ?v=__BUILD_ID__ of its own (it can't cache-
+       bust itself) — these are the best-effort browser-side equivalent, so
+       a phone/PWA that's already cached an old copy has a better chance of
+       actually re-fetching after a deploy instead of silently reusing it. -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>VCAS</title>
 
   <!-- Installability -->
-  <link rel="manifest" href="manifest.json" />
-  <link rel="icon" href="assets/icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+  <link rel="manifest" href="manifest.json?v=__BUILD_ID__" />
+  <link rel="icon" href="assets/icons/favicon-64.png?v=__BUILD_ID__" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png?v=__BUILD_ID__" />
 
   <!-- MapLibre GL JS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.css" />
 
+  <!-- B612 / B612 Mono — the actual typefaces used on Airbus flight deck
+       displays (PFD/ND/ECAM), designed by Airbus with Google Fonts
+       specifically for cockpit legibility. Chosen to extend the
+       cockpit-panel rebrand (see CLAUDE.md) from color/shape into
+       typography — this is the one part of that rebrand that's a literal,
+       not just inspired-by, match. B612 Mono only ships weight 400 (no
+       bold) — used specifically for the numeric/digital-readout areas a
+       real Airbus panel itself renders in monospace (ND heading/range,
+       PFD-style ETA/distance readouts, TCAS/ND altitude tags, the aircraft
+       detail popup's data rows), not applied app-wide the way B612 is. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono&display=swap" />
+
   <!-- App styles -->
-  <link rel="stylesheet" href="src/styles/VCAS.css" />
+  <link rel="stylesheet" href="src/styles/VCAS.css?v=__BUILD_ID__" />
 </head>
 <body data-theme="night">
+
+  <!-- Launch/splash screen — present in the initial HTML so it's on screen
+       the instant the document parses, before VCAS.css or any of the 25+
+       app scripts have to load (same reasoning as the inline crash reporter
+       in <head>: pure inline styles, nothing external to fail). Removed by
+       app.js's init() the moment window._vcasAppReady is set (see that
+       flag's own comment) — a real "app finished starting" signal, not a
+       fixed timer, so it never lingers on a slow load or vanishes early on
+       a fast one. Deliberately ADDITIVE to, not a replacement for, the
+       top-bar's own adsb.fi attribution — the #adsb-status pill's label is
+       itself a real link to adsb.fi's homepage (round 6, 2026-09-08; see
+       CLAUDE.md's "How VCAS is actually installed" / adsb.fi attribution
+       history) — that placement stays for the whole session because the
+       citation is an ongoing obligation; this is a one-time hero moment on
+       top of it, not instead of it.
+
+       Background is #12181c — VCAS.css's real --bg-dark (Night), same
+       value as manifest.json's background_color (2026-08-24 fix). Android's
+       own OS-generated auto-splash (icon-only, rendered from that same
+       manifest background_color before this HTML even parses) hands off to
+       THIS overlay a moment later; matching the two exactly means that
+       handoff is a same-colour continuation — no colour flash — even
+       though the icon itself still visibly grows/repositions and the
+       tagline+credit fade in, which is the OS auto-splash's own doing, not
+       something this app's code can suppress (it has no subtitle/credit
+       capability of its own — see CLAUDE.md's "How VCAS is actually
+       installed" section). -->
+  <div id="launch-screen" style="position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#12181c;padding:32px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <img src="assets/icons/icon-512.png?v=__BUILD_ID__" alt="VCAS" style="width:92vw;max-width:480px;min-width:220px;height:auto;" />
+    <div style="margin-top:22px;color:#8ba3b1;font-size:clamp(10px,3.2vw,14px);letter-spacing:1.5px;text-transform:uppercase;text-align:center;white-space:nowrap;">Visual Contact Awareness System</div>
+    <div style="position:absolute;bottom:max(28px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#56707d;font-size:clamp(9px,2.9vw,12px);line-height:1.6;white-space:nowrap;">
+      Proudly powered by
+      <a href="https://adsb.fi" target="_blank" rel="noopener" style="color:#8ba3b1;">adsb.fi</a>,
+      <a href="https://maplibre.org" target="_blank" rel="noopener" style="color:#8ba3b1;">MapLibre</a>,
+      <a href="https://www.maptiler.com" target="_blank" rel="noopener" style="color:#8ba3b1;">MapTiler</a>
+      and
+      <a href="https://open-meteo.com" target="_blank" rel="noopener" style="color:#8ba3b1;">Open-Meteo</a>
+    </div>
+  </div>
 
   <!-- Dev viewport emulator shell — wraps all app content so the frame can
        be constrained to emulated device dimensions.  In Full Browser mode
@@ -33,14 +284,55 @@
         <div id="map"></div>
       </div>
 
+      <!-- NAV Raw-mode range rings (screen-space, same banded scale the
+           indicator dots use — see EosMap.updateRangeRings vs
+           UI.renderRangeRingsOverlay in CLAUDE.md for why real geo-projected
+           map layers and this share nothing in common on purpose here) -->
+      <svg id="nav-range-rings-overlay" style="position:fixed;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;" class="hidden"></svg>
+
+      <!-- NAV Raw-mode flight-plan line (screen-space, same banded scale as
+           the range rings/dots above — see UI.renderRouteLine's own doc
+           comment for why this is NOT the real geo-referenced MapLibre
+           route line map.js draws for Hybrid). Same z-index as the range
+           rings but later in DOM order, so it paints over them (a real
+           ND's flight-plan line is a bold foreground line over a subtle
+           dashed ring background) while still sitting under the indicator
+           icons/labels above it. -->
+      <svg id="nav-route-line-overlay" style="position:fixed;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;" class="hidden"></svg>
+
+      <!-- NAV Raw-mode heading/compass tape (ND-style, top of screen) -->
+      <svg id="nav-compass-ring" style="position:fixed;inset:0;width:100%;height:100%;z-index:10;pointer-events:none;" class="hidden"></svg>
+
       <!-- Edge indicators layer (sits above map, below UI chrome) -->
       <div id="indicators-layer" style="position:fixed;inset:0;z-index:9;pointer-events:none;"></div>
 
-      <!-- GPS unavailable message -->
+      <!-- RAW-only chrome backdrop (2026-09-08) behind the aircraft-list
+           panel's own region (Geo.computePlotLayout's `rows` rect) —
+           the real map canvas is black everywhere in RAW (it has no
+           concept of "square" vs "rows"), so without this the area
+           around/behind the list panel shows through as black instead of
+           matching the top/bottom bar's slate chrome. Positioned from the
+           exact same `square.rows` rect the list panel itself uses (see
+           app.js's refreshIndicators) so the two can't drift apart; sits
+           behind the list panel (lower z-index) so nothing about the
+           panel's own styling changes. -->
+      <div id="raw-rows-backdrop" class="hidden" style="position:fixed;z-index:7;pointer-events:none;"></div>
+
+      <!-- RAW mode sortable aircraft list panel (Stage 3) — fills whatever
+           side margin the circular plot leaves empty on wider screens;
+           hidden entirely when there isn't room. See UI.renderAircraftList. -->
+      <div id="raw-aircraft-list" class="hidden"></div>
+
+      <!-- GPS unavailable message. #gps-message-detail's text is swapped by
+           UI.showGpsMessage() based on the real GeolocationPositionError
+           code — see that function's own comment for why a single generic
+           "reload the page" instruction isn't good enough once permission
+           has actually been denied (reloading alone can't re-trigger a
+           browser's permission prompt after a real denial). -->
       <div id="gps-message" class="hidden">
         <div class="card">
           <h2>Location unavailable</h2>
-          <p>VCAS needs your GPS position to work.<br>
+          <p id="gps-message-detail">VCAS needs your GPS position to work.<br>
              Please allow location access and reload the page.</p>
         </div>
       </div>
@@ -56,31 +348,144 @@
         <button type="button" id="compass-permission-btn">Enable</button>
       </div>
 
-      <!-- Destination-pick hint (shown while armed via the route button) -->
+      <!-- Destination-pick hint (shown while armed via the route button) —
+           search by name/address, or fall through to tapping the map. -->
       <div id="dest-pick-banner" class="hidden">
-        <span>📍 Tap the map to set your destination</span>
+        <div class="dpb-search-row">
+          <input type="text" id="dpb-search-input" class="dpb-search-input"
+                 placeholder="Search for a place or address…" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false" />
+        </div>
+        <div id="dpb-search-results" class="hidden"></div>
+        <div class="dpb-text">📍 or tap the map to set your destination</div>
+        <div class="dpb-modes">
+          <button type="button" class="dpb-mode-btn" data-mode="driving" title="Driving">🚗</button>
+          <button type="button" class="dpb-mode-btn" data-mode="cycling" title="Cycling">🚲</button>
+          <button type="button" class="dpb-mode-btn" data-mode="walking" title="Walking">🚶</button>
+        </div>
       </div>
 
-      <!-- Loading indicator -->
-      <div id="loading" class="hidden">
-        <div class="spinner"></div>
-        <span>Fetching aircraft…</span>
-      </div>
 
       <!-- Aircraft detail popup -->
       <div id="popup" class="hidden"></div>
+
+      <!-- Recenter — shown once the user manually pans/zooms/rotates away -->
+      <button type="button" id="btn-recenter" class="hidden" title="Recenter on your position">⌖</button>
+
+      <!-- RAW mode ND-style range selector — equivalent of the physical
+           range knob on a real EFIS control panel (see CLAUDE.md); tap to
+           cycle through the same 5 boundaries the range rings use. -->
+      <button type="button" id="btn-raw-range" class="hidden" title="Tap to change ND range"></button>
+
+      <!-- Hybrid-only manual camera-tilt override (2026-09-09) — see
+           CLAUDE.md and src/manualTilt.js. Positioned/shown by app.js's
+           _positionManualTiltControls() (called from refreshIndicators(),
+           the same place every other Hybrid/RAW-conditional floating
+           control already gets positioned from), not fixed CSS coordinates
+           — RAW/AIR both hide these outright. The toggle is gated to
+           CONFIG.GPS_HEADING_MIN_SPEED_MPH, same as the LOG button; the
+           reset button and slider panel only ever show once the override
+           is actually on. -->
+      <button type="button" id="btn-manual-tilt-toggle" class="hidden" title="Adjust camera angle">🎚</button>
+      <button type="button" id="btn-manual-tilt-reset" class="hidden" title="Reset camera angle">RESET</button>
+      <div id="manual-tilt-panel" class="hidden">
+        <div class="manual-tilt-value" id="manual-tilt-value">45°</div>
+        <div class="manual-tilt-slider-wrap">
+          <input type="range" id="manual-tilt-slider" min="0" max="85" step="1" value="45" aria-label="Camera tilt angle">
+        </div>
+      </div>
 
       <!-- Main overlay (top/bottom chrome) -->
       <div id="overlay">
         <!-- Top bar -->
         <div id="top-bar">
-          <div class="brand">V<span>CAS</span></div>
-          <div id="mode-strip">
-            <div id="mode-label">DRIVING VIEW</div>
+          <!-- The "DRIVING VIEW"/"RAW VIEW" text label (#mode-strip/
+               #mode-label) was removed 2026-09-08, direct instruction:
+               the top bar is now purely status (ADS-B/METAR) + settings —
+               current mode is already unambiguous from which bottom-bar
+               button reads active, so a second, redundant indicator here
+               was just crowding the status pills. UI.setModeLabel() still
+               runs (it also toggles the bottom-bar buttons' own
+               .active-mode class) but no-ops the now-absent text write. -->
+          <!-- "VCAS" wordmark text removed (round 10, 2026-09-08, direct
+               instruction) — the brand icon itself already carries the
+               "VCAS" wordmark baked into its own artwork (see the
+               icon-redesign history in CLAUDE.md), so the separate text
+               next to it was a literal duplicate, and the pair was
+               crowding the 3-pill status row into overflowing off the
+               right edge on a real device. alt text on the icon now
+               carries the accessible name the text used to provide. -->
+          <div class="brand" id="brand-tap-target">
+            <img class="brand-icon" src="assets/icons/favicon-64.png?v=__BUILD_ID__" alt="VCAS" width="30" height="30" />
           </div>
-          <div id="adsb-status" class="error">
-            <div class="dot"></div>
-            <span class="label">ADS-B</span>
+          <div id="top-bar-right">
+            <div id="top-right-controls">
+              <!-- Data-source status pills, restyled (2026-09-08) to match
+                   a hand-drawn design draft's bolder pill row — real
+                   sources only, no fabricated indicators for anything
+                   VCAS doesn't actually depend on; see CLAUDE.md.
+
+                   2026-09-08 (round 6): #adsb-status's own label now reads
+                   "adsb.fi" (was "ADS-B") and IS itself the real link
+                   adsb.fi's usage terms require — see .status-pill-link's
+                   own comment in VCAS.css. This is what let the separate
+                   #adsb-credit line below the settings cog be removed
+                   outright rather than duplicating the same citation
+                   twice in the same top bar.
+
+                   2026-09-08 (design-draft comparison, round 9): added
+                   #maptiler-status — MapTiler IS a real dependency (RAW's
+                   own style carries its vector source for the local-
+                   obstruction feature, see CLAUDE.md; Hybrid/AIR use it
+                   directly for tiles), just with no live per-request
+                   health signal the way adsb.fi/METAR have (both go
+                   through a relay that can report success/failure per
+                   poll). Direct instruction: "if they do nothing but
+                   supply a service we can just show that we're connected
+                   to the service" — so this shows configured-or-not
+                   (UI.setMaptilerStatus, keyed on CONFIG.MAPTILER_KEY
+                   being present), not a fabricated live check.
+
+                   2026-09-08 (same day, later): added #upper-air-status —
+                   Open-Meteo is now a genuinely real dependency
+                   (UpperAirProvider, feeding Visibility.estimate()'s
+                   `upperAir` parameter, closing a documented gap in the
+                   METAR-only adjustment — see CLAUDE.md's "Visibility
+                   model calibration pass #2" and "Open-Meteo upper-air
+                   signal" entries). A real per-request health signal like
+                   adsb.fi/METAR, not a one-time configured-check like
+                   MapTiler — Open-Meteo needs no key/relay at all (their
+                   own server sends Access-Control-Allow-Origin: *,
+                   confirmed directly against their real source).
+
+                   2026-09-08 (same day, later still): #metar-status
+                   removed outright, and #upper-air-status's own label is
+                   now a real link to open-meteo.com — same
+                   `.status-pill-link` pattern #adsb-status already uses,
+                   direct instruction. METAR data itself is untouched
+                   (metarProvider.js still feeds Visibility.estimate()
+                   exactly as before, via app.js's own MetarProvider.
+                   refresh() call) — only its dedicated status pill is
+                   gone, now that Open-Meteo's own pill is the app's
+                   weather-status indicator and a genuine citation link
+                   for a real CC BY 4.0 attribution obligation (also
+                   added to the launch-screen credit line the same day). -->
+              <div id="status-pill-row">
+                <div id="adsb-status" class="status-pill error">
+                  <div class="dot"></div>
+                  <a class="label status-pill-link" href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
+                </div>
+                <div id="maptiler-status" class="status-pill stale">
+                  <div class="dot"></div>
+                  <span class="label">MapTiler</span>
+                </div>
+                <div id="upper-air-status" class="status-pill stale">
+                  <div class="dot"></div>
+                  <a class="label status-pill-link" href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
+                </div>
+              </div>
+            </div>
+            <button type="button" id="btn-settings" title="Settings">⚙</button>
           </div>
         </div>
 
@@ -92,36 +497,94 @@
             <div class="ngc-action" id="ngc-action-text">Continue</div>
             <div class="ngc-dest" id="ngc-dest-text">towards Liverpool Airport</div>
           </div>
+          <!-- RAW-only (2026-09-08): the arrival clock, matching the design
+               draft's own "ETA {time}" placement on this same row next to
+               the turn instruction, not down in #route-card where Hybrid
+               keeps it. .ngc-body's flex:1 pushes this to the row's own
+               right edge for free. Written by app.js's _updateRouteCard()
+               (same calculation Hybrid's #route-eta-arrival already uses),
+               hidden by default, shown only under [data-nav-style="raw"]. -->
+          <div class="ngc-eta" id="ngc-eta-text"></div>
         </div>
 
         <div class="spacer"></div>
 
         <!-- Bottom bar -->
         <div id="bottom-bar">
-          <!-- Mode row -->
+          <!-- Mode row — same buttons/behaviour as before, restyled
+               (2026-09-07) to read as two labelled switch groups on a real
+               EFIS control panel ("SCREEN" for display mode, "NAVIGATION"
+               for the destination pin), per a hand-drawn design draft — a
+               style choice, not a functional change: see CLAUDE.md.
+               "Navigation" reverted from a round-3 "Nav" shortening
+               (2026-09-08, round 9) once #aircraft-count became RAW-only
+               hidden (see the #aircraft-count rule below) — the crowding
+               that motivated shortening it no longer applies in RAW,
+               verified against Hybrid/AIR (where aircraft-count is still
+               visible) at the same 360px width too. -->
           <div id="mode-row">
-            <div class="mode-toggle">
-              <button class="mode-btn active-mode" id="btn-nav">NAV</button>
-              <button class="mode-btn" id="btn-air">AIR</button>
+            <div class="mode-row-group">
+              <div class="mode-row-label mode-row-label-boxed">Screen</div>
+              <div class="mode-bracket-stem"></div>
+              <svg class="mode-bracket" viewBox="0 0 8 1.4" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,0 L8,0 M1,0 L1,1.4 M3,0 L3,1.4 M5,0 L5,1.4 M7,0 L7,1.4" stroke="var(--raw-value-green)" stroke-width="0.12" fill="none"/>
+              </svg>
+              <div class="mode-toggle">
+                <button class="mode-btn active-mode" id="btn-raw">RAW</button>
+                <button class="mode-btn" id="btn-air">AIR</button>
+                <button class="mode-btn" id="btn-hybrid">HYBRID</button>
+                <!-- 3D View joined ModeButtonOrder's reorderable set
+                     2026-09-16 (direct instruction) — its DOM position
+                     among RAW/AIR/HYBRID can now be customized in
+                     Settings same as the other three (see
+                     modeButtonOrder.js). It's still not a persisted
+                     display mode though: its own "active" look (via
+                     .active-mode, toggled independently of the other
+                     three's own use of that class, see
+                     _sync3DButtonState in app.js) reflects only whether
+                     the overlay is currently open, looked up by id, not
+                     by position — reordering it has no effect on that. -->
+                <button class="mode-btn" id="btn-3d">3D</button>
+              </div>
             </div>
             <div id="aircraft-count">No aircraft in range</div>
-            <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">📍</button>
-          </div>
-          <!-- Theme row -->
-          <div id="theme-row">
-            <button class="theme-btn" id="btn-theme-day">Day</button>
-            <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
-            <button class="theme-btn" id="btn-theme-night">Night</button>
+            <div class="mode-row-divider"></div>
+            <div class="mode-row-group">
+              <div class="mode-row-label">Navigation</div>
+              <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">
+                <svg class="route-btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M8 15 L14 15 L14 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M11 8 L14 8 L14 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="route-btn-toggle">
+                  <span class="route-btn-off">OFF</span>
+                  <span class="route-btn-on">ON</span>
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- ETA card (bottom — shown when a route is active) -->
+      <!-- ETA card (bottom — shown when a route is active). RAW hides
+           .route-eta-row/.route-eta-sub's own content (duration/arrival
+           moved to #ngc-eta-text above; destName already covered by
+           #nav-guidance-card's own .ngc-dest) and shows
+           .route-eta-row-raw instead — speed (left) + remaining distance
+           (right) on one row, matching the design draft. Both rows are
+           always populated by the same app.js writes regardless of mode
+           (no conditional-write branching in JS); which one is VISIBLE is
+           a pure CSS concern scoped to [data-nav-style="raw"]. -->
       <div id="route-card" class="hidden">
         <div class="route-eta-col">
           <div class="route-eta-row">
             <div class="route-eta-time" id="route-eta-text">—</div>
             <div class="route-eta-arrival" id="route-eta-arrival"></div>
+          </div>
+          <div class="route-eta-row-raw">
+            <span class="route-eta-speed" id="route-eta-speed"></span>
+            <span id="route-dist-text-raw"></span>
           </div>
           <div class="route-eta-sub">
             <span id="route-dist-text"></span>
@@ -133,6 +596,303 @@
         <button class="route-card-clear" id="btn-clear-route" title="Clear route">✕</button>
       </div>
 
+      <!-- 3D View — the planetarium-style free-view mode (2026-09-09, see
+           CLAUDE.md's own "360°/planetarium 'sky compass' view" entry).
+           A full-screen overlay entered via the 4th bottom-bar mode button
+           (#btn-3d), NOT a real 4th `mode`/NavDisplayStyle value — whatever
+           was showing underneath (Hybrid/RAW/AIR) stays exactly as it was,
+           paused behind this overlay, same "modal on top of an unchanged
+           mode" pattern #settings-screen/#onboarding-screen already use.
+           Aircraft within the phone's current pointing window (device
+           azimuth ± half-FOV, device pitch ± half-FOV — see
+           view3dLogic.js) plot as plain colour-matched dots; the fixed
+           centre reticle marks "where the phone is pointing right now".
+           Gated to stationary/slow use only (same CONFIG.
+           GPS_HEADING_MIN_SPEED_MPH threshold every other point-and-read
+           interaction in this app already uses) — see app.js's
+           _sync3DButtonState()/open3DView()/close3DView(). -->
+      <div id="view3d-screen" class="hidden">
+        <div id="view3d-header">
+          <div id="view3d-title">3D View</div>
+          <div id="view3d-count">0 aircraft in view</div>
+          <!-- Manual "I'm pointing North" calibration (2026-09-13) — a
+               settled-but-magnetically-biased compass reading (common on a
+               stationary phone near metal/electronics) can't be fixed by
+               more smoothing alone, only by a real external reference
+               point. Toggles between "Set North" and "Clear North
+               Calibration" — see app.js's onCalibrateNorthClick(). -->
+          <button type="button" id="btn-3d-calibrate-north" title="Point the phone at true North, then tap this">Set North</button>
+          <button type="button" id="btn-3d-view-close" title="Close 3D View">✕</button>
+        </div>
+        <div id="view3d-body">
+          <!-- World building (2026-09-09 follow-up) — a lightweight
+               procedural sky/ground split at the real horizon (elevation
+               0°), NOT a real 3D map: MapLibre's own camera has a hard
+               pitch ceiling (85°, see the Hybrid manual-tilt entry in
+               CLAUDE.md) and structurally cannot render the near-zenith
+               views this mode needs for a high-elevation aircraft, so a
+               real map was ruled out in favour of this — see
+               View3DLogic.horizonScreenY() and UI.render3DWorld(). Sized/
+               positioned every refresh() from the phone's own current
+               pitch; painted behind the crosshair/items/hint below. -->
+          <!-- World-building pass 2 (2026-09-09, same day follow-up) — a
+               horizon silhouette + atmospheric haze band (both live inside
+               #view3d-sky/#view3d-ground via CSS, no extra elements needed
+               for the haze — see VCAS.css), a flat (non-perspective) ground
+               texture, drifting cloud blobs (#view3d-clouds, static markup
+               below — gated on View3DClouds's own settings toggle, the one
+               piece of this set with an ongoing per-frame cost), and a
+               compass-tick strip (#view3d-compass-ticks) along the top edge
+               driven by the phone's live azimuth — see
+               View3DLogic.compassTicks()/UI.renderCompassTicks(). -->
+          <div id="view3d-sky">
+            <div id="view3d-clouds">
+              <div class="view3d-cloud" style="top:14%;width:150px;height:34px;animation-duration:95s;animation-delay:0s;"></div>
+              <div class="view3d-cloud" style="top:32%;width:110px;height:26px;animation-duration:130s;animation-delay:-40s;"></div>
+              <div class="view3d-cloud" style="top:52%;width:180px;height:40px;animation-duration:80s;animation-delay:-65s;"></div>
+              <div class="view3d-cloud" style="top:8%;width:90px;height:20px;animation-duration:115s;animation-delay:-20s;"></div>
+              <div class="view3d-cloud" style="top:68%;width:130px;height:28px;animation-duration:105s;animation-delay:-90s;"></div>
+            </div>
+          </div>
+          <div id="view3d-ground">
+            <div id="view3d-horizon"></div>
+          </div>
+          <div id="view3d-compass-ticks"></div>
+          <div id="view3d-crosshair"></div>
+          <div id="view3d-items"></div>
+          <div id="view3d-hint">Point your phone at the sky — aircraft
+          within view will appear here.</div>
+          <div id="view3d-blocked" class="hidden">3D View is only
+          available while stationary or moving slowly.</div>
+        </div>
+      </div>
+
+      <!-- Settings screen — "configure occasionally" preferences live here,
+           out of the way of the primary driving/spotting view. -->
+      <div id="settings-screen" class="hidden">
+        <div id="settings-header">
+          <div id="settings-title">Settings</div>
+          <button type="button" id="btn-settings-close" title="Close">✕</button>
+        </div>
+        <div id="settings-body">
+
+          <section class="settings-section">
+            <h3>Display &amp; Accessibility</h3>
+            <div class="settings-row">
+              <span class="settings-label">Theme</span>
+              <div class="theme-toggle-group">
+                <button class="theme-btn" id="btn-theme-day">Day</button>
+                <button class="theme-btn active-theme" id="btn-theme-auto">Auto</button>
+                <button class="theme-btn" id="btn-theme-night">Night</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Colour-blind-safe palette</span>
+              <button type="button" class="settings-toggle-btn" id="btn-colorblind-toggle">Off</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Range rings in Air view</span>
+              <button type="button" class="settings-toggle-btn" id="btn-air-rings-toggle">Off</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Clouds in 3D View</span>
+              <button type="button" class="settings-toggle-btn" id="btn-3d-clouds-toggle">On</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">RAW / AIR / HYBRID / 3D button order</span>
+              <button type="button" class="settings-toggle-btn" id="btn-mode-order-reset">Reset</button>
+            </div>
+            <!-- Up/down move controls, not drag-to-reorder — this app's own
+                 established "no drag gestures, tap targets only" convention
+                 (see CLAUDE.md's RAW range-selector interaction-design
+                 notes) applies just as much to a settings-screen reorder
+                 control as it does to any on-screen driving control. -->
+            <div class="settings-order-list" id="settings-mode-order-list"></div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Traffic Filtering</h3>
+            <div class="settings-row">
+              <span class="settings-label">Hide aircraft on the ground</span>
+              <button type="button" class="settings-toggle-btn" id="btn-settings-ground-toggle">On</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Low-altitude suppression</span>
+            </div>
+            <div class="settings-preset-row" id="settings-alt-presets"></div>
+          </section>
+
+          <!-- Traffic Rules — direct request: hide (filter) or mark (highlight)
+               aircraft by type/category/altitude/military-vs-civil, sharing
+               one rule-building UI with a per-rule mode (confirmed via
+               AskUserQuestion). See src/logic/trafficRules.js (the pure
+               evaluator) and src/trafficRules.js (persisted state) — this
+               markup is just the container; every row/field is built by
+               app.js's _renderTrafficRulesList()/_renderTrafficRuleForm(). -->
+          <section class="settings-section">
+            <h3>Traffic Rules</h3>
+            <p class="settings-hint">Hide or highlight aircraft by type, category, altitude, or military/civil traffic.</p>
+            <div class="traffic-rules-list" id="traffic-rules-list"></div>
+            <div class="settings-row">
+              <button type="button" class="settings-preset-btn" id="btn-add-filter-rule">+ Filter rule</button>
+              <button type="button" class="settings-preset-btn" id="btn-add-highlight-rule">+ Highlight rule</button>
+            </div>
+            <div class="traffic-rule-form hidden" id="traffic-rule-form">
+              <div class="settings-row">
+                <span class="settings-label">Aircraft type contains</span>
+                <input type="text" id="tr-type-query" class="traffic-rule-input" placeholder="e.g. A320, or MiG,Su,Tu for a group" maxlength="120">
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Category</span>
+                <select id="tr-category" class="traffic-rule-select"></select>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Altitude</span>
+                <div class="traffic-rule-altitude">
+                  <select id="tr-alt-enabled" class="traffic-rule-select">
+                    <option value="off">Any</option>
+                    <option value="above">Above</option>
+                    <option value="below">Below</option>
+                  </select>
+                  <input type="number" id="tr-alt-ft" class="traffic-rule-input traffic-rule-input-narrow" min="0" step="500">
+                  <span class="settings-label">ft</span>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span class="settings-label">Traffic type</span>
+                <select id="tr-traffic" class="traffic-rule-select">
+                  <option value="any">Any</option>
+                  <option value="military">Military (OAT)</option>
+                  <option value="civil">Civil (GAT)</option>
+                </select>
+              </div>
+              <div class="settings-row" id="tr-color-row">
+                <span class="settings-label">Highlight colour</span>
+                <input type="color" id="tr-color" class="traffic-rule-color">
+              </div>
+              <!-- Colourblind-safe shortcut swatches (2026-09-14) — only
+                   shown when Colourblind Mode is on (body.colorblind-safe,
+                   see VCAS.css), a fast path onto a curated, mutually-
+                   distinguishable set rather than the free picker's full
+                   spectrum. The free #tr-color picker above stays fully
+                   usable either way — direct instruction was "free picker +
+                   safe presets," not a restriction. -->
+              <div class="settings-row tr-safe-swatches" id="tr-safe-swatches">
+                <span class="settings-label">Safe picks</span>
+                <div class="tr-safe-swatch-row">
+                  <button type="button" class="tr-safe-swatch" data-color="#e69f00" style="background:#e69f00" title="Orange"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#56b4e9" style="background:#56b4e9" title="Sky blue"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#009e73" style="background:#009e73" title="Bluish green"></button>
+                  <button type="button" class="tr-safe-swatch" data-color="#d55e00" style="background:#d55e00" title="Vermillion"></button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-save">Save</button>
+                <button type="button" class="settings-toggle-btn" id="btn-traffic-rule-cancel">Cancel</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Data &amp; Logging</h3>
+            <div class="settings-row">
+              <span class="settings-label" id="settings-export-label">No buffered observations</span>
+              <button type="button" class="settings-toggle-btn" id="btn-settings-export">Export</button>
+            </div>
+          </section>
+
+          <!-- Experimental routing provider (2026-09-16) — hidden unless
+               DevMode is on (see app.js's _refreshSettingsScreen()), same
+               "not a real user-facing feature yet" posture as the VIEW/SPD
+               developer panels. ORS stays the permanent default; TomTom
+               (Orbis) is real-time-traffic-aware but driving-only (its own
+               API only allows travelMode=car) and has no turn-by-turn text
+               yet — see src/routing/tomtomProvider.js. -->
+          <section class="settings-section hidden" id="settings-section-routing-provider">
+            <h3>Routing Provider (Experimental)</h3>
+            <p class="settings-hint">Dev-mode only. TomTom (Orbis) uses real-time traffic for driving routes only — ORS handles cycling/walking always, and is the fallback if a TomTom driving request fails.</p>
+            <div class="settings-row">
+              <span class="settings-label">Provider</span>
+              <button type="button" class="settings-toggle-btn" id="btn-routing-provider-toggle">ORS</button>
+            </div>
+            <p class="settings-hint" id="routing-provider-log"></p>
+          </section>
+
+        </div>
+      </div>
+
+      <!-- First-launch onboarding — shown once (localStorage-gated, see
+           app.js's ONBOARDING_SEEN_KEY), not on every open like the launch
+           screen. Only ever shown after a successful init() (see
+           _maybeShowOnboarding(), called right where the launch screen is
+           dismissed), so it's fine for this to depend on VCAS.css/app.js
+           the way the crash reporter/splash deliberately don't — by the
+           time it's needed, everything has already loaded successfully. -->
+      <div id="onboarding-screen" class="hidden">
+        <div id="onboarding-panel">
+          <div id="onboarding-body">
+
+            <section class="onboarding-section">
+              <h3>Welcome to VCAS</h3>
+              <p>VCAS shows you nearby aircraft while you drive, plotted by
+              bearing and distance so you know where to actually look — plus
+              turn-by-turn navigation to get you somewhere. Two things, one
+              screen.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>Three views</h3>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">RAW</span>
+                <span>A TCAS/ND-style instrument display — no map, just the traffic picture. Your default view.</span>
+              </div>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">AIR</span>
+                <span>Top-down airspace view, every tracked aircraft, unfiltered.</span>
+              </div>
+              <div class="onboarding-row">
+                <span class="onboarding-tag">HYBRID</span>
+                <span>Road map with traffic overlaid.</span>
+              </div>
+              <p>Tap any aircraft icon or indicator for its callsign, type, altitude and more.
+              In RAW, tap the range readout (top right of the display) to cycle
+              through how far out it shows.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>3D View</h3>
+              <p>Tap 3D (only available while stationary or moving slowly)
+              and point your phone at the sky — aircraft in the direction
+              you're pointing appear on screen, planetarium-style. Tap one
+              for details.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>Getting somewhere</h3>
+              <p>Tap 📍 to search a destination by name, or tap the map
+              directly — VCAS routes you there and keeps tracking traffic the
+              whole way.</p>
+            </section>
+
+            <section class="onboarding-section">
+              <h3>What the symbols mean</h3>
+              <p>Shape and colour show how easy an aircraft should actually
+              be to spot with your own eyes right now — not how close it is
+              on the map.</p>
+              <div id="onboarding-legend"></div>
+              <p class="onboarding-note">A <strong>dashed</strong> outline
+              means an aircraft is about to enter view. An upward
+              <strong>chevron</strong> means it's almost directly overhead —
+              look up.</p>
+            </section>
+
+          </div>
+          <div id="onboarding-footer">
+            <button type="button" id="btn-onboarding-dismiss" class="onboarding-cta">Got it — let's go</button>
+          </div>
+        </div>
+      </div>
+
     </div><!-- #viewport-dev-frame -->
   </div><!-- #viewport-dev-shell -->
 
@@ -140,29 +900,51 @@
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4/dist/maplibre-gl.js"></script>
 
   <!-- App modules (order matters — dependencies first) -->
-  <script src="src/sensors/compassHeading.js"></script>
-  <script src="src/routing/routingProvider.js"></script>
-  <script src="src/routing/osrmProvider.js"></script>
-  <script src="src/routing/routeGeometry.js"></script>
-  <script src="src/config.js"></script>
-  <script src="src/data/normaliseAircraft.js"></script>
-  <script src="src/data/adsbExchangeClient.js"></script>
-  <script src="src/logic/geo.js"></script>
-  <script src="src/logic/visibility.js"></script>
-  <script src="src/logic/relevance.js"></script>
-  <script src="src/logic/indicators.js"></script>
-  <script src="src/map/navStyle.js"></script>
-  <script src="src/map/themeManager.js"></script>
-  <script src="src/navigation/navigationCameraEvaluator.js"></script>
-  <script src="src/map/cameraController.js"></script>
-  <script src="src/dev/viewportDevPanel.js"></script>
-  <script src="src/dev/speedSimPanel.js"></script>
-  <script src="src/dev/observationLogger.js"></script>
-  <script src="src/dev/logPanel.js"></script>
-  <script src="src/aircraftSymbol.js"></script>
-  <script src="src/map.js"></script>
-  <script src="src/ui.js"></script>
-  <script src="src/app.js"></script>
+  <script src="src/wakeLock.js?v=__BUILD_ID__"></script>
+  <script src="src/sensors/compassHeading.js?v=__BUILD_ID__"></script>
+  <script src="src/sensors/devicePitch.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/routingProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/orsProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/tomtomProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/activeRoutingProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/orsGeocoder.js?v=__BUILD_ID__"></script>
+  <script src="src/routing/routeGeometry.js?v=__BUILD_ID__"></script>
+  <script src="src/navigation/maneuverTracker.js?v=__BUILD_ID__"></script>
+  <script src="src/config.js?v=__BUILD_ID__"></script>
+  <script src="src/data/normaliseAircraft.js?v=__BUILD_ID__"></script>
+  <script src="src/data/adsbExchangeClient.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/geo.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/metarProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/localObstruction.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/upperAirProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/visibility.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/aircraftExtrapolation.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/relevance.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/indicators.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/view3dLogic.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/trafficRules.js?v=__BUILD_ID__"></script>
+  <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
+  <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
+  <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
+  <script src="src/modeButtonOrder.js?v=__BUILD_ID__"></script>
+  <script src="src/view3dClouds.js?v=__BUILD_ID__"></script>
+  <script src="src/airRangeRingsOption.js?v=__BUILD_ID__"></script>
+  <script src="src/devMode.js?v=__BUILD_ID__"></script>
+  <script src="src/navDisplayStyle.js?v=__BUILD_ID__"></script>
+  <script src="src/manualTilt.js?v=__BUILD_ID__"></script>
+  <script src="src/navigation/navigationCameraEvaluator.js?v=__BUILD_ID__"></script>
+  <script src="src/map/cameraController.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/speedSimPanel.js?v=__BUILD_ID__"></script>
+  <script src="src/altitudeSuppressPanel.js?v=__BUILD_ID__"></script>
+  <script src="src/trafficRules.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/installId.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/observationLogger.js?v=__BUILD_ID__"></script>
+  <script src="src/dev/logPanel.js?v=__BUILD_ID__"></script>
+  <script src="src/aircraftSymbol.js?v=__BUILD_ID__"></script>
+  <script src="src/map.js?v=__BUILD_ID__"></script>
+  <script src="src/ui.js?v=__BUILD_ID__"></script>
+  <script src="src/app.js?v=__BUILD_ID__"></script>
 
 </body>
 </html>
