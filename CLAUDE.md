@@ -11414,3 +11414,62 @@ fresh live round-trip — the actual remaining check is the project owner
 flipping the Settings toggle on a real device once this deploys and
 confirming a driving route actually renders via Orbis, and that cycling/
 walking routes still work normally via ORS.
+
+## RAW aircraft-list panel bounded to the selected range, not the full relevant set (2026-09-16, same day)
+
+Reported directly, with a real device screenshot at a 10NM range
+selection showing the plot correctly displaying only in-range traffic
+(plus a couple of bare suppressed edge dots) while the "AIRCRAFT NEARBY"
+list panel below it showed 7 rows, several well beyond 10nm (13.5nm,
+14.7nm, 15.8nm, 22.5nm, 32.6nm): "the list shouldn't be this long if
+they are not in the current range selection."
+
+**Root cause: this was the deliberate original design, not a bug — a
+design the project owner is now explicitly overriding.** Per the
+"RAW ND-style range selector" section above (2026-08-21), the list panel
+was built to intentionally show the FULL relevant set (out to the 50nm
+range-extension cap) regardless of the ND-style range selector's own
+current value — the range selector was framed as a purely visual "zoom"
+on the plot, with the list acting as an "escape hatch" for anything the
+selected range zoomed past, dimmed via a `.beyond-range` class rather
+than hidden. That's precisely why the reported screenshot showed 7 rows
+at a 10NM selection: `app.js`'s `refreshIndicators()` was calling
+`UI.renderAircraftList(allRelevant, ...)` — the full relevant set — not
+`withinRange` (the same range-filtered subset the plot's own pagination
+cap already uses).
+
+**Fix**: `app.js`'s call site now passes `withinRange` instead of
+`allRelevant` — the list is bounded to the currently selected ND range,
+matching the plot. The list still isn't a mirror of the plot's own
+PAGINATED `shown` subset (`Indicators.capForViewportWidth`'s icon cap) —
+it's still the real escape hatch for "more in-range traffic than the
+plot has icon room to show as full labelled icons," just no longer
+unbounded out to the full 50nm reach. Since nothing rendered by the list
+can be beyond the selected range anymore, the `.beyond-range` dimming
+mechanism became dead code and was removed outright rather than left as
+a disabled shell, per this project's own established "delete unused
+code" convention: `ui.js`'s `renderAircraftList()` dropped its
+`beyondRangeHexes` parameter (and the `Set` construction at the app.js
+call site that built it), and `VCAS.css`'s now-unreachable
+`.raw-list-row.beyond-range { opacity: .5; }` rule was deleted.
+
+**Verified with a real Playwright/Chromium harness** loading the actual,
+unmodified `ui.js`/`VCAS.css` (via injected `<script>`/`<style>`, not
+retyped) — 9 checks: the new 3-argument `renderAircraftList()` call
+(no `beyondRangeHexes`) doesn't throw, renders the correct row/title
+count, and produces zero `.beyond-range`-classed elements anywhere; and,
+reproducing the literal reported scenario, filtering a synthetic 7-
+aircraft relevant set (matching the real screenshot's own
+2.6/13.5/14.7/15.8/22.5/32.6/7.1nm spread) down to a 10nm `withinRange`
+subset via the same filter expression `app.js` itself uses
+(`vis.slantRangeNm <= selectedRangeNm`) correctly renders only the 2
+genuinely in-range aircraft (GRVRY at 2.6nm, GHIGA at 7.1nm) — confirming
+the fix actually closes the gap the screenshot showed, not just that the
+signature change is safe. All 9 checks pass against the real, shipped
+code. `node --check` clean on both edited `.js` files.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — `RawAircraftListView.kt`/
+`MainActivity.kt` still implement the old unbounded-list-plus-dimming
+design this round just removed from the web app.

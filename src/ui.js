@@ -1211,22 +1211,21 @@ const UI = (() => {
    *   draft as the rest of this round) — this is a label, not a control,
    *   so it doesn't reopen the "less interaction" concern the sort
    *   buttons above were actually about; `items.length` is this panel's
-   *   own full relevant-set count, which can legitimately differ from the
-   *   bottom bar's own `aircraft-count` figure (they've always represented
-   *   different things — see app.js's own notes on `withinRange` vs
-   *   `allRelevant`).
+   *   own count, bounded by the currently selected ND range (see app.js's
+   *   own `withinRange`) — direct instruction 2026-09-16, since the list
+   *   previously showed the full 50nm relevant set regardless of range,
+   *   making it far longer than what the plot itself showed at a tighter
+   *   range selection. Can still legitimately differ from the bottom
+   *   bar's own `aircraft-count` figure, which is scoped to `shown` (the
+   *   plot's own paginated subset) — the list is the escape hatch for
+   *   in-range traffic the plot doesn't have icon room for, so it's
+   *   `>= shown.length` by design, just no longer `>= allRelevant.length`.
    * @param {object} rowsRect   { left, top, width, height } — the exact
    *   region to fill, straight from Geo.computePlotLayout(...).rows.
    * @param {function} onRowClick   Called with the indicator item (same
    *   shape renderIndicators()'s onClickFn receives) when a row is tapped.
-   * @param {Set<string>} [beyondRangeHexes]  Hex codes currently beyond the
-   *   ND-style range selector's selected range (see renderSuppressedDots) —
-   *   the list still shows every relevant aircraft regardless of range, but
-   *   these get a dimmed row so it's clear why they have no full plot icon
-   *   of their own right now, just an edge dot (or nothing, if outside the
-   *   FOV entirely).
    */
-  function renderAircraftList(items, rowsRect, onRowClick, beyondRangeHexes) {
+  function renderAircraftList(items, rowsRect, onRowClick) {
     const panel = document.getElementById("raw-aircraft-list");
     if (!panel) return;
 
@@ -1251,9 +1250,8 @@ const UI = (() => {
           const rangeLabel = `${ind.distanceNm.toFixed(1)}nm`;
           const color = _displayColor(ind.vis);
           const selected = a.hex === _selectedHex ? " selected" : "";
-          const beyondRange = beyondRangeHexes && beyondRangeHexes.has(a.hex) ? " beyond-range" : "";
           return `
-            <div class="raw-list-row${selected}${beyondRange}" data-hex="${_escapeHtml(a.hex)}">
+            <div class="raw-list-row${selected}" data-hex="${_escapeHtml(a.hex)}">
               <div class="rlr-chevron" style="color:${color}">&#10094;</div>
               <div class="rlr-info">
                 <span class="rlr-callsign">${callsign}</span>

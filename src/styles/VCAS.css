@@ -1514,7 +1514,6 @@ body[data-theme="day"] .air-label-box {
    FOV). Distinguishes "no icon because out of range" from "no icon
    because it didn't make the priority cut" (which just isn't in this
    list's row set differently — everything relevant IS in the list). */
-.raw-list-row.beyond-range { opacity: .5; }
 
 /* Chevron, not a round dot (round 9, 2026-09-08, direct instruction to
    match a design draft) — coloured the exact same way the dot was

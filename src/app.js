@@ -2290,27 +2290,30 @@
     // Stage 3: aircraft-list panel — Raw only, filling the exact
     // rectangle complementary to the plot (Geo.computePlotLayout's
     // own `rows`) — below the square in portrait, to its right in
-    // landscape. Deliberately built from allRelevant (the FULL relevant
-    // set), not the paginated `shown` subset the plot caps to
-    // (Indicators.capForViewportWidth) — the list is exactly the escape
-    // hatch for "more relevant traffic than the plot shows icons for", not
-    // a mirror of whatever page is currently up. Tapping a row for an
-    // aircraft not on the current icon page still opens its popup (at its
-    // computed, if unrendered, plot position); it doesn't auto-advance the
-    // page to bring the icon into view.
+    // landscape. Built from withinRange (the relevant set that's also
+    // within the CURRENTLY SELECTED ND range), not allRelevant — direct
+    // instruction 2026-09-16: the list shouldn't be longer than the
+    // current range selection. This DOES mean the list can still show
+    // more than the plot's own paginated `shown` subset
+    // (Indicators.capForViewportWidth) when there are more in-range
+    // aircraft than fit as full icons — that's still the list's real
+    // job, just bounded by range now, not unbounded out to the full
+    // 50nm relevant-set reach the way it was before this fix. Tapping a
+    // row for an aircraft not on the current icon page still opens its
+    // popup (at its computed, if unrendered, plot position); it doesn't
+    // auto-advance the page to bring the icon into view.
     if (isRawView) {
-      // allRelevant already arrives sorted by Indicators.build()'s own
+      // withinRange already arrives sorted by Indicators.build()'s own
       // priority order (visibility score desc, then proximity) — the same
       // order that governs plot icon selection/pagination, so the list is
       // rendered straight from it with no re-sort. Resorting was removed
       // 2026-09-06 (direct instruction): Android-Auto-bound, so less
       // interaction is the right default — always most-visible-first.
-      const beyondRangeHexes = new Set(beyondRange.map(it => it.aircraft.hex));
       // Same square.rows rect the list panel itself uses — see
       // UI.renderRowsBackdrop's own doc comment for why this has to be
       // the identical source, not a second measurement.
       UI.renderRowsBackdrop(square.rows);
-      UI.renderAircraftList(allRelevant, square.rows, onIndicatorClick, beyondRangeHexes);
+      UI.renderAircraftList(withinRange, square.rows, onIndicatorClick);
     } else {
       UI.clearRowsBackdrop();
       UI.clearAircraftList();
