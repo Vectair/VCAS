@@ -11661,3 +11661,61 @@ Not done: no change to the native Android Auto port (same standing
 PWA-only fix) — it has no equivalent bottom-bar/ETA-card collision
 handling to begin with, since its own native UI doesn't share this exact
 DOM/CSS structure.
+
+## Repository housekeeping: `main` merged up to date, deploy retargeted, feature branch deleted (2026-09-16)
+
+A separate chat session working against this repo reported "no mention
+of METARs or TAFs anywhere in the documentation" — alarming on its
+face, since METAR/Open-Meteo integration is extensively documented
+right in this file. Investigated rather than assumed wrong: that
+session was looking at `main`, GitHub's default branch — and `main` had
+been frozen since PR #15 (2026-08-11), 191 commits behind this
+project's real working branch (`claude/project-audit-review-4p0ft2`),
+which had continued to accumulate every entry in this file from
+mid-August onward (METAR/Open-Meteo, the full RAW-mode redesign,
+Traffic Rules, 3D View, the relay infrastructure, TomTom routing, the
+Android Auto native port). `main` genuinely contained none of it — not
+a stale summary, the actual files (e.g. `src/logic/metarProvider.js`)
+simply didn't exist there.
+
+**Confirmed before touching anything that this was pure staleness, not
+a real fork with independent work to reconcile**: `main`'s tree was
+byte-for-byte identical to an ancestor commit on the working branch —
+the 12 commits nominally "unique" to `main` (`git log HEAD..origin/main`)
+were themselves just the historical PR #4–#15 merge commits from
+2026-08-07 through 2026-08-11, carrying no content `main` didn't already
+share with the working branch at that point. Zero divergent work to
+lose.
+
+**Fix, three steps**:
+1. `git merge --no-ff` the working branch into `main` (a real merge
+   commit, not a rewrite — `main`'s own PR-merge history from Aug 2026
+   stays intact underneath). Verified afterward that `main`'s tree
+   became byte-for-byte identical to the working branch's.
+2. `.github/workflows/deploy-pages.yml`'s trigger — previously
+   `branches: [claude/project-audit-review-4p0ft2]` specifically, not
+   `main` — repointed to `main`. This mattered: deleting the old branch
+   without this first would have silently stopped the live site from
+   ever redeploying again, since nothing would have been left to
+   trigger the workflow. Confirmed via a real GitHub Actions run (not
+   assumed): pushing the repointed workflow to `main` correctly fired
+   run #195, which completed with `conclusion: success`.
+3. Only once that real deploy was confirmed green did the old
+   `claude/project-audit-review-4p0ft2` branch (both local and remote)
+   get deleted.
+
+**`main` is now the sole branch — the real, permanent working and
+deploy branch going forward**, not a second mirror to keep in sync.
+Any future session should develop and push directly to `main`; there is
+no other branch to reconcile against.
+
+**Lesson, matching this file's own repeated theme**: a repo's default
+branch silently falling behind its real working branch is exactly the
+kind of durable-but-unrecorded fact this file exists to catch — a
+different session drew a confident, well-reasoned, and completely wrong
+conclusion purely because it looked at the branch GitHub shows by
+default rather than the one actually being developed and deployed.
+Worth remembering if this project ever again ends up with more than one
+active branch: check `git log branchA..branchB` in both directions
+before trusting what any one branch's own content implies about the
+project as a whole.
