@@ -1,5 +1,5 @@
 /**
- * ModeButtonOrder — persists a custom RAW/AIR/HYBRID button order for the
+ * ModeButtonOrder — persists a custom RAW/AIR/HYBRID/3D button order for the
  * bottom-bar mode toggle. Direct instruction (2026-09-08, round 9): the
  * design draft this round matches shows HYBRID/RAW/AIR, but VCAS's own
  * deliberate default is RAW/AIR/HYBRID (see CLAUDE.md's "LOG button
@@ -8,15 +8,34 @@
  * this module gives the user a way to reorder it themselves in Settings
  * if they'd prefer the draft's own order (or any other).
  *
+ * `3d` was added to the reorderable set on 2026-09-16, direct instruction
+ * ("the 3d button also needs to be in the options to sort position with
+ * the other buttons") — reversing an earlier deliberate exclusion (Sky
+ * View / 3D View, 2026-09-09) that treated it as a transient overlay
+ * launcher rather than a persisted display mode. It's still exactly
+ * that (its own "active" look reflects only whether the overlay is
+ * currently open, not a mode), but the user wants its DOM POSITION
+ * reorderable alongside the other three regardless — this module only
+ * ever governs button order, never what "active" means for any of them,
+ * so the two concerns don't actually conflict.
+ *
+ * The storage key was bumped to v2 (not left as v1 with the new id just
+ * silently rejected by length validation) — this is the same versioned-
+ * key convention CLAUDE.md documents elsewhere (e.g. onboarding's own
+ * `-v1` key) for a schema change that should read as an intentional
+ * reset, not an implicit one: any already-persisted 3-entry v1 order is
+ * abandoned outright rather than partially migrated, and every user
+ * (customized or not) starts fresh at the new 4-entry default.
+ *
  * A plain persisted array, same pattern as ColorblindMode/
  * AirRangeRingsOption — read directly by app.js wherever it needs "what
- * order do the three mode buttons go in", not by ui.js/map.js (this has
- * nothing to do with rendering, only with DOM order of three already-
- * existing buttons).
+ * order do the mode buttons go in", not by ui.js/map.js (this has
+ * nothing to do with rendering, only with DOM order of already-existing
+ * buttons).
  */
 const ModeButtonOrder = (() => {
-  const STORAGE_KEY = "vcas-mode-button-order-v1";
-  const DEFAULT_ORDER = ["raw", "air", "hybrid"];
+  const STORAGE_KEY = "vcas-mode-button-order-v2";
+  const DEFAULT_ORDER = ["raw", "air", "hybrid", "3d"];
   const VALID_IDS = new Set(DEFAULT_ORDER);
   let _order = DEFAULT_ORDER.slice();
 

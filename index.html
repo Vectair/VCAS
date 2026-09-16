@@ -533,16 +533,17 @@
                 <button class="mode-btn active-mode" id="btn-raw">RAW</button>
                 <button class="mode-btn" id="btn-air">AIR</button>
                 <button class="mode-btn" id="btn-hybrid">HYBRID</button>
-                <!-- 3D View is not part of ModeButtonOrder's reorderable
-                     RAW/AIR/HYBRID trio (see modeButtonOrder.js) — it's a
-                     transient overlay launcher, not a persisted display
-                     mode, so it's a fixed 4th button rather than a
-                     reorderable one. Its own "active" look (via
+                <!-- 3D View joined ModeButtonOrder's reorderable set
+                     2026-09-16 (direct instruction) — its DOM position
+                     among RAW/AIR/HYBRID can now be customized in
+                     Settings same as the other three (see
+                     modeButtonOrder.js). It's still not a persisted
+                     display mode though: its own "active" look (via
                      .active-mode, toggled independently of the other
-                     three's own use of that class) reflects only
-                     whether the overlay is currently open, not a
-                     persisted mode the way the other three's active-mode
-                     class does. -->
+                     three's own use of that class, see
+                     _sync3DButtonState in app.js) reflects only whether
+                     the overlay is currently open, looked up by id, not
+                     by position — reordering it has no effect on that. -->
                 <button class="mode-btn" id="btn-3d">3D</button>
               </div>
             </div>
@@ -698,7 +699,7 @@
               <button type="button" class="settings-toggle-btn" id="btn-3d-clouds-toggle">On</button>
             </div>
             <div class="settings-row">
-              <span class="settings-label">RAW / AIR / HYBRID button order</span>
+              <span class="settings-label">RAW / AIR / HYBRID / 3D button order</span>
               <button type="button" class="settings-toggle-btn" id="btn-mode-order-reset">Reset</button>
             </div>
             <!-- Up/down move controls, not drag-to-reorder — this app's own

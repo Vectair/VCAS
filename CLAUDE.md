@@ -11473,3 +11473,99 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — `RawAircraftListView.kt`/
 `MainActivity.kt` still implement the old unbounded-list-plus-dimming
 design this round just removed from the web app.
+
+## `ModeButtonOrder` extended to cover #btn-3d (2026-09-16, same day)
+
+Direct instruction, reversing an earlier deliberate exclusion: "The 3d
+button also needs to be in the options to sort position with the other
+buttons." The Sky View / 3D View entry above (2026-09-09) explicitly
+kept `#btn-3d` OUT of `ModeButtonOrder`'s reorderable set on the
+reasoning that "it isn't a persisted display mode the reorder feature
+was ever about" — the user is now explicitly asking for it to be
+reorderable regardless, and that request doesn't actually conflict with
+the original reasoning: `#btn-3d` is still not a persisted `mode`/
+`NavDisplayStyle` value, its own "active" look (`_sync3DButtonState()`)
+still only ever reflects whether the overlay is currently open, looked
+up strictly by element id — `ModeButtonOrder` only ever governs which
+DOM position the button sits in, never what "active" means for it, so
+the two concerns were always orthogonal, not actually in tension.
+
+**`src/modeButtonOrder.js`**: `DEFAULT_ORDER` extended from
+`["raw", "air", "hybrid"]` to `["raw", "air", "hybrid", "3d"]` — `3d`
+placed last, matching where `#btn-3d` already sits in `index.html`'s
+`.mode-toggle` markup today. `VALID_IDS` needed no separate change
+(derived directly from `DEFAULT_ORDER`). **Storage key bumped from
+`vcas-mode-button-order-v1` to `-v2`** — a deliberate, explicit
+migration rather than relying on `_isValidOrder`'s existing length
+check to silently reject an old 3-entry array and fall back to default
+(which it would have done correctly on its own, since `arr.length ===
+DEFAULT_ORDER.length` now requires 4). Bumping the key anyway matches
+this project's own established versioned-localStorage-key convention
+(e.g. `onboarding_seen_v1`) for a schema change that should read as an
+intentional reset in the code, not an implicit side effect of a
+generic validator: anyone with a customized 3-entry v1 order starts
+fresh at the new 4-entry default, same outcome either way, just
+recorded as a deliberate decision rather than an accidental one.
+
+**`src/app.js`**: `_applyModeButtonOrder()`'s `idToBtn` map gained
+`"3d": document.getElementById("btn-3d")` — the exact same "look up by
+id, `appendChild()` to reposition (which MOVES an existing node rather
+than cloning it, preserving its bound click listener) rather than
+reading array order elsewhere" pattern already used for the other
+three. `MODE_ORDER_LABELS` gained `"3d": "3D"` so the Settings reorder
+row reads "3D" rather than falling through to `id.toUpperCase()`
+(which would have produced the same text anyway here, but the explicit
+entry matches how RAW/AIR/HYBRID are already listed rather than
+leaving 3D as the one id relying on the fallback).
+
+**`index.html`**: the settings row label changed from "RAW / AIR /
+HYBRID button order" to "RAW / AIR / HYBRID / 3D button order". The
+comment block above `#btn-3d` (added 2026-09-09 explaining the original
+exclusion) was rewritten to describe the new, reversed state instead of
+leaving a stale comment describing a decision no longer in effect —
+still correctly notes that reordering has no bearing on the button's
+own independent, lookup-by-id active-state logic.
+
+**Verified with real execution, this project's own established
+discipline, across two harnesses**:
+1. **13 real Node checks** against the actual shipped
+   `modeButtonOrder.js` (an in-memory `localStorage` stub, same pattern
+   this project's other persisted-state module tests use): fresh init
+   returns the 4-entry default; `move()` can reposition `3d` earlier,
+   correctly no-ops past either end; persistence writes under the new
+   `-v2` key and never touches the old `-v1` key; `reset()` restores the
+   4-entry default; a stale pre-existing `-v1` 3-entry value sitting in
+   storage is never even read (the module only ever looks at `-v2`); a
+   3-entry value placed directly under the NEW `-v2` key is still
+   correctly rejected by length validation; a duplicate-id and an
+   unknown-id 4-entry value are both rejected; and a genuinely valid,
+   non-default custom 4-entry order round-trips correctly through
+   `init()`.
+2. **18 real Playwright checks** against the actual, extracted (sliced
+   directly from the real file by line range, not retyped)
+   `_applyModeButtonOrder()`/`_renderModeOrderList()` functions and the
+   real `modeButtonOrder.js`, driving real DOM elements matching
+   `index.html`'s actual `#mode-row`/`.mode-toggle`/
+   `#settings-mode-order-list` markup: a fresh init+apply leaves the
+   real DOM in default order; the settings list renders exactly 4 rows
+   with the correct RAW/AIR/HYBRID/3D labels in order, with the
+   first row's up-arrow and 3D's own down-arrow both correctly
+   disabled (and 3D's up-arrow correctly NOT disabled, confirming it
+   can move); clicking 3D's up-arrow moves it earlier in BOTH
+   `ModeButtonOrder`'s own state AND the real bottom-bar DOM order,
+   with the settings list re-rendering to match; `#btn-3d`'s own
+   element survives multiple successive reorders as the SAME node
+   (confirmed via a marker property surviving `appendChild()`'s
+   move, not a clone) rather than being recreated; and — the specific
+   guarantee this whole feature depends on — `#btn-3d` is still
+   findable by `getElementById` and its `.active-mode` class still
+   toggles correctly after being moved to a completely different DOM
+   position, confirming the reorder feature and the button's own
+   independent active-state logic really are decoupled as designed,
+   not just assumed to be. **31 checks total across both harnesses,
+   zero failures.** `node --check` clean on both edited `.js` files.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes" note this file carries for every other
+PWA-only fix) — it has no `ModeButtonOrder` equivalent or reorderable
+mode-button settings row at all today.

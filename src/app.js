@@ -537,13 +537,17 @@
     _refreshSettingsScreen();
   }
 
-  /** Moves the real #btn-raw/#btn-air/#btn-hybrid elements into
+  /** Moves the real #btn-raw/#btn-air/#btn-hybrid/#btn-3d elements into
    * ModeButtonOrder's current saved order — appendChild on a node that
    * already has this same parent just MOVES it to the end rather than
    * cloning/recreating it, so each button keeps its own already-bound
    * click listener untouched (same "move, don't recreate" pattern
    * ui.js's own indicator-diffing uses to keep DOM order in sync with a
-   * priority order — see CLAUDE.md's "Power efficiency pass" follow-up). */
+   * priority order — see CLAUDE.md's "Power efficiency pass" follow-up).
+   * #btn-3d joined the reorderable set 2026-09-16 — its own click
+   * listener/active-state logic (_sync3DButtonState) is looked up by id
+   * elsewhere, not by position, so moving it here has no effect on
+   * anything but where it sits in the row. */
   function _applyModeButtonOrder() {
     const container = document.querySelector("#mode-row .mode-toggle");
     if (!container) return;
@@ -551,6 +555,7 @@
       raw: document.getElementById("btn-raw"),
       air: document.getElementById("btn-air"),
       hybrid: document.getElementById("btn-hybrid"),
+      "3d": document.getElementById("btn-3d"),
     };
     ModeButtonOrder.get().forEach(id => {
       const btn = idToBtn[id];
@@ -558,7 +563,7 @@
     });
   }
 
-  const MODE_ORDER_LABELS = { raw: "RAW", air: "AIR", hybrid: "HYBRID" };
+  const MODE_ORDER_LABELS = { raw: "RAW", air: "AIR", hybrid: "HYBRID", "3d": "3D" };
 
   /** Rebuilds the Settings screen's reorder rows from ModeButtonOrder's
    * current order — full rebuild each call (same pattern _renderAltPresets()
