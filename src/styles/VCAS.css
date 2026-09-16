@@ -2019,21 +2019,19 @@ body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-direction-value {
   color: var(--raw-value-green);
 }
 
-/* Route active: hide normal bottom bar behind the ETA card.
-   RAW-excluded (2026-09-08) — this predates round 2's "merge the
-   guidance/ETA card into one top nav-status panel" change, which moved
-   RAW's own #route-card off the bottom entirely (see that section
-   above), so there's no longer a real visual conflict there for it to
-   hide behind. Left as-is for Hybrid/AIR, where #route-card is still
-   bottom-pinned and this still matters. Without this exclusion, RAW's
-   whole bottom bar — including the mode toggle and the nav button this
-   round just redesigned — would silently vanish for the entire time a
-   route is active, with no way to switch modes or cancel the route. */
-body.route-active[data-mode="nav"]:not([data-nav-style="raw"]) #bottom-bar {
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity .3s;
-}
+/* Route active in Hybrid/AIR: #bottom-bar (mode-toggle/nav-pin row) used
+   to be hidden outright here to avoid visually colliding with
+   #route-card, which shares the same bottom-pinned position — this also
+   hid the ONLY way to switch to RAW/AIR/3D or reach any other bottom-bar
+   control while navigating in Hybrid (reported directly, 2026-09-16:
+   "there is no way to change between raw, hybrid and air when navigation
+   is on"). RAW's own version of this same collision was already solved
+   properly back on 2026-09-06 (see "merge the guidance/ETA card" above)
+   by REPOSITIONING #route-card rather than hiding anything — app.js's
+   _rawChromeInsets() now does the same for Hybrid/AIR: stacks #route-card
+   directly above #bottom-bar's own real height (JS-driven, since both
+   heights are dynamic and CSS alone can't measure them), so both stay
+   visible and reachable and neither needs hiding here anymore. */
 
 /* ---- NAV mode: ADS-B indicators are secondary to the road map in Hybrid
    (where traffic is an overlay on top of real navigation), but NOT in Raw —

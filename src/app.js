@@ -1964,7 +1964,26 @@
         routeCard.style.bottom = "auto";
       } else {
         routeCard.style.top = "";
-        routeCard.style.bottom = "";
+        // Hybrid/AIR: #route-card's CSS default is bottom:0 — but
+        // #bottom-bar (the mode-toggle/nav-pin row) is ALSO pinned to the
+        // bottom, and the two would visually overlap once a route is
+        // active. The original fix for this (2026-08-21-era) hid
+        // #bottom-bar outright while navigating in Hybrid — which also
+        // hid the ONLY way to switch to RAW/AIR/3D or reach any other
+        // bottom-bar control mid-route (reported directly: "there is no
+        // way to change between raw, hybrid and air when navigation is
+        // on"). Fixed the same way RAW's own version of this exact
+        // problem was fixed (see routeCardAtTop above, 2026-09-06): stack
+        // #route-card directly above #bottom-bar's own real height
+        // instead of hiding either element — both stay visible and
+        // reachable, matching bottomInset below, which already summed
+        // both heights as stacked (routeCard.offsetHeight +
+        // bottomBar.offsetHeight) even while #bottom-bar was hidden via
+        // CSS opacity, so no other insets/camera-safe-margin math needed
+        // to change for this.
+        routeCard.style.bottom = (!routeCard.classList.contains("hidden") && bottomBar && !bottomBar.classList.contains("hidden"))
+          ? bottomBar.offsetHeight + "px"
+          : "";
       }
     }
     if (routeCardAtTop && routeCard && !routeCard.classList.contains("hidden")) {

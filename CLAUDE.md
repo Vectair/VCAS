@@ -11569,3 +11569,95 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes" note this file carries for every other
 PWA-only fix) — it has no `ModeButtonOrder` equivalent or reorderable
 mode-button settings row at all today.
+
+## Hybrid mode-toggle vanished while navigating — a real, long-standing bug, not a missing feature (2026-09-16, same day)
+
+Reported directly, with two real device screenshots side by side (RAW
+with a route active vs. RAW without one): "there is a difference between
+how the two screens end up looking with navigation on... there is no way
+to change between raw, hybrid and air when navigation is on." Both
+screenshots actually showed RAW — the real bug only shows up once you
+leave RAW while navigating, which the report's own framing pointed at
+correctly even though neither screenshot demonstrated it directly.
+
+**Root cause, found by reading `_rawChromeInsets()`/the CSS it drives,
+not assumed**: `#route-card` (the bottom-pinned ETA card) and
+`#bottom-bar` (the mode-toggle/nav-pin row) are BOTH `position:fixed;
+bottom:0` in Hybrid/AIR — a real visual collision the app has had a fix
+for since 2026-08-21-era work, just the wrong kind of fix: a CSS rule
+(`body.route-active[data-mode="nav"]:not([data-nav-style="raw"])
+#bottom-bar { opacity:0; pointer-events:none; }`) hid the ENTIRE bottom
+bar — mode-toggle buttons included — for the whole time a route was
+active in Hybrid. RAW's own version of the identical collision was
+already fixed properly on 2026-09-06 (see "screen-space flight-plan line
++ merged nav-status card" above) by REPOSITIONING `#route-card` to the
+top instead of hiding anything — but that fix was never extended to
+Hybrid/AIR, which kept the older, cruder hide-the-whole-bar approach.
+Consequence: starting a route in Hybrid (or switching into Hybrid from
+RAW while already navigating — `_enterNavMode()` has no guard against
+this, so the tap itself always succeeds) makes the mode-toggle row
+disappear and become unclickable for as long as the route stays active —
+genuinely "no way to change modes," exactly as reported, with the only
+way out being to cancel the route first via the guidance card's own ✕
+button.
+
+**Fix, mirroring RAW's own already-correct pattern instead of patching
+the hide-rule further**: `_rawChromeInsets()` (`app.js`) now repositions
+`#route-card` for Hybrid/AIR too — instead of leaving its CSS default
+`bottom:0` (`style.bottom = ""`), it sets `style.bottom` to
+`bottomBar.offsetHeight + "px"` whenever both elements are actually
+visible, stacking the ETA card directly ABOVE the bottom bar rather than
+overlapping it. The CSS rule that used to hide `#bottom-bar` outright was
+deleted rather than left as a disabled shell (this project's own
+established "delete unused code" convention) — replaced with a comment
+explaining the old approach and pointing at the real fix. **No other
+insets/camera-safe-margin math needed to change**: `bottomInset` already
+summed `routeCard.offsetHeight + bottomBar.offsetHeight` as stacked
+heights even while `#bottom-bar` was hidden via CSS opacity (the JS check
+was always `classList.contains("hidden")`, never the opacity itself), so
+the map's own safe-bottom-margin was already correct for this layout —
+only the VISUAL positioning needed to catch up to it.
+
+**A real test-harness artifact hit and resolved during verification, not
+a code bug** — worth recording per this project's own repeated
+"distinguish a harness artifact from a real bug" discipline:
+`#route-card` has a genuine `slide-up .2s ease-out` entrance animation
+(`translateY(100%)→0`) — measuring its position immediately after
+unhiding in a synchronous Playwright `evaluate()` call caught it
+mid-animation, showing a `getBoundingClientRect()` offset by almost
+exactly the card's own height from what `getComputedStyle()`'s resolved
+`top`/`bottom` values said it should be. Confirmed via a series of
+isolated minimal repros (a bare fixed-position box, the real `#route-card`
+CSS rule with placeholder content) before finding the actual cause by
+walking the element's own computed `transform` — `matrix(1,0,0,1,0,78)`,
+an in-progress `translateY(78px)`, exactly its own height. Not a bug in
+the fix or the app; the verification harness now explicitly disables the
+animation (`el.style.animation = "none"`) before measuring, the same
+"skip the entrance animation to get a clean signal" practice this
+project's own splash-screen/reload-banner test harnesses already use.
+
+Verified with a real Playwright/Chromium harness loading the actual,
+extracted (sliced by line range, not retyped) `_rawChromeInsets()`
+function and the real `VCAS.css` against real markup matching
+`index.html`'s actual `#overlay`/`#nav-guidance-card`/`#bottom-bar`/
+`#route-card` structure — 11 checks: the route card's inline `bottom` is
+now genuinely set (not left at the CSS default); it sits fully above the
+bottom bar with zero overlap, its own bottom edge lining up exactly with
+the bar's top edge; the bottom bar is no longer hidden via opacity or
+`pointer-events:none`; the RAW mode button is genuinely hit-testable at
+its real on-screen position (`elementFromPoint`, not just "exists in the
+DOM"); a real dispatched click at that exact position actually fires the
+button's handler; clearing the active route correctly resets the route
+card's inline `bottom` back to the CSS default; and a RAW-mode regression
+check confirms `#route-card` still repositions via `top` (not `bottom`)
+exactly as before, completely unaffected by this fix. A real screenshot
+of the fixed Hybrid+route-active layout confirms the ETA card and the
+full RAW/AIR/HYBRID/3D mode-toggle row both render together with no
+visual collision, and a 360px-width check confirms no horizontal
+overflow with realistic (long) guidance text. `node --check` clean.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes" note this file carries for every other
+PWA-only fix) — it has no equivalent bottom-bar/ETA-card collision
+handling to begin with, since its own native UI doesn't share this exact
+DOM/CSS structure.
