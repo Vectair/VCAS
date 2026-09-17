@@ -180,25 +180,60 @@ actually worth extracting at all.
 ### Native Android Auto port — behind the PWA in several places
 
 This project's own established pattern is "synced in dedicated passes,
-not every change" — the following PWA features have no native
-equivalent yet, accumulated across many passes without a full sync:
+not every change." A large sync pass (2026-09-17) closed most of the
+gaps a prior version of this list named — see CLAUDE.md's dated entry
+for the full writeup. Fixed in that pass: Traffic Rules (filter/highlight
+by type/category/altitude/military-civil — `TrafficRulesLogic.kt`/
+`TrafficRulesStore.kt`, the `military`/`dbFlags` field in
+`NormaliseAircraft.kt`, and a full settings-screen CRUD UI); 3D View
+entirely (`View3DLogic.kt`, a real `DeviceOrientationSensor.kt` using
+`Sensor.TYPE_ROTATION_VECTOR` — genuinely simpler than the PWA's own
+DeviceOrientation-API fragmentation fight, per this project's own
+long-standing scoping note — a 4th mode button, and the Canvas-drawn
+`View3DView.kt` world/compass-ticks/aircraft-dots scene); RAW's merged
+ND-style nav-status card and screen-space flight-plan line (previously
+`routeInfo` was always null in RAW); the 2026-09-16 PWA fix bounding
+RAW's aircraft-list panel to the selected range instead of the full
+relevant set; and a pre-existing dead-code bug (`rawSortMode`/
+`sortForRawList`/`onSortClick` referencing a property that no longer
+existed on `RawAircraftListView`, left over from before the PWA's own
+round-1 sort-UI removal) that would have kept `MainActivity.kt` from
+compiling at all. Also fixed as a byproduct of building 3D View:
+`Visibility.kt`'s `elevationDeg` had the same "reads 0° instead of 90°
+for a dead-overhead aircraft" bug the PWA itself fixed on 2026-09-13,
+never ported to the Kotlin side until now.
 
-- Traffic Rules (filter/highlight by type/category/altitude/military-
-  civil) — no native settings screen, no `military`/`dbFlags` field in
-  `NormaliseAircraft.kt`.
-- 3D View / sky-compass mode entirely — no `DevicePitch`/
-  `SkyCompassLogic` Kotlin ports, no 4th mode button.
+**Still not done, accumulated since or out of this pass's scope:**
 - Hybrid manual camera-tilt override.
 - Mode-button-order settings (`ModeButtonOrder`).
 - TomTom routing provider / `ActiveRoutingProvider` dispatcher.
-- Colorblind-safe swatches for Traffic Rules, and the status-pill
-  colorblind fix.
-- RAW mode's merged nav-status card, screen-space flight-plan line, and
-  several of the later RAW-redesign rounds' chrome details (nav/route
-  diamond icon colour, rows-backdrop, unbounded-list-to-bounded-list
-  fix from 2026-09-16).
+- Colorblind-safe swatches for Traffic Rules exist natively now (a
+  7-swatch row in the rule-edit form) but weren't matched hex-for-hex
+  against the PWA's specific Okabe-Ito-derived palette; the top-bar
+  status-pill colorblind fix (green/orange → blue/vermillion) is not
+  ported.
+- RAW-redesign chrome details: the nav/route diamond icon's maroon
+  colour, the rows-backdrop tint behind the aircraft-list panel, the
+  mode-row top divider (RAW-only).
 - Only 2 status pills natively (adsb.fi/MapTiler) vs. the PWA's 4
   (+ Open-Meteo, + whatever else has shipped since).
+- Every new/touched file in this pass carries the same standing caveat
+  every native file in this project has: never compiled (no Android SDK
+  in this sandbox). Pure-logic files (`View3DLogic.kt`,
+  `TrafficRulesLogic.kt`, `NormaliseAircraft.kt`'s `military` field,
+  `Visibility.kt`'s `elevationDeg` fix) ARE genuinely verified via real
+  `kotlinc`+JUnit4 execution (260 tests passing); platform/UI code
+  (`MainActivity.kt`, `RawPlotView.kt`, `View3DView.kt`,
+  `DeviceOrientationSensor.kt`) is manual-review-only. The real
+  remaining check is opening `android/` in Android Studio and building
+  it, then real-device testing — including the pitch-sign derivation in
+  `DeviceOrientationSensor.kt`'s own doc comment, re-derived carefully
+  from the real AOSP `SensorManager.java` source but never confirmed
+  against a real magnetometer/gyroscope reading, and the same real,
+  unresolved Euler-angle near-singularity risk at pitch≈±90° (holding
+  the phone vertically — 3D View's own intended pose) this project's own
+  PWA-side 3D View code review already flagged and never fully resolved
+  there either.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather

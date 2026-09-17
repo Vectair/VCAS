@@ -11901,3 +11901,277 @@ real, shipped code, not a reasoning-only check.
   history, though still recoverable by SHA if ever needed. Per the entry
   above, `main` is the sole branch going forward; this work should land
   there the same way.
+
+## Native Android Auto port: a large sync pass, RAW/Hybrid nav card, Traffic Rules, 3D View (2026-09-17)
+
+Direct instruction: "Exactly convert the current architecture of the pwa
+version into the structure required for android auto. I want them to
+visually look exactly the same." This project's own standing note
+("synced in dedicated passes, not every change") had let real gaps
+accumulate since the last full sync (2026-09-09) — this pass closed the
+largest ones, prioritized by how much they actually affect what's
+rendered on screen, not attempted in the order they happened to be
+listed anywhere. A real, notable finding along the way, worth recording
+on its own: `MainActivity.kt` had a genuine pre-existing bug —
+`rawSortMode`/`sortForRawList`/an `onSortClick` wiring referencing a
+property (`RawAircraftListView.onSortClick`) that no longer existed on
+that class at all, left over from before the PWA's own round-1 removal
+of the sort-button UI (2026-09-06) was ever carried into the native
+port. This file would not have compiled as it stood — the kind of thing
+that only surfaces when a real sync pass actually reads both sides
+side-by-side, not from this project's own honest "never compiled here"
+caveat alone.
+
+**RAW aircraft-list panel — bounded to the selected range, single-line
+rows.** Matches the PWA's own 2026-09-15/16 fixes: `RawAircraftListView.
+update()` dropped its `beyondRangeHexes` param and the now-impossible
+`.beyond-range` dimming entirely (the list now only ever receives
+`withinRange`, the same range-filtered, already-priority-sorted subset
+the plot's own icons are capped from — not the full 50nm relevant set),
+and each row's callsign + type/altitude/range now share one horizontal
+line instead of stacking as two, matching `ui.js`'s own `.rlr-info`
+layout exactly (callsign never truncates, the meta text takes the rest
+of the row and ellipsizes only if it doesn't fit).
+
+**RAW's merged nav-status card + screen-space flight-plan line — the
+single biggest visual gap, previously entirely missing.** `RawPlotView.
+update()`'s `routeInfo: String?` parameter had always been passed `null`
+by `MainActivity.kt` ("RAW mode itself carries no route info" — true
+until this pass, false after). Fixed by:
+- **`ManeuverTracker.kt`** gained a `targetCoordIndex` field on
+  `NextManeuver` (already computed internally as `targetIdx`, just not
+  previously surfaced) — matches `maneuverTracker.js`'s own field, and
+  is what the flight-plan line's turn label needs to know where to draw
+  itself.
+- **`MainActivity.kt`'s `buildGuidanceCard()`/`updateGuidanceCard()`**
+  generalised from Hybrid-only to also render RAW's own abbreviated
+  ND-instrument readout when active — "IN {dist} TURN {direction}" (or
+  bare "TURN ARRIVE" at the final step), with the distance run coloured
+  `RAW_VALUE_CYAN` and the direction word `RAW_VALUE_GREEN` via a real
+  `SpannableStringBuilder`, matching `.ngc-dist-value`/`.ngc-direction-
+  value`'s own RAW-only colour overrides exactly — Hybrid's own full-
+  sentence banner is completely unchanged. A new `maneuverIcons`/
+  `maneuverDirectionWord` table mirrors `MANEUVER_ICONS`/
+  `MANEUVER_DIRECTION_WORD` from `app.js` verbatim (same "unverified
+  against a live ORS response" caveat `maneuverTracker.js` already
+  carries). The card's own background/padding/text styling swaps
+  between Hybrid's `BG_PANEL_ALT` banner and RAW's `rgba(14,17,23,.85)`
+  panel (matching `RawAircraftListView`'s own background — "every
+  RAW-only panel reads as the same material," per the PWA's own
+  comment) via a new `applyGuidanceCardStyle(isRaw)`. **A real
+  visibility-logic bug caught and fixed before it shipped, not after**:
+  the PWA hides `#nav-guidance-card` entirely whenever `activeRoute` is
+  null, regardless of mode (RAW has no destination-search UI of its
+  own); a first draft of the native port instead hid the SEARCH BOX
+  inside the card while leaving the card's own background visible in
+  RAW with no route — an empty floating panel with nothing in it. Fixed
+  by an explicit `if (isRaw && route == null) { card.visibility = GONE;
+  return }` guard before anything else runs, matching the PWA's real
+  `_showRouteCard()`/`_hideGuidanceCard()` behaviour exactly.
+- **`refreshRawMode()`** now computes the maneuver ONCE per tick
+  (`computeRouteManeuver()`) and hands the SAME result to both
+  `updateGuidanceCard()` and the new `computeRawRouteLine()` — matching
+  `app.js`'s own `_computeRouteManeuver()` hoisting reasoning exactly
+  (the guidance card and the flight-plan line's turn label can never
+  disagree about which maneuver is "next"). Also now includes the
+  guidance card's own real (previous-frame) height in `chromeTopInset`
+  when visible, so the square plot correctly starts below it.
+- **`RawPlotView.kt`** gained a `RouteLine` data class (pre-projected
+  screen points + an optional turn point/label — MainActivity does the
+  `Geo.projectToPolarPosition` calls, matching how aircraft indicators
+  already arrive pre-projected rather than RawPlotView computing its own
+  geometry) and a `drawRouteLine()` pass, inserted between the range
+  rings and the compass tape in `onDraw()`'s paint order — matching the
+  PWA's own "`#nav-route-line-overlay` paints over the dashed rings,
+  same z-index but later in DOM order, still under the compass tape and
+  indicators" ordering. `computeRawRouteLine()` in `MainActivity.kt` is
+  a structural port of `renderRouteLine()`: slices `activeRoute.geometry`
+  from the user's own snapped position forward, projects each point via
+  the identical `Geo.projectToPolarPosition` call the aircraft dots use
+  (same square/anchor/bands/FOV params — so a plotted turn can never
+  disagree with where the rings/dots put the same real-world distance,
+  the exact class of bug this project's own "rings vs dots" history
+  already documents at length), and stops at the first point outside the
+  FOV rather than exact-clipping, matching the "rudimentary" spec. The
+  info strip's own SPD readout (`RawPlotView.drawInfoStrip`) is now
+  suppressed while a route is active (`routeActive` param), matching
+  `renderCompassRing(..., activeRoute ? null : {speedMph})` — the same
+  figure now lives in the merged card's own speed/distance row instead.
+
+**Traffic Rules — filter/highlight by type/category/altitude/military-
+civil, entirely new to the native app (PWA-shipped 2026-09-09).**
+- **`logic/TrafficRulesLogic.kt`** (+ 22-method test) — a structural port
+  of `src/logic/trafficRules.js`'s pure evaluator: AND'd conditions
+  (comma-separated type-query OR list included), OR-across-rules filter
+  evaluation, first-match-wins highlight evaluation, the same 18-entry
+  ADS-B DO-260B category table.
+- **`AircraftExtrapolation.Aircraft`/`NormaliseAircraft.kt`** gained the
+  tri-state `military: Boolean?` field, reading `dbFlags` bit 0
+  (readsb/tar1090 convention) — never defaulted to civil/false when
+  absent, matching `normaliseAircraft.js`'s own reasoning exactly ("a
+  traffic rule can't silently misclassify traffic the API gave no
+  signal about"). 5 new parsing tests, including the real `dbFlags`
+  bitmask case (bit1 set, bit0 clear → definitely civil, not "unknown
+  because nonzero").
+- **`TrafficRulesStore.kt`** (new) — `SharedPreferences`+JSON-backed CRUD,
+  the sibling state module to the pure evaluator (same split `src/
+  trafficRules.js` establishes, and the same pattern `VcasSettings.kt`
+  already uses for this native app's other persisted state). A brand-new
+  rule starts DISABLED — matching `TrafficRules.add()`'s own reasoning:
+  empty conditions match every aircraft, so an enabled-on-creation filter
+  rule would instantly hide the whole aircraft list before a single
+  condition is set.
+- **`MainActivity.kt`** wired the filter check into `onAircraftUpdated()`,
+  the same single filtering point every other exclusion (ground-vehicle,
+  stale, ground-hide, altitude-suppress) already reads from. Added a
+  full settings-screen CRUD UI: a rule list (swatch/summary/enable-toggle/
+  move-up/move-down/edit/delete per row), "+ Filter rule"/"+ Highlight
+  rule" buttons, and one shared inline edit form (type-query text,
+  category via a real `PopupMenu` — 18 options, too many for a tap-to-
+  cycle button — altitude enabled/direction/threshold and traffic any/
+  military/civil via tap-to-cycle, a 7-swatch colour row for highlight
+  rules) — mirrors `_trConditionSummary()`'s exact wording and
+  `_openTrafficRuleForm()`'s pending-new-rule-Cancel-deletes-it handling
+  (tracked via `trPendingNewRuleId`, also triggered from
+  `closeSettingsScreen()` itself, matching the PWA's own "closing the
+  whole Settings screen while a new-rule form is open is an implicit
+  Cancel" behaviour).
+- **Highlight rendering** — `RawPlotView.kt` draws a coloured ring (the
+  rule's own user-chosen hex) around both full plot icons and suppressed
+  edge dots, independent of the existing yellow selection glow (the two
+  simply stack, matching `.rule-highlight`'s own CSS being independent of
+  `.selected`). AIR/HYBRID's `SymbolManager` markers have no per-instance
+  CSS box-shadow the way the PWA's real DOM markers do, so
+  `PhoneAircraftIcons.kt`'s `bitmapFor()`/`iconNameFor()` bake the ring
+  directly into the icon bitmap instead — the closest achievable
+  equivalent with a flat bitmap icon, not a silently-dropped feature.
+
+**3D View — the planetarium-style free-view mode, entirely new to the
+native app (PWA-shipped 2026-09-09, several follow-up rounds since).**
+- **`logic/View3DLogic.kt`** (+ 22-method test, including two real test-
+  authoring mistakes caught and fixed before shipping — see below) — a
+  structural port of `src/logic/view3dLogic.js`: the linear degrees-to-
+  pixels `projectTo3DPosition`/`horizonScreenY` mapping (±40°/±30° FOV
+  window), the anti-jitter `shouldUpdateFrame()` dead zone, and
+  `compassTicks()` for the top-edge compass strip.
+- **`DeviceOrientationSensor.kt`** (new) — real `Sensor.
+  TYPE_ROTATION_VECTOR` via `SensorManager`, giving BOTH azimuth and
+  pitch from one listener with no equivalent to the PWA's own
+  DeviceOrientation-API event-name/`absolute`-flag fragmentation fight
+  (`compassHeading.js`'s own extensive history) — matching this
+  project's own long-standing scoping note that native Android "reads
+  the compass/orientation sensor directly... none of that file's
+  cross-browser workaround logic has any native equivalent to port, it
+  just stops being needed." **The pitch sign convention was re-derived
+  from the real, current AOSP source**, not guessed or left to the
+  textual API-doc description alone: `dl.google.com`/
+  `android.googlesource.com` are both blocked from this sandbox, but the
+  `aosp-mirror` GitHub mirror of `frameworks/base` isn't — fetched
+  `SensorManager.java` directly and worked through `getOrientation()`'s
+  own `pitch = asin(-R[7])` formula geometrically (R[7] = the device's
+  own screen-"up" axis's vertical-world component) to confirm: holding
+  the phone vertically, screen facing the user, pointing at the horizon
+  — 3D View's actual intended pose — puts raw pitch at exactly -90°,
+  and tilting flatter toward the zenith takes it toward 0°. So
+  `devicePitchDeg = rawPitchDeg + 90` (clamped [-90,90]) gives the same
+  "0 = horizon, +90 = zenith" convention `View3DLogic ` already expects
+  — cross-checked against the AOSP doc's own separate textual
+  description ("tilting the top edge toward the ground creates positive
+  pitch") as an independent consistency check on the same formula, not
+  trusted alone. **The same real, unresolved risk this project's own
+  PWA-side 3D View code review already flagged is honestly carried over,
+  not presented as solved**: Euler-angle decomposition of a rotation
+  matrix has a genuine mathematical near-singularity right at pitch=±90°
+  — exactly 3D View's own intended vertical-hold pose. EMA smoothing
+  (circular-aware on the azimuth axis) and a "Set North" manual
+  calibration (mirrors `CompassHeading.calibrateTo()`) are both ported;
+  neither of those addresses the near-singularity itself, same as the
+  PWA's own current state.
+- **`View3DView.kt`** (new) — a single Canvas view: a sky/ground/horizon
+  gradient split (always-dark, no Day/Night branch — this native app has
+  no theming at all yet, same existing precedent `VcasPalette.kt`
+  already documents for RAW), a static decorative starfield and cloud
+  ellipses (toggle-controlled, `VcasSettings.isView3DCloudsEnabled()`,
+  on by default — no CSS-keyframe-equivalent drift animation, an honest
+  simplification stated in the file's own doc comment, not silently
+  dropped), a compass-tick strip along the top (`View3DLogic.
+  compassTicks()`), aircraft dots + callsign labels plotted via
+  `View3DLogic.projectTo3DPosition`, and a fixed centre crosshair — the
+  dots move around it as azimuth/pitch change, not the other way
+  around, matching a real planetarium display rather than AR.
+- **`MainActivity.kt`** wiring: a genuine 4th mode-toggle-bar button
+  ("3D"), deliberately NOT part of `modeButtons`/`currentMode` — it's a
+  full-screen overlay (same architectural pattern as Settings/
+  Onboarding), so `mode` never changes while it's open and GPS/ADS-B
+  polling keeps running underneath exactly as it already does behind
+  those two. The same 5mph distraction gate this app's other RAW-only
+  interactions (the popup's Suppress button) already apply — refuses to
+  open at all above the threshold, and a shared 200ms render-tick timer
+  auto-closes if speed crosses the threshold while already open (a real
+  bug caught and fixed before shipping: the render-tick `Runnable`
+  originally rescheduled itself unconditionally even after
+  `refresh3DView()` had just called `close3DView()` internally — fixed
+  by re-checking `view3DOpen` before rescheduling, rather than relying
+  on the next tick's own early-return to clean it up one cycle late).
+  `onPause()` now also force-closes 3D View if open, so the sensor
+  listener doesn't keep running once the Activity leaves the foreground
+  — GPS updates already got the equivalent treatment there, 3D View's
+  own sensor had no such lifecycle awareness of its own before this.
+- **A real byproduct fix, found while building this, not part of the
+  original plan**: `Visibility.kt`'s `elevationDeg` computation still had
+  the exact "reads 0° (horizon) instead of 90° (straight up) for a
+  dead-overhead aircraft" bug the PWA itself fixed on 2026-09-13 (an
+  unnecessary `altM>0 && horizM>0` guard around `atan2`, which already
+  handles a zero argument correctly on its own) — never ported to the
+  Kotlin side. Directly relevant here since 3D View's own elevation-
+  offset math depends on `elevationDeg` being correct for exactly this
+  case (an aircraft passing close to overhead). Fixed with the identical
+  one-line change, 4 new regression tests (dead-overhead now reads 90°,
+  an ordinary case stays a real value between 0-90°, ground-level stays
+  0°, the fully-degenerate same-position case stays a clean 0 not NaN).
+
+**Two real test-authoring mistakes caught before shipping, not after —
+same discipline this project's own Kotlin-port test-writeups have
+flagged before (the "vacuous test" class of mistake)**: a first draft of
+`horizonScreenY`'s own tests asserted the WRONG direction (expected
+pointing-up-30° to put the horizon at the TOP of the screen; the real,
+literal formula — copied verbatim from the shipped JS, not re-derived —
+puts it at the BOTTOM, matching its own doc comment: "if the phone
+points above the true horizon, the horizon sits below wherever the
+phone is centred"). Caught by the real `kotlinc`+JUnit4 run actually
+failing (2 failures), not assumed correct from writing the assertion
+confidently — fixed the TEST, not the implementation, since the
+implementation was a faithful line-for-line copy of the already-shipped,
+already-correct PWA formula.
+
+**Verification discipline, same standing pattern as every native logic
+port in this project's history**: the full `logic/` package test suite
+grew from 209 (session start) to 260 tests across this pass — every new
+number is real `kotlinc` 2.0.0 + JUnit4 execution via the same
+standalone Maven-Central-jar toolchain (re-downloaded fresh into the
+scratchpad this session, since the toolchain itself isn't preserved
+between sessions), not just read for correctness. Platform/UI code
+(`MainActivity.kt`, `RawPlotView.kt`, `RawAircraftListView.kt`,
+`PhoneAircraftIcons.kt`, `View3DView.kt`, `DeviceOrientationSensor.kt`,
+`TrafficRulesStore.kt`) was NOT compiled — same standing "no Android SDK
+in this sandbox" caveat every native file in this project carries —
+verified instead by careful manual re-reads plus a brace/paren balance
+check on every touched file (all clean). The real remaining check for
+all of it is still opening `android/` in Android Studio and building it,
+then real-device testing.
+
+**Explicitly not done in this pass, tracked in `ROADMAP.md`'s own
+updated "Native Android Auto port" entry rather than silently
+implied-complete**: the Hybrid manual camera-tilt override, mode-button-
+order settings, the TomTom routing provider, hex-for-hex-matching
+colorblind-safe swatches/the status-pill colorblind fix, and a handful
+of smaller RAW-redesign chrome details (the nav-icon's maroon colour,
+the rows-backdrop tint, the RAW-only mode-row divider). Also unrelated
+to visual parity but discovered along the way and worth a separate,
+future look: `origin/main` on GitHub is still the stale pre-August-2026
+state (no `CLAUDE.md`, no `android/` RAW-mode work at all) despite a
+2026-09-16 CLAUDE.md entry claiming it had been merged and made the sole
+branch — this session developed on `claude/festive-curie-ct5zxq` per its
+own task instructions and didn't attempt to reconcile that discrepancy,
+which is outside this task's scope and risky to touch without a direct
+request.
