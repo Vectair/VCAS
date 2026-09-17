@@ -65,12 +65,27 @@ class RawPlotView @JvmOverloads constructor(
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Float) = v * density
 
+    /**
+     * RAW's own screen-space flight-plan line (2026-09-06 PWA round 2) —
+     * `points` are already-projected screen coordinates (via the exact
+     * same `Geo.projectToPolarPosition` call the aircraft dots use, same
+     * anchor/bands/FOV — see `MainActivity.computeRawRouteLine()`), so
+     * this view only ever draws what it's given, matching how aircraft
+     * indicators already arrive pre-projected via `Indicators.build()`.
+     */
+    data class RouteLine(
+        val points: List<Geo.Point>,
+        val turnPoint: Geo.Point?,
+        val turnLabel: String?
+    )
+
     // ---- State supplied by the controller (MainActivity) each tick ----
     private var withinRange: List<Indicators.IndicatorItem> = emptyList()
     private var beyondRange: List<Indicators.IndicatorItem> = emptyList()
     private var headingDeg = 0.0
     private var speedMph = 0.0
-    private var routeInfo: String? = null
+    private var routeLine: RouteLine? = null
+    private var routeActive = false
     private var square: Geo.PlotLayout? = null
     private var anchorY = 0.8
     private var bandsNm: List<Double> = Indicators.RING_BANDS_NM
@@ -86,7 +101,8 @@ class RawPlotView @JvmOverloads constructor(
         beyondRange: List<Indicators.IndicatorItem>,
         headingDeg: Double,
         speedMph: Double,
-        routeInfo: String?,
+        routeLine: RouteLine?,
+        routeActive: Boolean,
         square: Geo.PlotLayout,
         anchorY: Double,
         bandsNm: List<Double>,
@@ -99,7 +115,8 @@ class RawPlotView @JvmOverloads constructor(
         this.beyondRange = beyondRange
         this.headingDeg = headingDeg
         this.speedMph = speedMph
-        this.routeInfo = routeInfo
+        this.routeLine = routeLine
+        this.routeActive = routeActive
         this.square = square
         this.anchorY = anchorY
         this.bandsNm = bandsNm
@@ -162,6 +179,16 @@ class RawPlotView @JvmOverloads constructor(
     private val selectedGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; color = Color.YELLOW; strokeWidth = dp(2f)
     }
+    // ROUTE_LINE_COLOR matches ui.js's own const exactly — "the same real
+    // ND route colour... keep in sync by hand if it's ever re-picked."
+    private val routeLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = dp(2.5f); color = Color.parseColor("#00c800")
+        alpha = (0.9f * 255).toInt(); strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val routeLineLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#00c800"); alpha = (0.9f * 255).toInt()
+        textAlign = Paint.Align.CENTER; isFakeBoldText = true
+    }
 
     init {
         tickLabelPaint.textSize = dp(12f)
@@ -173,6 +200,7 @@ class RawPlotView @JvmOverloads constructor(
         rangeBtnTextPaint.textSize = dp(12f)
         rangeBtnTextPaint.isFakeBoldText = true
         labelTextPaint.textSize = dp(10f)
+        routeLineLabelPaint.textSize = dp(11f)
         setWillNotDraw(false)
     }
 
@@ -190,12 +218,33 @@ class RawPlotView @JvmOverloads constructor(
 
         val sq = square ?: return
         drawRangeRings(canvas, sq)
+        // Paints over the dashed rings, same z-order as the PWA's own
+        // #nav-route-line-overlay (a DOM sibling of #nav-range-rings-
+        // overlay, later in paint order) — but still under the compass
+        // tape and aircraft indicators drawn next.
+        drawRouteLine(canvas)
         drawCompassTape(canvas, sq)
         drawOwnship(canvas, sq)
         val hitboxes = mutableListOf<Pair<String, RectF>>()
         drawAircraft(canvas, hitboxes)
         val rangeBtnRect = drawRangeSelector(canvas, sq)
         tapTargets = TapTargets(rangeBtnRect, hitboxes)
+    }
+
+    /** Port of ui.js's renderRouteLine() — see RouteLine's own doc comment. */
+    private fun drawRouteLine(canvas: Canvas) {
+        val line = routeLine ?: return
+        if (line.points.size < 2) return
+        val path = Path()
+        line.points.forEachIndexed { i, p ->
+            if (i == 0) path.moveTo(p.x.toFloat(), p.y.toFloat()) else path.lineTo(p.x.toFloat(), p.y.toFloat())
+        }
+        canvas.drawPath(path, routeLinePaint)
+        val turn = line.turnPoint
+        val label = line.turnLabel
+        if (turn != null && !label.isNullOrBlank()) {
+            canvas.drawText(label, turn.x.toFloat(), turn.y.toFloat() - dp(8f), routeLineLabelPaint)
+        }
     }
 
     /**
@@ -267,23 +316,25 @@ class RawPlotView @JvmOverloads constructor(
         val hdgRounded = Math.round(heading).toInt() % 360
         canvas.drawText(hdgRounded.toString().padStart(3, '0'), cx, deadAheadRimY - dp(22f), digitalPaint)
 
-        // SPD/route info strip — round 6: moved to the top-left corner of
-        // the plot (left-aligned) rather than centred, freeing the top
-        // centre/right for the aircraft-count readout in the PWA; native
-        // has no LOG button sharing this row, so this is simply the
-        // left edge of the plot box + a small margin.
-        drawInfoStrip(canvas, sq, deadAheadRimY)
+        // SPD info strip — round 6/9: moved to the top-left corner of the
+        // plot (left-aligned) rather than centred. Round 9 (2026-09-08):
+        // suppressed entirely while a route is active — the identical
+        // figure now lives in the merged nav-status card's own
+        // speed/distance row instead (`MainActivity.rawSpeedText`), so
+        // showing it here too would be a duplicate readout, matching
+        // ui.js's own `renderCompassRing(..., activeRoute ? null :
+        // {speedMph})` call. Native has no LOG button sharing this row, so
+        // this is simply the left edge of the plot box + a small margin.
+        if (!routeActive) drawInfoStrip(canvas, sq, deadAheadRimY)
     }
 
     private fun drawInfoStrip(canvas: Canvas, sq: Geo.PlotLayout, deadAheadRimY: Float) {
         val leftX = (sq.plotLeft + dp(8f)).toFloat()
         val stripY = deadAheadRimY + dp(14f) + dp(14f) + dp(20f)
         val speedLabel = "SPD ${Math.round(speedMph)} MPH"
-        val route = routeInfo
         val leftAlign = Paint(stripTextPaint).apply { textAlign = Paint.Align.LEFT }
-        val estWidth = { s: String -> s.length * dp(7.2f) }
-        val boxW = max(estWidth(speedLabel), route?.let { estWidth(it) } ?: 0f) + dp(20f)
-        val boxH = if (route != null) dp(46f) else dp(26f)
+        val boxW = speedLabel.length * dp(7.2f) + dp(20f)
+        val boxH = dp(26f)
         canvas.drawRoundRect(
             RectF(leftX - dp(6f), stripY - dp(17f), leftX - dp(6f) + boxW, stripY - dp(17f) + boxH),
             dp(4f), dp(4f), stripBgPaint
@@ -302,10 +353,6 @@ class RawPlotView @JvmOverloads constructor(
         canvas.drawText(number, runX, stripY, greenPaint)
         runX += greenPaint.measureText(number)
         canvas.drawText(suffix, runX, stripY, leftAlign)
-        if (route != null) {
-            val routePaint = Paint(leftAlign).apply { textSize = dp(12f); isFakeBoldText = false; alpha = (0.85f * 255).toInt() }
-            canvas.drawText(route, leftX, stripY + dp(18f), routePaint)
-        }
     }
 
     /**

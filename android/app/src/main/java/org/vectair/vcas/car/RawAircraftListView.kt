@@ -36,6 +36,18 @@ import kotlin.math.roundToInt
  * removal was about. Each row's own leading marker changed from a plain
  * colour dot to a colour-matched chevron (round 9, matching the project
  * owner's own mockup), reusing the exact same colour-selection priority.
+ *
+ * 2026-09-16/17 sync (PWA "RAW aircraft-list panel bounded to the selected
+ * range" + "merged to one line"): the caller now hands this view only the
+ * range-filtered subset (`withinRange`, matching the plot's own icons),
+ * not the full relevant set out to the 50nm reach — so there is nothing
+ * left that can ever be "beyond range" within this list, and the old
+ * `beyondRangeHexes`/dimmed-row concept is gone entirely, not just hidden.
+ * Each row's callsign + type/altitude/range are now a single horizontal
+ * line (callsign never truncates — always short, the primary identifier;
+ * the meta text takes the rest of the row and ellipsizes only if it
+ * genuinely doesn't fit) instead of stacking as two lines, matching
+ * `ui.js`'s own `.rlr-info`/`.rlr-callsign`/`.rlr-meta` CSS exactly.
  */
 class RawAircraftListView(context: Context) : LinearLayout(context) {
 
@@ -78,7 +90,6 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
 
     fun update(
         items: List<Indicators.IndicatorItem>,
-        beyondRangeHexes: Set<String>,
         selectedHex: String?,
         colorblindSafe: Boolean = false
     ) {
@@ -102,8 +113,6 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
                 orientation = HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
-                val beyond = beyondRangeHexes.contains(a.hex)
-                alpha = if (beyond) 0.5f else 1f
                 if (a.hex == selectedHex) setBackgroundColor(Color.argb((0.14f * 255).toInt(), 255, 255, 0))
                 setOnClickListener { onRowClick?.invoke(item) }
             }
@@ -125,7 +134,15 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
             }
             row.addView(chevron, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6f) })
 
-            val info = LinearLayout(context).apply { orientation = VERTICAL }
+            // 2026-09-15 sync: callsign + type/altitude/range now share ONE
+            // horizontal row (matching `.rlr-info`'s `display:flex`) rather
+            // than stacking as two lines — callsign is flex-shrink:0 (never
+            // truncates), meta takes the rest and ellipsizes if it doesn't
+            // fit, using the width the old second line used to waste.
+            val info = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
             val callsign = TextView(context).apply {
                 text = a.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: a.hex
                 setTextColor(Color.rgb(240, 240, 240))
@@ -137,11 +154,14 @@ class RawAircraftListView(context: Context) : LinearLayout(context) {
                 val alt = a.altitudeFt?.let { "${it.roundToInt()}ft" } ?: "—"
                 val range = "%.1fnm".format(item.distanceNm)
                 text = "$type · $alt · $range"
-                setTextColor(Color.argb((0.6f * 255).toInt(), 240, 240, 240))
-                textSize = 9f
+                setTextColor(Color.rgb(240, 240, 240))
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
-            info.addView(callsign)
-            info.addView(meta)
+            info.addView(callsign, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8f) })
+            info.addView(meta, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
             row.addView(info, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
 
             rowsContainer.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))

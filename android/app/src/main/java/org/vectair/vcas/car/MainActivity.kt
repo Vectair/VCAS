@@ -13,8 +13,10 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
 import android.text.style.UnderlineSpan
 import android.view.Gravity
 import android.view.View
@@ -45,6 +47,7 @@ import org.vectair.vcas.car.logic.OrsProvider
 import org.vectair.vcas.car.logic.RouteGeometry
 import org.vectair.vcas.car.logic.Visibility
 import java.util.concurrent.Executors
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -174,7 +177,6 @@ class MainActivity : Activity() {
     // ---- Mode + RAW-mode state ----
     private var currentMode = "raw" // "raw" | "air" | "hybrid" — RAW default, matching the PWA's own.
     private var selectedRangeIndex = Indicators.RING_BANDS_NM.indexOf(10.0).let { if (it < 0) Indicators.RING_BANDS_NM.size - 1 else it }
-    private var rawSortMode = "priority"
     private var selectedHex: String? = null
 
     // Manually-suppressed aircraft (via the popup's Suppress button) —
@@ -212,8 +214,20 @@ class MainActivity : Activity() {
 
     // ---- HYBRID navigation state (2026-08-27) ----
     private var guidanceCardView: View? = null
+    private var guidanceCardRow: View? = null
+    private var maneuverIconText: TextView? = null
     private var guidanceText: TextView? = null
     private var etaText: TextView? = null
+    // RAW-only merged nav-status card fields (2026-09-17 sync, PWA rounds
+    // 2/5/6/9) — always populated alongside the Hybrid fields above,
+    // visibility toggled by updateGuidanceCard() rather than only one set
+    // ever existing, same "write to all targets, let display state decide"
+    // pattern app.js's own _updateRouteCard() already uses.
+    private var rawEtaText: TextView? = null
+    private var hybridEtaRow: View? = null
+    private var rawEtaRow: View? = null
+    private var rawSpeedText: TextView? = null
+    private var rawDistText: TextView? = null
     private var activeRouteGroupView: View? = null
 
     private var activeRoute: OrsProvider.Route? = null
@@ -256,7 +270,6 @@ class MainActivity : Activity() {
         root.addView(rawPlotView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
         rawListView = RawAircraftListView(this).apply {
-            onSortClick = { mode -> rawSortMode = mode; refreshRawMode() }
             onRowClick = { item -> selectedHex = item.aircraft.hex; onRawAircraftTap(item) }
         }
         root.addView(rawListView, FrameLayout.LayoutParams(0, 0)) // sized/positioned per-frame in refreshRawMode()
@@ -388,18 +401,43 @@ class MainActivity : Activity() {
         searchGroup.addView(results)
         destSearchGroupView = searchGroup
 
-        // ---- Active-route group: guidance row + ETA ----
+        // ---- Active-route group: icon + guidance text + ETA/✕ row, then a
+        // second row holding EITHER Hybrid's single mono ETA line OR RAW's
+        // own colour-coded speed/distance row — a Kotlin-chrome equivalent
+        // of the PWA's `#nav-guidance-card` (icon/.ngc-body/.ngc-eta) +
+        // `#route-card` (.route-eta-row vs .route-eta-row-raw), collapsed
+        // into one card the same way this class's own doc comment already
+        // describes, now additionally covering RAW's merged nav-status
+        // styling (2026-09-06/09-08 PWA rounds 2/5/6/9) — not just Hybrid's
+        // Google-Maps-style banner. See updateGuidanceCard() for which set
+        // is actually populated/shown per mode. ----
         val activeGroup = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        guidanceCardRow = row
+        val icon = TextView(this).apply {
+            text = "↑"
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 16, 0)
+        }
+        maneuverIconText = icon
         val guidance = TextView(this).apply {
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
             textSize = 15f
             typeface = VcasFonts.display(this@MainActivity, bold = true)
         }
         guidanceText = guidance
+        val rawEta = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN))
+            textSize = 14f
+            typeface = VcasFonts.mono(this@MainActivity, bold = true)
+            setPadding(16, 0, 0, 0)
+        }
+        rawEtaText = rawEta
         val cancel = TextView(this).apply {
             text = "✕"
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
@@ -407,9 +445,13 @@ class MainActivity : Activity() {
             setPadding(24, 0, 0, 0)
             setOnClickListener { clearActiveRoute() }
         }
+        row.addView(icon, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         row.addView(guidance, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(rawEta)
         row.addView(cancel)
 
+        // Hybrid's own single-line mono ETA readout — unchanged from
+        // before this sync pass.
         val eta = TextView(this).apply {
             setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
             textSize = 12f
@@ -417,9 +459,36 @@ class MainActivity : Activity() {
             setPadding(0, 6, 0, 0)
         }
         etaText = eta
+        hybridEtaRow = eta
+
+        // RAW's own one-row speed (left, green) + distance (right, cyan)
+        // readout — replaces Hybrid's duration+arrival line (moved to
+        // rawEtaText above) and distance+destName sub-line, matching
+        // `.route-eta-row-raw` exactly.
+        val rawRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 6, 0, 0)
+        }
+        val rawSpeed = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN))
+            textSize = 14f
+            typeface = VcasFonts.mono(this@MainActivity, bold = true)
+        }
+        rawSpeedText = rawSpeed
+        val rawDist = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.RAW_VALUE_CYAN))
+            textSize = 14f
+            typeface = VcasFonts.mono(this@MainActivity, bold = true)
+            gravity = Gravity.END
+        }
+        rawDistText = rawDist
+        rawRow.addView(rawSpeed, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        rawRow.addView(rawDist, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        rawEtaRow = rawRow
 
         activeGroup.addView(row)
         activeGroup.addView(eta)
+        activeGroup.addView(rawRow)
         activeRouteGroupView = activeGroup
 
         card.addView(searchGroup)
@@ -1547,18 +1616,86 @@ class MainActivity : Activity() {
      * `switchMode()`'s own doc comment), it just isn't displayed until
      * the user switches back.
      */
-    private fun updateGuidanceCard() {
+    // ORS maneuver `type` code -> guidance-card icon rotation/glyph, and
+    // (RAW only) -> a plain direction word — structural port of app.js's
+    // own MANEUVER_ICONS/MANEUVER_DIRECTION_WORD tables, verbatim. See
+    // that file's own comment for the "unverified against a live ORS
+    // response" caveat this port carries too.
+    private data class ManeuverIcon(val rotationDeg: Float, val glyph: String)
+    private val maneuverIcons = mapOf(
+        0 to ManeuverIcon(-90f, "↑"), 1 to ManeuverIcon(90f, "↑"),
+        2 to ManeuverIcon(-135f, "↑"), 3 to ManeuverIcon(135f, "↑"),
+        4 to ManeuverIcon(-45f, "↑"), 5 to ManeuverIcon(45f, "↑"),
+        6 to ManeuverIcon(0f, "↑"), 7 to ManeuverIcon(0f, "⟳"),
+        8 to ManeuverIcon(0f, "⟳"), 9 to ManeuverIcon(180f, "↑"),
+        10 to ManeuverIcon(0f, "📍"), 11 to ManeuverIcon(0f, "↑"),
+        12 to ManeuverIcon(-30f, "↑"), 13 to ManeuverIcon(30f, "↑")
+    )
+    private val defaultManeuverIcon = ManeuverIcon(0f, "↑")
+    private val maneuverDirectionWord = mapOf(
+        0 to "LEFT", 1 to "RIGHT", 2 to "LEFT", 3 to "RIGHT", 4 to "LEFT", 5 to "RIGHT",
+        6 to "STRAIGHT", 7 to "ROUNDABOUT", 8 to "ROUNDABOUT", 9 to "U-TURN",
+        11 to "DEPART", 12 to "LEFT", 13 to "RIGHT"
+    )
+    private val defaultDirectionWord = "AHEAD"
+
+    /**
+     * The ManeuverTracker call itself, hoisted out of updateGuidanceCard()
+     * so refreshRawMode() can compute it exactly once per tick and hand
+     * the SAME result to both the guidance card and RAW's own screen-space
+     * flight-plan line's turn label — matching app.js's own
+     * `_computeRouteManeuver()` and its call site's comment.
+     */
+    private fun computeRouteManeuver(location: Location?): ManeuverTracker.NextManeuver {
+        val route = activeRoute ?: return ManeuverTracker.NextManeuver(exists = false)
+        if (location == null || route.steps.isEmpty()) return ManeuverTracker.NextManeuver(exists = false)
+        return ManeuverTracker.nextManeuver(route.geometry, route.steps, location.longitude, location.latitude)
+    }
+
+    /**
+     * A structural port of `_updateGuidanceCard()`/`_updateRouteCard()`,
+     * generalised (2026-09-17 sync) to also render RAW's own merged
+     * ND-style nav-status card (PWA rounds 2/5/6/9) — previously this only
+     * ever showed in Hybrid, with RAW getting nothing at all (`routeInfo`
+     * always null). Both the Hybrid and RAW field sets are always written
+     * together when a route is active; only which ROW is VISIBLE differs
+     * by mode, same "write to all targets, let display state decide"
+     * pattern already used elsewhere in this port.
+     *
+     * @param precomputedManeuver  Optional — refreshRawMode() passes the
+     *   SAME ManeuverTracker result it already computed for the flight-
+     *   plan line's own turn label, so the two can't disagree. Hybrid's
+     *   own call site (onLocationChanged) omits it and this function
+     *   derives it itself, matching the pre-existing behaviour there.
+     */
+    private fun updateGuidanceCard(precomputedManeuver: ManeuverTracker.NextManeuver? = null) {
         val card = guidanceCardView ?: return
-        if (currentMode != "hybrid") {
+        if (currentMode != "hybrid" && currentMode != "raw") {
+            card.visibility = View.GONE
+            return
+        }
+        val isRaw = currentMode == "raw"
+        val route = activeRoute
+
+        // Matches the PWA exactly: `#nav-guidance-card` is shown/hidden
+        // purely by whether `activeRoute` exists (`_showRouteCard()`/
+        // `_hideGuidanceCard()`), never by mode — RAW has no destination-
+        // search UI of its own (that's Hybrid's job), so a passive RAW
+        // view (no route) must hide this card entirely rather than
+        // showing an empty rgba(14,17,23,.85) panel with nothing in it.
+        // Hybrid keeps its own pre-existing behaviour: always visible,
+        // toggling between the search box and the active-route content.
+        if (isRaw && route == null) {
             card.visibility = View.GONE
             return
         }
         card.visibility = View.VISIBLE
+        applyGuidanceCardStyle(isRaw)
 
-        val route = activeRoute
         destSearchGroupView?.visibility = if (route == null) View.VISIBLE else View.GONE
         activeRouteGroupView?.visibility = if (route == null) View.GONE else View.VISIBLE
         if (route == null) {
+            // Hybrid only — the isRaw+null case already returned above.
             destSearchStatusText?.apply {
                 if (rerouteInFlight) {
                     text = "Finding route…"
@@ -1570,18 +1707,41 @@ class MainActivity : Activity() {
             return
         }
 
+        hybridEtaRow?.visibility = if (isRaw) View.GONE else View.VISIBLE
+        rawEtaRow?.visibility = if (isRaw) View.VISIBLE else View.GONE
+        rawEtaText?.visibility = if (isRaw) View.VISIBLE else View.GONE
+
         val location = lastKnownLocation
-        guidanceText?.text = when {
-            rerouteInFlight -> "Rerouting…"
-            location == null -> "Head to destination"
-            else -> {
-                val next = ManeuverTracker.nextManeuver(route.geometry, route.steps, location.longitude, location.latitude)
-                if (next.exists) {
-                    "${next.instruction ?: "Continue"} — ${fmtDistance(next.distanceMeters ?: 0.0)}"
+        val maneuver = precomputedManeuver ?: computeRouteManeuver(location)
+
+        if (rerouteInFlight) {
+            guidanceText?.text = "Rerouting…"
+            maneuverIconText?.apply { text = "↻"; rotation = 0f }
+        } else if (maneuver.exists) {
+            val icon = maneuverIcons[maneuver.type] ?: defaultManeuverIcon
+            maneuverIconText?.apply { text = icon.glyph; rotation = icon.rotationDeg }
+            val distStr = fmtDistance(maneuver.distanceMeters ?: 0.0)
+            if (isRaw) {
+                // Abbreviated ND-instrument readout: "IN {dist} TURN
+                // {direction}" (or bare "TURN ARRIVE" at the final step) —
+                // no street names, an ND has no room for prose.
+                val directionWord = if (maneuver.isArrival) "ARRIVE"
+                    else (maneuverDirectionWord[maneuver.type] ?: defaultDirectionWord)
+                guidanceText?.text = if (maneuver.isArrival) {
+                    rawArrivalSpannable(directionWord)
                 } else {
-                    "Head to destination"
+                    rawInstructionSpannable(distStr.uppercase(), directionWord)
+                }
+            } else {
+                guidanceText?.text = if (maneuver.isArrival) {
+                    maneuver.instruction ?: "Arrive at destination"
+                } else {
+                    "${maneuver.instruction ?: "Continue"} — $distStr"
                 }
             }
+        } else {
+            maneuverIconText?.apply { text = "↑"; rotation = 0f }
+            guidanceText?.text = "Head to destination"
         }
 
         if (location != null) {
@@ -1590,8 +1750,63 @@ class MainActivity : Activity() {
             val fraction = if (route.distanceMeters > 0) (remainingMeters / route.distanceMeters).coerceIn(0.0, 1.0) else 0.0
             val remainingSeconds = route.durationSeconds * fraction
             val arrivalMs = System.currentTimeMillis() + (remainingSeconds * 1000).toLong()
-            etaText?.text = "${fmtDistance(remainingMeters)} · ${fmtDuration(remainingSeconds)} · ETA ${fmtClock(arrivalMs)}"
+            val arrivalClock = fmtClock(arrivalMs)
+            etaText?.text = "${fmtDistance(remainingMeters)} · ${fmtDuration(remainingSeconds)} · ETA $arrivalClock"
+            rawEtaText?.text = arrivalClock
+            rawSpeedText?.text = "SPD ${currentSpeedMph().roundToInt()} MPH"
+            rawDistText?.text = fmtDistance(remainingMeters)
         }
+    }
+
+    /**
+     * RAW's own merged-panel look (2026-09-06 round 2) vs Hybrid's
+     * Google-Maps-style banner — a position + colour override only, same
+     * scope the PWA's own CSS comment describes (`_updateGuidanceCard()`/
+     * `_updateRouteCard()`'s population logic is completely unchanged by
+     * which style is active). rgba(14,17,23,.85) matches
+     * `RawAircraftListView`'s own panel background exactly — "every
+     * RAW-only panel reads as the same material," per the PWA's own
+     * comment on `#nav-guidance-card`'s RAW override.
+     */
+    private fun applyGuidanceCardStyle(isRaw: Boolean) {
+        val card = guidanceCardView as? LinearLayout ?: return
+        if (isRaw) {
+            card.setBackgroundColor(Color.argb((0.85f * 255).toInt(), 14, 17, 23))
+            card.setPadding(20, 12, 20, 10)
+            maneuverIconText?.apply { setTextColor(VcasPalette.parse(VcasPalette.RAW_TEXT)); textSize = 18f }
+            guidanceText?.apply { setTextColor(VcasPalette.parse(VcasPalette.RAW_TEXT)); textSize = 13f; typeface = VcasFonts.mono(this@MainActivity, bold = true) }
+        } else {
+            card.setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL_ALT))
+            card.setPadding(28, 14, 28, 14)
+            maneuverIconText?.apply { setTextColor(VcasPalette.parse(VcasPalette.ACCENT)); textSize = 24f }
+            guidanceText?.apply { setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY)); textSize = 15f; typeface = VcasFonts.display(this@MainActivity, bold = true) }
+        }
+    }
+
+    /**
+     * "IN {dist} TURN {direction}" — matching `.ngc-dist-value`
+     * (RAW_VALUE_CYAN) / `.ngc-direction-value` (RAW_VALUE_GREEN)'s own
+     * RAW colour overrides exactly; every other run stays plain RAW_TEXT.
+     */
+    private fun rawInstructionSpannable(distUpper: String, directionWord: String): CharSequence {
+        val sb = SpannableStringBuilder("IN ")
+        val distStart = sb.length
+        sb.append(distUpper)
+        sb.setSpan(ForegroundColorSpan(VcasPalette.parse(VcasPalette.RAW_VALUE_CYAN)), distStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        sb.append(" TURN ")
+        val dirStart = sb.length
+        sb.append(directionWord)
+        sb.setSpan(ForegroundColorSpan(VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN)), dirStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sb
+    }
+
+    /** Bare "TURN {direction}" — the final-step arrival case. */
+    private fun rawArrivalSpannable(directionWord: String): CharSequence {
+        val sb = SpannableStringBuilder("TURN ")
+        val dirStart = sb.length
+        sb.append(directionWord)
+        sb.setSpan(ForegroundColorSpan(VcasPalette.parse(VcasPalette.RAW_VALUE_GREEN)), dirStart, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        return sb
     }
 
     // ---- Numerical utilities — ports of app.js's own _fmtDistance/_fmtDuration ----
@@ -1615,7 +1830,7 @@ class MainActivity : Activity() {
     // same Indicators.build() pipeline Geo/Visibility/Relevance/
     // AircraftExtrapolation already back — see CLAUDE.md's dated entry
     // for the full port writeup (constants/formulas match app.js's
-    // refreshIndicators()/onRawRangeCycleClick()/_sortForRawList() 1:1). ----
+    // refreshIndicators()/onRawRangeCycleClick() 1:1). ----
 
     private fun refreshRawMode() {
         val location = lastKnownLocation ?: return
@@ -1632,8 +1847,23 @@ class MainActivity : Activity() {
         val speedMph = if (location.hasSpeed()) location.speed * MPS_TO_MPH else 0.0
         val heading = if (location.hasBearing()) location.bearing.toDouble() else lastKnownBearingDeg
 
+        // RAW's own merged nav-status card (2026-09-17 sync) — computed
+        // once here so it can feed BOTH updateGuidanceCard() and the
+        // screen-space flight-plan line's own turn label below, matching
+        // app.js's own _computeRouteManeuver() hoisting reasoning exactly
+        // (the guidance card and the flight-plan-line's turn label can
+        // never disagree about which maneuver is "next").
+        val routeManeuver = computeRouteManeuver(location)
+        updateGuidanceCard(routeManeuver)
+
         val density = resources.displayMetrics.density
-        val chromeTopInset = ((topBarView?.height ?: (56 * density).toInt())).toDouble()
+        // Includes the merged nav-status card's own real (previous-frame)
+        // height when it's visible — same "measure the real chrome, don't
+        // guess" reasoning topBarView/modeToggleBar's own heights already
+        // rely on; a route just activated leaves the square using last
+        // frame's (smaller) inset for one tick, self-correcting the next.
+        val guidanceCardInset = guidanceCardView?.takeIf { it.visibility == View.VISIBLE }?.height ?: 0
+        val chromeTopInset = ((topBarView?.height ?: (56 * density).toInt()) + guidanceCardInset).toDouble()
         val bottomInset = ((modeToggleBar?.height ?: (60 * density).toInt())).toDouble()
         val squareContentTop = chromeTopInset + RAW_COMPASS_RESERVED_DP * density
         val squareContentHeight = (vh - squareContentTop - bottomInset).coerceAtLeast(0.0)
@@ -1688,7 +1918,6 @@ class MainActivity : Activity() {
 
         val withinRange = allRelevant.filter { it.vis.slantRangeNm <= selectedRangeNm }
         val beyondRange = allRelevant.filter { it.vis.slantRangeNm > selectedRangeNm }
-        val beyondRangeHexes = beyondRange.map { it.aircraft.hex }.toSet()
 
         // Same viewport-tiered display cap the PWA's own refreshIndicators()
         // applies to the PLOT specifically (never the list panel, which
@@ -1707,7 +1936,8 @@ class MainActivity : Activity() {
             beyondRange = beyondRange,
             headingDeg = heading,
             speedMph = speedMph,
-            routeInfo = null, // RAW mode itself carries no route info — that's HYBRID's own guidance card
+            routeLine = computeRawRouteLine(location, heading, square, anchorY, plotSafeInsetPx, activeBandsNm, routeManeuver),
+            routeActive = activeRoute != null,
             square = square,
             anchorY = anchorY,
             bandsNm = activeBandsNm,
@@ -1730,30 +1960,72 @@ class MainActivity : Activity() {
                 View.VISIBLE
             }
         }
-        val sortedForList = sortForRawList(allRelevant, rawSortMode)
-        rawListView.update(sortedForList, rawSortMode, beyondRangeHexes, selectedHex, VcasSettings.isColorblindSafeEnabled())
+        // 2026-09-16/17 sync (PWA "RAW aircraft-list panel bounded to the
+        // selected range"): the list now shows only `withinRange` — the
+        // same range-filtered, already-priority-sorted subset the plot's
+        // own icons are capped from — not the full relevant set out to the
+        // 50nm reach. There is no longer a resort control (round 1) or a
+        // "beyond range, dimmed" row state (round 1 removed the sort UI;
+        // this later fix removed the now-impossible beyond-range case
+        // entirely, since nothing rendered here can be beyond the selected
+        // range any more).
+        rawListView.update(withinRange, selectedHex, VcasSettings.isColorblindSafeEnabled())
     }
 
-    private fun sortForRawList(items: List<Indicators.IndicatorItem>, mode: String): List<Indicators.IndicatorItem> {
-        return when (mode) {
-            "range" -> items.sortedBy { it.distanceNm }
-            // Explicit null handling (unknown altitude sorts last, not first) —
-            // matches app.js's own _sortForRawList exactly, same reasoning as
-            // avoiding a generic nullsLast() comparator: this is more
-            // transparent and mirrors the JS original's own explicit branches.
-            "altitude" -> items.sortedWith { a, b ->
-                val aAlt = a.aircraft.altitudeFt
-                val bAlt = b.aircraft.altitudeFt
-                when {
-                    aAlt == null && bAlt == null -> 0
-                    aAlt == null -> 1
-                    bAlt == null -> -1
-                    else -> aAlt.compareTo(bAlt)
-                }
-            }
-            "type" -> items.sortedBy { it.aircraft.type ?: it.aircraft.callsign ?: "" }
-            else -> items // "priority" — already sorted by Indicators.build()
+    /**
+     * RAW's own screen-space flight-plan line (2026-09-06 PWA round 2) —
+     * a structural port of `ui.js`'s `renderRouteLine()`. Deliberately NOT
+     * the real geo-referenced route line `PhoneMapContainer` draws (that's
+     * hidden while RAW is active, matching `map.js`'s own
+     * `_applyRouteVisibility` — RAW's dots/rings plot on a banded
+     * screen-space scale, not the map's real geographic zoom, so the two
+     * would disagree exactly like the historical "rings vs dots" mismatch
+     * this project has already hit and fixed once). Built from the
+     * identical `Geo.projectToPolarPosition` call the aircraft dots use,
+     * with the same square/anchor/bands/FOV params, so a plotted turn can
+     * never disagree with where the rings/dots put the same real-world
+     * distance. Returns null (clearing the line) whenever there's no
+     * active route, no GPS fix, or fewer than 2 projectable points ahead
+     * of the user — mirroring `renderRouteLine()`'s own early-return/
+     * `clearRouteLine()` calls.
+     */
+    private fun computeRawRouteLine(
+        location: Location,
+        heading: Double,
+        square: Geo.PlotLayout,
+        anchorY: Double,
+        safeInsetPx: Double,
+        bandsNm: List<Double>,
+        routeManeuver: ManeuverTracker.NextManeuver
+    ): RawPlotView.RouteLine? {
+        val route = activeRoute ?: return null
+        val coords = route.geometry
+        if (coords.size < 2) return null
+        val nearest = RouteGeometry.nearestOnLine(coords, location.longitude, location.latitude)
+        val aheadCoords = coords.subList(nearest.segIdx, coords.size)
+        val turnIndex = if (routeManeuver.exists && routeManeuver.targetCoordIndex != null) {
+            max(0, routeManeuver.targetCoordIndex - nearest.segIdx)
+        } else null
+
+        val points = mutableListOf<Geo.Point>()
+        var turnPoint: Geo.Point? = null
+        for (i in aheadCoords.indices) {
+            if (points.size >= ROUTE_LINE_MAX_POINTS) break
+            val lon = aheadCoords[i][0]
+            val lat = aheadCoords[i][1]
+            val bearing = Geo.calculateBearing(location.latitude, location.longitude, lat, lon)
+            val relativeBearing = Geo.calculateRelativeBearing(bearing, heading)
+            val rangeNm = Geo.calculateDistanceNm(location.latitude, location.longitude, lat, lon)
+            val pos = Geo.projectToPolarPosition(
+                relativeBearing, rangeNm, square.plotWidth, square.plotHeight, bandsNm,
+                anchorY, safeInsetPx, Indicators.FOV_HALF_ANGLE_DEG, square.plotLeft, square.plotTop
+            ) ?: break // outside the FOV — stop rather than exact-clip, matching renderRouteLine()
+            points.add(pos)
+            if (turnIndex != null && i == turnIndex) turnPoint = pos
         }
+        if (points.size < 2) return null
+
+        return RawPlotView.RouteLine(points, turnPoint, routeManeuver.name?.takeIf { it.isNotBlank() })
     }
 
     private fun onRawRangeCycle() {
@@ -1999,6 +2271,11 @@ class MainActivity : Activity() {
         private const val MIN_LIST_PANEL_WIDTH_DP = 90f
         private const val MIN_LIST_PANEL_HEIGHT_DP = 70f
         private const val STALE_THRESHOLD_SECONDS = 15.0 // matches CONFIG.STALE_THRESHOLD_SECONDS in the PWA (src/config.js)
+
+        // RAW's own screen-space flight-plan line — matches ui.js's own
+        // ROUTE_LINE_MAX_POINTS exactly: "rudimentary" per spec, a hard
+        // cap rather than exact FOV clipping.
+        private const val ROUTE_LINE_MAX_POINTS = 30
 
         // Off-route dwell-timer constants, matching CONFIG.OFF_ROUTE_THRESHOLD_METERS/
         // OFF_ROUTE_REROUTE_DELAY_SECONDS in src/config.js exactly (50m / 6s).

@@ -35,6 +35,12 @@ class ManeuverTrackerTest {
         val nearest = RouteGeometry.nearestOnLine(coords, coords[0][0], coords[0][1])
         val expectedDistance = RouteGeometry.distanceToIndex(coords, nearest.segIdx, nearest.t, 2)
         assertEquals(expectedDistance, result.distanceMeters!!, 0.5)
+
+        // 2026-09-17 sync (RAW flight-plan-line port): targetCoordIndex is
+        // the same coordinate-array index the distance calc above already
+        // targets (the current step's own way_points end, index 2) — not a
+        // second, independently-derived value.
+        assertEquals(2, result.targetCoordIndex)
     }
 
     @Test

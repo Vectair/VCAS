@@ -17,7 +17,12 @@ object ManeuverTracker {
         val type: Int? = null,
         val name: String? = null,
         val distanceMeters: Double? = null,
-        val isArrival: Boolean = false
+        val isArrival: Boolean = false,
+        // Coordinate-array index of the maneuver itself (where the current
+        // step ENDS), same as maneuverTracker.js's own `targetCoordIndex` —
+        // lets a caller (RAW's screen-space flight-plan line) place a label
+        // at the turn's real position without re-deriving it.
+        val targetCoordIndex: Int? = null
     )
 
     fun nextManeuver(coords: List<DoubleArray>?, steps: List<OrsProvider.Step>?, userLon: Double, userLat: Double): NextManeuver {
@@ -47,7 +52,8 @@ object ManeuverTracker {
             type = targetStep.type,
             name = targetStep.name ?: "",
             distanceMeters = distanceMeters,
-            isArrival = targetStepIdx == steps.size - 1
+            isArrival = targetStepIdx == steps.size - 1,
+            targetCoordIndex = targetIdx
         )
     }
 }
