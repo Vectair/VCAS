@@ -115,58 +115,31 @@ answered:
   likely a small set of tap-to-select conditions (visibility band,
   cloud description) rather than free text.
 
-### Passive "probably not seen" inference from unlogged aircraft (2026-09-17)
+### Passive "probably not seen" inference from unlogged aircraft — PARKED (2026-09-17)
 
-The user's own stated logging behaviour: they log *sightings* far more
-than misses, because sightings are rarer — meaning the existing
-ground-truth dataset is real but has a structural bias no calibration
-pass so far has accounted for (every "visibility model calibration"
-entry in CLAUDE.md has worked from explicitly-logged observations only).
-The idea: aircraft that appear/track in the app but are never tapped/
-interacted with could be treated as a weak, *implicit* "probably not
-seen" signal — captured passively, tagged with the same context an
-explicit log entry gets (user motion state, weather at the time,
-position) — then checked in later review for correlation against the
-explicit log, rather than fed into `Visibility.estimate()` directly.
+**Status: parked, not scoped.** Recorded so it isn't lost, not because
+it's ready to build — the project owner's own framing: "it needs further
+thought regarding its usefulness" before this goes any further. Don't
+treat the notes below as a design to implement; they're the reasoning
+that needs revisiting first, not a plan.
 
-Real design considerations, not yet resolved:
-- **This is a genuinely noisier signal than an explicit log entry, and
-  that needs to be visible in the data, not just assumed understood.**
-  "Not interacted with" conflates "genuinely wasn't visible" with
-  "was visible but the user simply didn't look at the phone" (driving,
-  looked at the sky instead, etc.) — a real confound the explicit log
-  doesn't have, since an explicit "not visible" entry is a deliberate
-  user judgement. Any passive/inferred entry should carry its own
-  distinct `kind` (mirroring `observationLogger.js`'s existing
-  `kind: "error"` vs. real-observation split) so it can never be
-  silently pooled with explicit observations in analysis — e.g.
-  `kind: "inferred-unseen"` vs. the current unmarked "real observation"
-  shape — and any future calibration pass reading this data needs to
-  treat the two very differently (the inferred stream as a large, noisy
-  aggregate-correlation signal only; the explicit stream as the
-  higher-confidence ground truth it already is).
-- **Volume control is the real engineering risk, not the logic itself.**
-  Every aircraft the app tracks and the user never taps would generate
-  an entry — this could dwarf the explicit log's volume by orders of
-  magnitude and risks reproducing the exact "aggregate request-rate"
-  problem the ADS-B relay's own throttling work had to solve (see
-  CLAUDE.md's "Follow-up: server-side throttling for Beta"), just for
-  log volume instead of API calls. Needs its own batching/sampling
-  design (e.g., only counted once per aircraft per some minimum
-  dwell/visibility window, not once per render tick) before this is
-  workable at all.
-- **"Plausibly could have been noticed" needs a real definition.** An
-  aircraft that flashed past at the very edge of the FOV for one tick,
-  or was already suppressed/out of the selected range, shouldn't count
-  the same as one that stayed on-screen, in-range, and un-suppressed
-  for a genuinely noticeable window. Needs a real dwell-time/visibility
-  threshold, not "every aircraft that was ever in the relevant set."
-- Worth prototyping as a **local-only, opt-in analysis tool first**
-  (e.g., something the LOG panel's own developer mode could surface as
-  a stat, "N aircraft seen but never logged this session") before
-  committing to any server-side schema change — cheap to try, and would
-  surface whether the volume/noise problems above are as bad in
-  practice as they look on paper.
+The origin: the user's own stated logging behaviour is that they log
+*sightings* far more than misses, because sightings are rarer — meaning
+the existing ground-truth dataset has a structural bias no calibration
+pass has accounted for (every "visibility model calibration" entry in
+CLAUDE.md has worked from explicitly-logged observations only). The raw
+idea: aircraft that appear/track in the app but are never tapped could
+be treated as a weak, implicit "probably not seen" signal for later
+correlation review — but whether that idea actually holds up is the open
+question, not a detail of how to build it. The real open question is
+usefulness, specifically: "not interacted with" conflates "genuinely
+wasn't visible" with "was visible but the user just didn't look at the
+phone" — a confound the explicit log doesn't have — and it's not yet
+clear the resulting signal would be worth the noise, the added volume
+this app's own logging infrastructure would need to absorb, or the
+schema complexity of keeping it clearly separate from real observations.
+Revisit only once there's a clearer view on whether the signal is
+actually worth extracting at all.
 
 ---
 
