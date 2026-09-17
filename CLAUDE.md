@@ -18,17 +18,40 @@ owner asked whether such a list existed and it didn't. This file
 fresh inline note buried in a new dated section here — add them there
 directly, and when something from it actually gets built, remove it from
 `ROADMAP.md` rather than leaving a stale entry (the exact failure mode
-that made this file necessary in the first place). Three ideas are
-recorded there as of 2026-09-17, all from a single conversation, none
-built yet: a stationary/pedestrian-only "briefing page" (static symbology
-reference + a dynamic preflight-style synthesis of conditions/nearby
-airspace affecting sightability, optionally route-aware), user-submitted
-PIREP-style meteorological data layered under METAR/Open-Meteo, and using
-un-interacted-with tracked aircraft as a weak passive "probably not seen"
-signal to correct for the ground-truth log's own bias toward logging
-sightings over misses (the project owner's own stated behaviour) — see
-`ROADMAP.md` for the full reasoning, open design questions, and every
-older gap pulled in from this file's own history at the same time.
+that made this file necessary in the first place). Recorded there as of
+2026-09-17: a stationary/pedestrian-only "briefing page" (static
+symbology reference + a dynamic preflight-style synthesis of conditions/
+nearby airspace affecting sightability, optionally route-aware) and
+user-submitted PIREP-style meteorological data layered under METAR/
+Open-Meteo, both real ideas not yet scoped. A third idea from the same
+conversation — using un-interacted-with tracked aircraft as a weak
+passive "probably not seen" signal to correct for the ground-truth log's
+own bias toward logging sightings over misses — is recorded but marked
+**PARKED**, per direct instruction: it needs further thought on whether
+the signal is even worth extracting before it's treated as a real design,
+not a plan ready to build. See `ROADMAP.md` for the full reasoning, open
+design questions, and every older gap pulled in from this file's own
+history at the same time.
+
+**Kept in sync mechanically, not just by convention (2026-09-17).** A
+project-level Stop hook (`.claude/settings.json` → `.claude/hooks/
+roadmap-sync-check.sh`) compares CLAUDE.md's own last-commit SHA against
+a small marker file (`.claude/roadmap-sync-marker`, committed to git —
+this project's sessions start from a fresh clone each time, see
+"Environment" below, so an uncommitted marker wouldn't survive to the
+next session) recording the SHA that was last reconciled against
+ROADMAP.md. Whenever they differ — i.e. CLAUDE.md gained a real commit
+since the last check, which per this file's own established discipline
+means real work happened — the hook blocks the session from finishing
+and hands back a reason directing it to read the new CLAUDE.md entries,
+update ROADMAP.md accordingly, then commit+push the refreshed marker so
+the next Stop check passes cleanly. Set up per direct instruction ("do
+that as a standing thing whenever a session wraps up work") rather than
+relying on a future session remembering to check on its own — the same
+"a note in a file isn't enforcement, a durable mechanism is" lesson this
+file's own history already teaches repeatedly, applied to itself this
+time. If this hook ever needs adjusting, the script is the one place
+that owns the comparison logic; nothing else references the marker.
 
 ## Long-term destination: a standalone, self-sufficient native app
 
