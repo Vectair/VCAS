@@ -273,4 +273,42 @@ class NormaliseAircraftTest {
         val raw = json("hex" to "A", "lat" to 40.0, "lon" to -75.0, "alt_baro" to null, "altitude" to 900)
         assertTrue(NormaliseAircraft.normalise(raw)!!.altitudeFt == 900.0)
     }
+
+    // ---- dbFlags / military (2026-09-17, Traffic Rules OAT/GAT condition) ----
+
+    @Test
+    fun dbFlags_bit0Set_isMilitary() {
+        val ac = NormaliseAircraft.normalise(json("hex" to "A", "lat" to 40.0, "lon" to -75.0, "dbFlags" to 1))!!
+        assertEquals(true, ac.military)
+    }
+
+    @Test
+    fun dbFlags_bit0Clear_otherBitsSet_isCivil() {
+        // bit1 ("interesting") set, bit0 (military) clear — still a
+        // definite false, not "unknown," matching the JS `(dbFlags & 1)
+        // === 1` bitmask exactly rather than treating any nonzero flags
+        // value as military.
+        val ac = NormaliseAircraft.normalise(json("hex" to "A", "lat" to 40.0, "lon" to -75.0, "dbFlags" to 2))!!
+        assertEquals(false, ac.military)
+    }
+
+    @Test
+    fun dbFlags_absent_isNullNotFalse() {
+        // Tri-state on purpose — never defaulted to civil/false when the
+        // field is simply missing from the response.
+        val ac = NormaliseAircraft.normalise(json("hex" to "A", "lat" to 40.0, "lon" to -75.0))!!
+        assertNull(ac.military)
+    }
+
+    @Test
+    fun dbFlags_explicitJsonNull_isNull() {
+        val ac = NormaliseAircraft.normalise(json("hex" to "A", "lat" to 40.0, "lon" to -75.0, "dbFlags" to null))!!
+        assertNull(ac.military)
+    }
+
+    @Test
+    fun dbFlags_nonNumericValue_isNullNotThrow() {
+        val ac = NormaliseAircraft.normalise(json("hex" to "A", "lat" to 40.0, "lon" to -75.0, "dbFlags" to "not-a-number"))!!
+        assertNull(ac.military)
+    }
 }

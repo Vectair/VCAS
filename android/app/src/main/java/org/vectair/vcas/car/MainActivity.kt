@@ -45,6 +45,7 @@ import org.vectair.vcas.car.logic.NavigationCameraEvaluator
 import org.vectair.vcas.car.logic.OrsGeocoder
 import org.vectair.vcas.car.logic.OrsProvider
 import org.vectair.vcas.car.logic.RouteGeometry
+import org.vectair.vcas.car.logic.TrafficRulesLogic
 import org.vectair.vcas.car.logic.Visibility
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -209,6 +210,32 @@ class MainActivity : Activity() {
     private var groundHideToggleBtn: TextView? = null
     private val altPresetButtons = mutableMapOf<String, TextView>() // "off" or a PRESETS_FT value as string
 
+    // ---- Traffic Rules settings state (2026-09-17) ----
+    private var trafficRulesListContainer: LinearLayout? = null
+    private var trafficRuleFormView: View? = null
+    private var trTypeQueryInput: EditText? = null
+    private var trCategoryBtn: TextView? = null
+    private var trAltEnabledBtn: TextView? = null
+    private var trAltDirectionBtn: TextView? = null
+    private var trAltFtInput: EditText? = null
+    private var trTrafficBtn: TextView? = null
+    private var trColorRow: LinearLayout? = null
+    private var trModeLabel: TextView? = null
+    // The rule currently open in the edit form, if any — null means the
+    // form is closed. A rule created via "+ Filter rule"/"+ Highlight
+    // rule" is tracked separately (trPendingNewRuleId) so Cancel can tell
+    // "discard a just-created draft" from "discard edits to an existing
+    // rule," mirroring app.js's own _trPendingNewRuleId handling.
+    private var trEditingRuleId: String? = null
+    private var trPendingNewRuleId: String? = null
+    private var trEditingConditions = TrafficRulesLogic.Conditions()
+    private var trEditingColor = TrafficRulesLogic.DEFAULT_HIGHLIGHT_COLOR
+    private var trEditingMode = TrafficRulesLogic.RuleMode.FILTER
+
+    private val trafficRuleColorSwatches = listOf(
+        "#ffcc00", "#e69f00", "#56b4e9", "#009e73", "#d55e00", "#ff5252", "#ffffff"
+    )
+
     // ---- Onboarding screen state (2026-08-27) ----
     private var onboardingScreenView: View? = null
 
@@ -255,6 +282,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         VcasSettings.init(this)
+        TrafficRulesStore.init(this)
 
         val root = FrameLayout(this)
 
@@ -760,6 +788,14 @@ class MainActivity : Activity() {
      *   this native app yet, so there's nothing here for an export
      *   button to export. A real, separate, much larger follow-up (the
      *   whole LOG panel/central-log system), not a settings-screen gap.
+     *
+     * A fourth section, **Traffic Rules** (2026-09-17 sync), was added
+     * after this doc comment was originally written — user-defined
+     * filter/highlight rules by type/category/altitude/military-vs-civil,
+     * wired to the same `onAircraftUpdated()` filtering pass and to a real
+     * highlight ring drawn on RAW's plot (`RawPlotView.kt`) and baked into
+     * AIR/HYBRID's marker bitmaps (`PhoneAircraftIcons.kt`) — see
+     * `buildTrafficRuleForm()`'s own doc comment for the UI.
      */
     private fun buildSettingsScreen(): View {
         val overlay = FrameLayout(this).apply {
@@ -827,6 +863,46 @@ class MainActivity : Activity() {
             setPadding(0, 20, 0, 8)
         })
         body.addView(buildAltPresetsSection())
+
+        // ---- Traffic Rules (2026-09-17) — filter (hide) or highlight
+        // matching aircraft by type/category/altitude/military-vs-civil,
+        // a structural port of TrafficRulesLogic.kt/TrafficRulesStore.kt's
+        // own rule engine + app.js's `_renderTrafficRulesList()`/
+        // `_renderTrafficRuleForm()`. See buildTrafficRuleForm()'s own
+        // doc comment for the pending-new-rule Cancel-deletes-it footgun
+        // this mirrors from the PWA exactly. ----
+        body.addView(buildSettingsSectionHeader("Traffic Rules"))
+        val trList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        trafficRulesListContainer = trList
+        body.addView(trList)
+
+        val trAddRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 0)
+        }
+        val addFilter = TextView(this).apply {
+            text = "+ Filter rule"
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 12, 24, 12)
+            setOnClickListener { onAddTrafficRuleClick(TrafficRulesLogic.RuleMode.FILTER) }
+        }
+        val addHighlight = TextView(this).apply {
+            text = "+ Highlight rule"
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 12, 0, 12)
+            setOnClickListener { onAddTrafficRuleClick(TrafficRulesLogic.RuleMode.HIGHLIGHT) }
+        }
+        trAddRow.addView(addFilter)
+        trAddRow.addView(addHighlight)
+        body.addView(trAddRow)
+
+        val trForm = buildTrafficRuleForm()
+        trafficRuleFormView = trForm
+        body.addView(trForm)
 
         scroll.addView(body)
         overlay.addView(scroll, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
@@ -926,6 +1002,12 @@ class MainActivity : Activity() {
     }
 
     private fun closeSettingsScreen() {
+        // A still-open, never-saved new-rule form counts as an implicit
+        // Cancel — same reasoning app.js's own settings-screen-close
+        // handling already applies to its own pending-new-rule state.
+        if (trPendingNewRuleId != null && trPendingNewRuleId == trEditingRuleId) {
+            onTrafficRuleFormCancel()
+        }
         settingsScreenView?.visibility = View.GONE
     }
 
@@ -959,6 +1041,383 @@ class MainActivity : Activity() {
             val active = if (key == "off") !enabled else (enabled && key == thresholdKey)
             setToggleActive(btn, active)
         }
+        refreshTrafficRulesList()
+    }
+
+    // ---- Traffic Rules settings UI (2026-09-17) — filter or highlight
+    // matching aircraft by type/category/altitude/military-vs-civil. A
+    // structural port of app.js's `_trConditionSummary()`/
+    // `_renderTrafficRulesList()`/`_openTrafficRuleForm()`/
+    // `_saveTrafficRuleForm()` onto `TrafficRulesLogic.kt`/
+    // `TrafficRulesStore.kt`. ----
+
+    /** Matches app.js's own `_trConditionSummary()` wording exactly. */
+    private fun trConditionSummary(conditions: TrafficRulesLogic.Conditions): String {
+        val parts = mutableListOf<String>()
+        if (conditions.typeQuery.isNotBlank()) {
+            val terms = conditions.typeQuery.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            parts.add(if (terms.size > 1) "Type is any of: ${terms.joinToString(", ")}" else "Type contains \"${conditions.typeQuery}\"")
+        }
+        if (conditions.category != "any") {
+            parts.add(TrafficRulesLogic.CATEGORIES[conditions.category] ?: conditions.category)
+        }
+        if (conditions.altitude.enabled) {
+            val dir = if (conditions.altitude.direction == TrafficRulesLogic.AltitudeDirection.BELOW) "Below" else "Above"
+            parts.add("$dir ${conditions.altitude.ft.roundToInt()}ft")
+        }
+        if (conditions.traffic != TrafficRulesLogic.Traffic.ANY) {
+            parts.add(if (conditions.traffic == TrafficRulesLogic.Traffic.MILITARY) "Military (OAT)" else "Civil (GAT)")
+        }
+        return if (parts.isNotEmpty()) parts.joinToString(" · ") else "Any aircraft"
+    }
+
+    /** Full rebuild each call — a handful of rows, not the render-cost-
+     * sensitive NAV/RAW indicator layer. */
+    private fun refreshTrafficRulesList() {
+        val container = trafficRulesListContainer ?: return
+        container.removeAllViews()
+        val rules = TrafficRulesStore.list()
+        for ((index, rule) in rules.withIndex()) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 10, 0, 10)
+                alpha = if (rule.enabled) 1f else 0.5f
+            }
+            val swatch = TextView(this).apply {
+                text = if (rule.mode == TrafficRulesLogic.RuleMode.HIGHLIGHT) "●" else "✕"
+                setTextColor(if (rule.mode == TrafficRulesLogic.RuleMode.HIGHLIGHT) {
+                    try { Color.parseColor(rule.color) } catch (e: IllegalArgumentException) { Color.WHITE }
+                } else {
+                    VcasPalette.parse(VcasPalette.TEXT_SECONDARY)
+                })
+                textSize = 14f
+                setPadding(0, 0, 16, 0)
+            }
+            val summary = TextView(this).apply {
+                text = (if (rule.mode == TrafficRulesLogic.RuleMode.HIGHLIGHT) "Highlight: " else "Filter: ") + trConditionSummary(rule.conditions)
+                setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+                textSize = 12f
+                typeface = VcasFonts.display(this@MainActivity)
+            }
+            val toggleBtn = trafficRuleRowButton(if (rule.enabled) "●" else "○") {
+                TrafficRulesStore.toggleEnabled(rule.id)
+                refreshTrafficRulesList()
+            }
+            val editBtn = trafficRuleRowButton("✎") { openTrafficRuleForm(rule.id) }
+            val deleteBtn = trafficRuleRowButton("🗑") {
+                TrafficRulesStore.remove(rule.id)
+                if (trEditingRuleId == rule.id) closeTrafficRuleForm()
+                refreshTrafficRulesList()
+            }
+            val moveUpBtn = trafficRuleRowButton("▲") { TrafficRulesStore.move(rule.id, -1); refreshTrafficRulesList() }.apply {
+                isEnabled = index > 0; alpha = if (index > 0) 1f else 0.3f
+            }
+            val moveDownBtn = trafficRuleRowButton("▼") { TrafficRulesStore.move(rule.id, 1); refreshTrafficRulesList() }.apply {
+                isEnabled = index < rules.size - 1; alpha = if (index < rules.size - 1) 1f else 0.3f
+            }
+            row.addView(swatch)
+            row.addView(summary, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(moveUpBtn)
+            row.addView(moveDownBtn)
+            row.addView(toggleBtn)
+            row.addView(editBtn)
+            row.addView(deleteBtn)
+            container.addView(row)
+        }
+        if (rules.isEmpty()) {
+            container.addView(TextView(this).apply {
+                text = "No traffic rules yet."
+                setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+                textSize = 12f
+                typeface = VcasFonts.display(this@MainActivity)
+            })
+        }
+    }
+
+    private fun trafficRuleRowButton(label: String, onClick: () -> Unit): TextView = TextView(this).apply {
+        text = label
+        setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+        textSize = 14f
+        setPadding(14, 4, 14, 4)
+        setOnClickListener { onClick() }
+    }
+
+    /** Direct instruction: "filter and highlight share ONE rule-building
+     * UI with a per-rule mode" — new-rule buttons pick the mode, the form
+     * itself doesn't re-offer it. Starts DISABLED (TrafficRulesStore.add()'s
+     * own doc comment) — a real footgun the same instant it's created if
+     * left enabled, since empty conditions match every aircraft. */
+    private fun onAddTrafficRuleClick(mode: TrafficRulesLogic.RuleMode) {
+        val rule = TrafficRulesStore.add(mode)
+        trPendingNewRuleId = rule.id
+        openTrafficRuleForm(rule.id)
+        refreshTrafficRulesList()
+    }
+
+    private fun openTrafficRuleForm(ruleId: String) {
+        val rule = TrafficRulesStore.list().find { it.id == ruleId } ?: return
+        trEditingRuleId = ruleId
+        trEditingConditions = rule.conditions
+        trEditingColor = rule.color
+        trEditingMode = rule.mode
+        trTypeQueryInput?.setText(rule.conditions.typeQuery)
+        trAltFtInput?.setText(rule.conditions.altitude.ft.roundToInt().toString())
+        trModeLabel?.text = if (rule.mode == TrafficRulesLogic.RuleMode.HIGHLIGHT) "Highlight rule" else "Filter rule"
+        trColorRow?.visibility = if (rule.mode == TrafficRulesLogic.RuleMode.HIGHLIGHT) View.VISIBLE else View.GONE
+        refreshTrafficRuleFormButtons()
+        trafficRuleFormView?.visibility = View.VISIBLE
+    }
+
+    /** Cancel on a just-created, never-saved rule deletes it outright
+     * (mirrors app.js's `_trPendingNewRuleId` handling exactly) — Cancel
+     * on an EXISTING rule's edit only discards the in-form changes. */
+    private fun onTrafficRuleFormCancel() {
+        val pendingId = trPendingNewRuleId
+        val editingId = trEditingRuleId
+        if (pendingId != null && pendingId == editingId) {
+            TrafficRulesStore.remove(pendingId)
+        }
+        closeTrafficRuleForm()
+        refreshTrafficRulesList()
+    }
+
+    private fun onTrafficRuleFormSave() {
+        val id = trEditingRuleId ?: return
+        val existing = TrafficRulesStore.list().find { it.id == id } ?: return
+        // Saving a brand-new rule is what actually enables it — see
+        // TrafficRulesStore.add()'s own "starts disabled" doc comment.
+        val enabled = if (id == trPendingNewRuleId) true else existing.enabled
+        TrafficRulesStore.update(existing.copy(conditions = trEditingConditions, color = trEditingColor, enabled = enabled))
+        closeTrafficRuleForm()
+        refreshTrafficRulesList()
+    }
+
+    private fun closeTrafficRuleForm() {
+        trPendingNewRuleId = null
+        trEditingRuleId = null
+        trafficRuleFormView?.visibility = View.GONE
+    }
+
+    private fun refreshTrafficRuleFormButtons() {
+        trCategoryBtn?.text = TrafficRulesLogic.CATEGORIES[trEditingConditions.category] ?: "Any category"
+        trAltEnabledBtn?.let { setToggleActive(it, trEditingConditions.altitude.enabled); it.text = if (trEditingConditions.altitude.enabled) "On" else "Off" }
+        trAltDirectionBtn?.text = if (trEditingConditions.altitude.direction == TrafficRulesLogic.AltitudeDirection.BELOW) "Below" else "Above"
+        trTrafficBtn?.text = when (trEditingConditions.traffic) {
+            TrafficRulesLogic.Traffic.MILITARY -> "Military (OAT)"
+            TrafficRulesLogic.Traffic.CIVIL -> "Civil (GAT)"
+            TrafficRulesLogic.Traffic.ANY -> "Any"
+        }
+        trColorRow?.let { row ->
+            for (i in 0 until row.childCount) {
+                val swatch = row.getChildAt(i) as? TextView ?: continue
+                val swatchColor = swatch.tag as? String ?: continue
+                (swatch.background as? android.graphics.drawable.GradientDrawable)?.setStroke(
+                    (if (swatchColor == trEditingColor) 3f else 1f).let { (it * resources.displayMetrics.density).roundToInt() },
+                    if (swatchColor == trEditingColor) Color.WHITE else VcasPalette.parse(VcasPalette.BORDER)
+                )
+            }
+        }
+    }
+
+    /**
+     * One shared inline form, reused for both add and edit — direct
+     * instruction confirmed via `AskUserQuestion` before building this:
+     * "filter and highlight share ONE rule-building UI with a per-rule
+     * mode." Category selection uses a real `PopupMenu` (18 real options —
+     * a tap-to-cycle button would be tedious at that count); altitude
+     * direction and traffic (any/military/civil) cycle on tap (only 2-3
+     * options each) — same tap-only, no-drag-gesture convention this
+     * project already applies to every other settings control.
+     */
+    private fun buildTrafficRuleForm(): View {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_PANEL_ALT))
+            setPadding(24, 20, 24, 20)
+            visibility = View.GONE
+        }
+
+        val modeLabel = TextView(this).apply {
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 0, 0, 12)
+        }
+        trModeLabel = modeLabel
+        form.addView(modeLabel)
+
+        val typeInput = EditText(this).apply {
+            hint = "Type contains… (e.g. A320, or MiG,Su,Tu)"
+            setHintTextColor(VcasPalette.parse(VcasPalette.TEXT_MUTED))
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity)
+            setSingleLine(true)
+            setBackgroundColor(Color.TRANSPARENT)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    trEditingConditions = trEditingConditions.copy(typeQuery = s?.toString() ?: "")
+                }
+            })
+        }
+        trTypeQueryInput = typeInput
+        form.addView(typeInput)
+
+        val categoryBtn = trafficRuleFormRow("Category") { btn ->
+            btn.setOnClickListener {
+                val popup = android.widget.PopupMenu(this@MainActivity, btn)
+                popup.menu.add(0, 0, 0, "Any category")
+                TrafficRulesLogic.CATEGORIES.values.forEachIndexed { i, label -> popup.menu.add(0, i + 1, i + 1, label) }
+                val keys = listOf("any") + TrafficRulesLogic.CATEGORIES.keys.toList()
+                popup.setOnMenuItemClickListener { item ->
+                    trEditingConditions = trEditingConditions.copy(category = keys.getOrElse(item.itemId) { "any" })
+                    refreshTrafficRuleFormButtons()
+                    true
+                }
+                popup.show()
+            }
+        }
+        trCategoryBtn = categoryBtn
+        form.addView(trafficRuleFormLabeledRow("Category", categoryBtn))
+
+        val altEnabledBtn = trafficRuleFormRow("Altitude") { btn ->
+            btn.setOnClickListener {
+                trEditingConditions = trEditingConditions.copy(altitude = trEditingConditions.altitude.copy(enabled = !trEditingConditions.altitude.enabled))
+                refreshTrafficRuleFormButtons()
+            }
+        }
+        trAltEnabledBtn = altEnabledBtn
+        val altDirBtn = trafficRuleFormRow("Direction") { btn ->
+            btn.setOnClickListener {
+                val next = if (trEditingConditions.altitude.direction == TrafficRulesLogic.AltitudeDirection.ABOVE) TrafficRulesLogic.AltitudeDirection.BELOW else TrafficRulesLogic.AltitudeDirection.ABOVE
+                trEditingConditions = trEditingConditions.copy(altitude = trEditingConditions.altitude.copy(direction = next))
+                refreshTrafficRuleFormButtons()
+            }
+        }
+        trAltDirectionBtn = altDirBtn
+        val altRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        altRow.addView(altEnabledBtn)
+        altRow.addView(altDirBtn)
+        form.addView(trafficRuleFormLabeledRow("Altitude condition", altRow))
+
+        val altFtInput = EditText(this).apply {
+            hint = "Threshold (ft)"
+            setHintTextColor(VcasPalette.parse(VcasPalette.TEXT_MUTED))
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.mono(this@MainActivity)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            setBackgroundColor(Color.TRANSPARENT)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    val ft = s?.toString()?.toDoubleOrNull() ?: return
+                    trEditingConditions = trEditingConditions.copy(altitude = trEditingConditions.altitude.copy(ft = ft))
+                }
+            })
+        }
+        trAltFtInput = altFtInput
+        form.addView(altFtInput)
+
+        val trafficBtn = trafficRuleFormRow("Traffic") { btn ->
+            btn.setOnClickListener {
+                val next = when (trEditingConditions.traffic) {
+                    TrafficRulesLogic.Traffic.ANY -> TrafficRulesLogic.Traffic.MILITARY
+                    TrafficRulesLogic.Traffic.MILITARY -> TrafficRulesLogic.Traffic.CIVIL
+                    TrafficRulesLogic.Traffic.CIVIL -> TrafficRulesLogic.Traffic.ANY
+                }
+                trEditingConditions = trEditingConditions.copy(traffic = next)
+                refreshTrafficRuleFormButtons()
+            }
+        }
+        trTrafficBtn = trafficBtn
+        form.addView(trafficRuleFormLabeledRow("Military/civil (OAT/GAT)", trafficBtn))
+
+        // Highlight-mode only — a real colour picker isn't a plain Android
+        // widget worth pulling a dependency in for; a row of curated
+        // swatches (the same Okabe-Ito-adjacent set the PWA's own
+        // colour-blind-mode shortcuts use) is a simpler, still-functional
+        // equivalent for a secondary settings screen.
+        val colorRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (hex in trafficRuleColorSwatches) {
+            val swatch = TextView(this).apply {
+                text = " "
+                tag = hex
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(try { Color.parseColor(hex) } catch (e: IllegalArgumentException) { Color.WHITE })
+                    setSize(56, 56)
+                }
+                setPadding(28, 0, 0, 0)
+                setOnClickListener { trEditingColor = hex; refreshTrafficRuleFormButtons() }
+            }
+            colorRow.addView(swatch, LinearLayout.LayoutParams(60, 60).apply { marginStart = 8 })
+        }
+        trColorRow = colorRow
+        form.addView(trafficRuleFormLabeledRow("Highlight colour", colorRow))
+
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 16, 0, 0)
+        }
+        val cancelBtn = TextView(this).apply {
+            text = "Cancel"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 13f
+            setPadding(0, 8, 32, 8)
+            setOnClickListener { onTrafficRuleFormCancel() }
+        }
+        val saveBtn = TextView(this).apply {
+            text = "Save"
+            setTextColor(VcasPalette.parse(VcasPalette.ACCENT))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(0, 8, 0, 8)
+            setOnClickListener { onTrafficRuleFormSave() }
+        }
+        actionsRow.addView(cancelBtn)
+        actionsRow.addView(saveBtn)
+        form.addView(actionsRow)
+
+        return form
+    }
+
+    private fun trafficRuleFormRow(label: String, configure: (TextView) -> Unit): TextView {
+        val btn = TextView(this).apply {
+            text = label
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(20, 8, 20, 8)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 8f
+                setColor(VcasPalette.parse(VcasPalette.BTN_BG))
+            }
+        }
+        configure(btn)
+        return btn
+    }
+
+    private fun trafficRuleFormLabeledRow(label: String, control: View): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 12, 0, 0)
+        }
+        val labelText = TextView(this).apply {
+            text = label
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+        }
+        row.addView(labelText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(control)
+        return row
     }
 
     // ---- First-launch onboarding screen (2026-08-27) — a structural port
@@ -1400,6 +1859,12 @@ class MainActivity : Activity() {
             ) {
                 return@filter false
             }
+            // User-defined traffic rules (2026-09-17 sync, TrafficRulesLogic.kt/
+            // TrafficRulesStore.kt) — same single filtering point every other
+            // exclusion above already reads from. Highlight-mode rules are NOT
+            // applied here — they never remove an aircraft, only mark it at
+            // render time (RawPlotView.kt's highlightColors/renderAirMarkers()).
+            if (TrafficRulesLogic.evaluateFilter(a, TrafficRulesStore.list())) return@filter false
             true
         }
 
@@ -1447,9 +1912,14 @@ class MainActivity : Activity() {
             // the setting is on, matching ui.js's own _displayColor()
             // priority (colourblind wins whenever it's enabled).
             val colorHex = if (VcasSettings.isColorblindSafeEnabled()) vis.colorblindSafe.ifBlank { vis.color } else vis.color
-            val iconName = PhoneAircraftIcons.iconNameFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg)
+            // User-defined Traffic Rules highlight (2026-09-17) — AIR/HYBRID's
+            // equivalent of RawPlotView.kt's own highlightColors ring, baked
+            // into the icon bitmap itself since SymbolManager markers have no
+            // per-instance CSS box-shadow the way the PWA's real DOM markers do.
+            val highlightColor = TrafficRulesLogic.evaluateHighlight(a, TrafficRulesStore.list())
+            val iconName = PhoneAircraftIcons.iconNameFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg, highlightColor)
             if (style.getImage(iconName) == null) {
-                style.addImage(iconName, PhoneAircraftIcons.bitmapFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg))
+                style.addImage(iconName, PhoneAircraftIcons.bitmapFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg, highlightColor))
             }
 
             val options = SymbolOptions()
@@ -1931,6 +2401,14 @@ class MainActivity : Activity() {
         val cap = Indicators.capForViewportWidth(vw)
         val shownOnPlot = withinRange.take(cap)
 
+        // User-defined Traffic Rules highlight (2026-09-17) — evaluated
+        // once per tick against the rule list, for every plotted icon and
+        // suppressed edge dot (both draw off this same map by hex).
+        val rules = TrafficRulesStore.list()
+        val highlightColors = (shownOnPlot + beyondRange)
+            .mapNotNull { item -> TrafficRulesLogic.evaluateHighlight(item.aircraft, rules)?.let { item.aircraft.hex to it } }
+            .toMap()
+
         rawPlotView.update(
             withinRange = shownOnPlot,
             beyondRange = beyondRange,
@@ -1944,7 +2422,8 @@ class MainActivity : Activity() {
             selectedRangeNm = selectedRangeNm,
             selectedHex = selectedHex,
             chromeTopInsetPx = chromeTopInset.toFloat(),
-            colorblindSafe = VcasSettings.isColorblindSafeEnabled()
+            colorblindSafe = VcasSettings.isColorblindSafeEnabled(),
+            highlightColors = highlightColors
         )
 
         rawListView.let { list ->

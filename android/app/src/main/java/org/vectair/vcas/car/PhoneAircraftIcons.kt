@@ -79,17 +79,28 @@ object PhoneAircraftIcons {
 
     private const val TRACK_BUCKET_DEG = 15
 
-    /** Deterministic, reused icon name for a given shape/colour/opacity/track combination. */
-    fun iconNameFor(shape: String, colorHex: String, fillOpacity: Double, trackDeg: Double?): String {
+    /** Deterministic, reused icon name for a given shape/colour/opacity/track
+     * (and, since 2026-09-17, user-defined-highlight-ring) combination. */
+    fun iconNameFor(shape: String, colorHex: String, fillOpacity: Double, trackDeg: Double?, highlightColorHex: String? = null): String {
         val opacityKey = (fillOpacity.coerceIn(0.0, 1.0) * 100).roundToInt()
         val trackKey = trackDeg?.let {
             val bucketed = (Math.floorMod((it.roundToInt()), 360) / TRACK_BUCKET_DEG) * TRACK_BUCKET_DEG
             "t$bucketed"
         } ?: "tnone"
-        return "vcas-ac-$shape-${colorHex.removePrefix("#")}-$opacityKey-$trackKey"
+        val highlightKey = highlightColorHex?.removePrefix("#")?.let { "h$it" } ?: "hn"
+        return "vcas-ac-$shape-${colorHex.removePrefix("#")}-$opacityKey-$trackKey-$highlightKey"
     }
 
-    fun bitmapFor(shape: String, colorHex: String, fillOpacity: Double, trackDeg: Double?): Bitmap {
+    /**
+     * @param highlightColorHex  A matching user-defined Traffic Rules
+     *   highlight colour (`TrafficRulesLogic.evaluateHighlight()`), or
+     *   null. `SymbolManager` has no per-marker CSS box-shadow/filter the
+     *   way `.air-marker-inner.rule-highlight` uses on the PWA's own real
+     *   DOM markers — the closest achievable equivalent with a flat bitmap
+     *   icon is baking a coloured ring around the shape directly into the
+     *   bitmap, drawn here rather than left unported.
+     */
+    fun bitmapFor(shape: String, colorHex: String, fillOpacity: Double, trackDeg: Double?, highlightColorHex: String? = null): Bitmap {
         val color = try {
             Color.parseColor(colorHex)
         } catch (e: IllegalArgumentException) {
@@ -104,6 +115,10 @@ object PhoneAircraftIcons {
         val centerX = side / 2f
         val centerY = side / 2f
 
+        if (highlightColorHex != null) {
+            drawHighlightRing(canvas, highlightColorHex, centerX, centerY)
+        }
+
         drawShape(canvas, shape, color, fillOpacity, centerX, centerY)
 
         if (trackDeg != null) {
@@ -111,6 +126,21 @@ object PhoneAircraftIcons {
         }
 
         return bitmap
+    }
+
+    /** Port of `.air-marker-inner.rule-highlight .air-icon`'s
+     * `drop-shadow(0 0 5px var(--rule-highlight-color))` — the closest
+     * flat-bitmap equivalent of a coloured glow is a coloured ring just
+     * outside the shape's own radius. */
+    private fun drawHighlightRing(canvas: Canvas, colorHex: String, centerX: Float, centerY: Float) {
+        val color = try { Color.parseColor(colorHex) } catch (e: IllegalArgumentException) { Color.YELLOW }
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            this.color = color
+            strokeWidth = 3f
+            alpha = 230
+        }
+        canvas.drawCircle(centerX, centerY, SHAPE_PX / 2f + 5f, ringPaint)
     }
 
     private fun drawShape(canvas: Canvas, shape: String, color: Int, fillOpacity: Double, centerX: Float, centerY: Float) {

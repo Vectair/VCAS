@@ -48,7 +48,10 @@ object AircraftExtrapolation {
         val lastSeenSeconds: Double = 0.0,
         val category: String? = null,
         val registration: String? = null,
-        val isGroundVehicleOrObstacle: Boolean = false
+        val isGroundVehicleOrObstacle: Boolean = false,
+        // Tri-state (true/false/null="unknown") — see NormaliseAircraft.kt's
+        // own comment on why this is never defaulted to false/civil.
+        val military: Boolean? = null
     )
 
     private const val KT_TO_MPS = 0.514444

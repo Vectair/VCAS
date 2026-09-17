@@ -93,6 +93,7 @@ class RawPlotView @JvmOverloads constructor(
     private var selectedHex: String? = null
     private var chromeTopInsetPx = 0f
     private var colorblindSafe = false
+    private var highlightColors: Map<String, String> = emptyMap()
 
     private var tapTargets = TapTargets(null, emptyList())
 
@@ -109,7 +110,8 @@ class RawPlotView @JvmOverloads constructor(
         selectedRangeNm: Double,
         selectedHex: String?,
         chromeTopInsetPx: Float,
-        colorblindSafe: Boolean = false
+        colorblindSafe: Boolean = false,
+        highlightColors: Map<String, String> = emptyMap()
     ) {
         this.withinRange = withinRange
         this.beyondRange = beyondRange
@@ -124,6 +126,7 @@ class RawPlotView @JvmOverloads constructor(
         this.selectedHex = selectedHex
         this.chromeTopInsetPx = chromeTopInsetPx
         this.colorblindSafe = colorblindSafe
+        this.highlightColors = highlightColors
         invalidate()
     }
 
@@ -483,6 +486,10 @@ class RawPlotView @JvmOverloads constructor(
             if (item.aircraft.hex == selectedHex) {
                 canvas.drawCircle(x, y, iconSize * 0.75f, selectedGlowPaint)
             }
+            // User-defined Traffic Rules highlight ring (2026-09-17) — port
+            // of .indicator.rule-highlight's drop-shadow glow; independent
+            // of .selected, the two rings simply stack (matches the PWA).
+            drawHighlightRingIfMatched(canvas, item.aircraft.hex, x, y, iconSize * 0.9f)
 
             hitboxes.add(item.aircraft.hex to RectF(x - iconSize, y - iconSize, x + iconSize, y + iconSize))
 
@@ -506,6 +513,7 @@ class RawPlotView @JvmOverloads constructor(
             val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; this.color = color }
             canvas.drawCircle(x, y, dp(4f), dotPaint)
             if (item.aircraft.hex == selectedHex) canvas.drawCircle(x, y, dp(7f), selectedGlowPaint)
+            drawHighlightRingIfMatched(canvas, item.aircraft.hex, x, y, dp(7f))
             hitboxes.add(item.aircraft.hex to RectF(x - dp(8f), y - dp(8f), x + dp(8f), y + dp(8f)))
         }
 
@@ -569,6 +577,18 @@ class RawPlotView @JvmOverloads constructor(
 
             drawLabelBox(canvas, finalRect, item.lines, item.borderColor)
         }
+    }
+
+    /** Port of `.indicator.rule-highlight`/`.suppressed-dot.rule-highlight`'s
+     * own drop-shadow/box-shadow glow — a plain stroked ring in the rule's
+     * own user-chosen colour, since Canvas has no CSS drop-shadow. */
+    private fun drawHighlightRingIfMatched(canvas: Canvas, hex: String, x: Float, y: Float, radius: Float) {
+        val colorHex = highlightColors[hex] ?: return
+        val color = try { Color.parseColor(colorHex) } catch (e: IllegalArgumentException) { return }
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; this.color = color; strokeWidth = dp(2f)
+        }
+        canvas.drawCircle(x, y, radius, ringPaint)
     }
 
     private fun drawShape(canvas: Canvas, shape: String, cx: Float, cy: Float, size: Float, fill: Paint, stroke: Paint): RectF {

@@ -131,6 +131,17 @@ object NormaliseAircraft {
         val registration = firstNonBlank(raw, "r", "registration").ifEmpty { null }
         val isGroundVehicleOrObstacle = category != null && NON_AIRCRAFT_CATEGORIES.contains(category)
 
+        // dbFlags — a readsb/tar1090-family bitfield (bit0=military), same
+        // field normaliseAircraft.js reads for the OAT-vs-GAT traffic-rules
+        // condition (see TrafficRules.kt). Tri-state on purpose — `null`
+        // ("unknown") when the field is absent, never defaulted to
+        // civil/false, so a traffic rule can't silently misclassify
+        // traffic the API gave no signal about; see that file's own
+        // comment for the fuller "not verified against a live adsb.fi
+        // response" caveat.
+        val dbFlagsRaw = optRaw(raw, "dbFlags")
+        val military: Boolean? = if (dbFlagsRaw is Number) (dbFlagsRaw.toInt() and 1) == 1 else null
+
         return AircraftExtrapolation.Aircraft(
             lat = lat,
             lon = lon,
@@ -145,7 +156,8 @@ object NormaliseAircraft {
             lastSeenSeconds = lastSeenSeconds,
             category = category,
             registration = registration,
-            isGroundVehicleOrObstacle = isGroundVehicleOrObstacle
+            isGroundVehicleOrObstacle = isGroundVehicleOrObstacle,
+            military = military
         )
     }
 }
