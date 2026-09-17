@@ -14,6 +14,18 @@
  * more; no display surface, no forecast UI, same "scoring input only"
  * discipline MetarProvider/LocalObstruction already establish.
  *
+ * 2026-09-17 addition: also fetches pressure-level temperature/relative
+ * humidity at a handful of fixed hPa levels, feeding the real Schmidt-
+ * Appleman contrail check (Contrail.evaluate(), called from visibility.js's
+ * `_contrailRescueCategory()`) — the same "no upper-air data source exists"
+ * gap that check's own constants (CONTRAIL_MIN_ALTITUDE_FT/MAX_RANGE_NM)
+ * used to work around with a flat field-tuned floor now has a real data
+ * source to check today's actual conditions against, same discipline as
+ * the cloud-band signal above. One additional Open-Meteo request field set
+ * on the SAME fetch/cache/refresh cycle already established here, not a
+ * second provider module — this genuinely is more upper-air data, not a
+ * separate concern.
+ *
  * Unlike aviationweather.gov (METAR) and adsb.fi, Open-Meteo's own server
  * genuinely sends `Access-Control-Allow-Origin: *` — confirmed directly
  * from their real, current server source (open-meteo/open-meteo,
@@ -39,11 +51,22 @@
  *
  * CAVEAT, same as MetarProvider's own: built in a sandbox with no network
  * path to api.open-meteo.com, so parsing follows their real, current
- * OpenAPI spec (open-meteo/open-meteo repo, openapi/forecast.yml — cloned
- * and read directly, not guessed) but could not be checked against a live
- * response. Every field is read defensively — missing/unexpected shapes
- * degrade to "no upper-air data available" (Visibility.estimate() then
- * applies no adjustment at all), never a crash or a silently wrong number.
+ * OpenAPI spec (open-meteo/open-meteo repo, openapi/forecast.yml) but
+ * could not be checked against a live response. Every field is read
+ * defensively — missing/unexpected shapes degrade to "no upper-air data
+ * available" (Visibility.estimate() then applies no adjustment at all),
+ * never a crash or a silently wrong number.
+ *
+ * 2026-09-17: unlike the original cloud-band fields above (read from a
+ * secondhand summary of the spec), the pressure-level temperature/
+ * relative_humidity fields this addition uses were verified directly
+ * against the spec's real content this session (`openapi/forecast.yml`
+ * via raw.githubusercontent.com, reachable from this sandbox even though
+ * api.open-meteo.com itself isn't) — confirmed real: the
+ * `temperature_{level}hPa`/`relative_humidity_{level}hPa` naming pattern,
+ * and that 500/400/300/250/200/150 (PRESSURE_LEVELS_HPA below) are all
+ * valid levels in the current enum. Still not checked against a live
+ * response, same caveat as everything else in this file.
  */
 const UpperAirProvider = (() => {
   const BASE_URL = "https://api.open-meteo.com/v1/forecast";
@@ -51,7 +74,14 @@ const UpperAirProvider = (() => {
   const TIMEOUT_MS = 10000;
   const M_TO_FT = 3.28084;
 
-  let _cached = null; // { cloudCoverLowPct, cloudCoverMidPct, cloudCoverHighPct, elevationFt, obsTime }
+  // hPa levels for the contrail temperature/humidity profile — roughly
+  // 18,000-45,000ft, comfortably spanning CONTRAIL_MIN_ALTITUDE_FT
+  // (26,000ft, visibility.js) up through normal airliner cruise. All six
+  // confirmed present in Open-Meteo's real pressure-level enum (see the
+  // 2026-09-17 caveat above).
+  const PRESSURE_LEVELS_HPA = [500, 400, 300, 250, 200, 150];
+
+  let _cached = null; // { cloudCoverLowPct, cloudCoverMidPct, cloudCoverHighPct, elevationFt, obsTime, pressureProfile }
   let _lastFetchAt = 0;
   let _inFlight = null;
   let _lastFetchOk = null; // null = never attempted; true/false = outcome of the most recent attempt
@@ -59,19 +89,20 @@ const UpperAirProvider = (() => {
   /**
    * The real `current` query parameter's own enum (confirmed directly
    * against the live OpenAPI spec) does NOT include cloud_cover_low/mid/
-   * high — only the single combined `cloud_cover` figure. Those three
-   * band-specific fields only exist in the `hourly` response, so this
-   * requests a small window around "now" (one hour back, one forward)
-   * and picks whichever entry's own timestamp is closest to the current
-   * time, rather than assuming a fixed array index lines up with "now" —
+   * high, or the pressure-level temperature/relative_humidity fields —
+   * all of them only exist in the `hourly` response, so this requests a
+   * small window around "now" (one hour back, one forward) and picks
+   * whichever entry's own timestamp is closest to the current time,
+   * rather than assuming a fixed array index lines up with "now" —
    * robust to whatever exact hour-boundary convention the API uses,
    * which this sandbox has no way to confirm against a live response.
    */
   function _requestUrl(lat, lon) {
+    const levelParams = PRESSURE_LEVELS_HPA.flatMap(p => [`temperature_${p}hPa`, `relative_humidity_${p}hPa`]);
     const params = new URLSearchParams({
       latitude: lat.toFixed(4),
       longitude: lon.toFixed(4),
-      hourly: "cloud_cover_low,cloud_cover_mid,cloud_cover_high",
+      hourly: ["cloud_cover_low", "cloud_cover_mid", "cloud_cover_high", ...levelParams].join(","),
       past_hours: "1",
       forecast_hours: "2",
       timezone: "UTC",
@@ -112,6 +143,25 @@ const UpperAirProvider = (() => {
       const mid = Array.isArray(hourly.cloud_cover_mid) ? hourly.cloud_cover_mid[idx] : null;
       const high = Array.isArray(hourly.cloud_cover_high) ? hourly.cloud_cover_high[idx] : null;
 
+      // Pressure-level temperature/humidity profile for the contrail check
+      // (Contrail.evaluate(), visibility.js) — only levels where BOTH
+      // fields came back as real numbers are kept; a level missing one but
+      // not the other is dropped entirely rather than guessing, sorted
+      // ascending by pressure (i.e. descending altitude) for the
+      // interpolation _contrailConditionsAt() does in visibility.js.
+      const pressureProfile = PRESSURE_LEVELS_HPA
+        .map(p => {
+          const t  = hourly[`temperature_${p}hPa`];
+          const rh = hourly[`relative_humidity_${p}hPa`];
+          const tVal  = Array.isArray(t)  ? t[idx]  : null;
+          const rhVal = Array.isArray(rh) ? rh[idx] : null;
+          if (typeof tVal !== "number" || !Number.isFinite(tVal)) return null;
+          if (typeof rhVal !== "number" || !Number.isFinite(rhVal)) return null;
+          return { pressureHpa: p, temperatureC: tVal, relativeHumidityPct: rhVal };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.pressureHpa - b.pressureHpa);
+
       // Open-Meteo reports elevation in METRES (confirmed via the real
       // OpenAPI spec's own response schema — `elevation` is a plain
       // top-level field, same unit convention aviationweather.gov's METAR
@@ -127,6 +177,7 @@ const UpperAirProvider = (() => {
         cloudCoverHighPct: typeof high === "number" && Number.isFinite(high) ? high : null,
         elevationFt,
         obsTime: hourly.time[idx],
+        pressureProfile, // [] if none of the requested levels came back usable — never null, so callers can length-check directly
       };
     } catch (err) {
       clearTimeout(timer);

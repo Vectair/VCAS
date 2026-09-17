@@ -11719,3 +11719,137 @@ Worth remembering if this project ever again ends up with more than one
 active branch: check `git log branchA..branchB` in both directions
 before trusting what any one branch's own content implies about the
 project as a whole.
+
+## Real Schmidt-Appleman physics replaces the flat contrail floor (2026-09-17)
+
+This is the session referenced immediately above, the one that drew the
+"no mention of METARs or TAFs anywhere" conclusion off the stale `main`.
+Once pointed at the real working branch (by then merged into `main`
+itself, see the entry above), it built a parallel contrail-scoring
+implementation from scratch — full Schmidt-Appleman physics, its own
+Open-Meteo pressure-level fetch, its own METAR client — genuinely not
+aware any of this already existed. Worth recording precisely why that
+happened and what actually shipped once it was reconciled, so a future
+session doesn't repeat either mistake (trusting a stale branch, or
+re-deriving already-solved infrastructure from a misread one).
+
+**What the parallel build got right and wrong, on comparison**: the
+physics itself (Schumann 1996 mixing-line/threshold-temperature
+formulation) was sound and is what shipped, below. Its `metarWeather.js`
+duplicated `metarProvider.js` but called `aviationweather.gov` directly
+with no relay — the exact CORS bug calibration pass #1 already found and
+fixed (see above). Its framing of this project's design philosophy as
+having "explicitly rejected" upper-air/weather-subsystem complexity was
+also corrected mid-conversation: calibration pass #2's own words (quoted
+back at it, verified against this file's real text) do read that way in
+isolation, but the actual pattern since is that most of that rejected
+proposal's individual pieces — local obstruction (2026-09-02), Open-Meteo
+cloud bands (2026-09-08), and now this — were each built anyway, once
+real infrastructure existed to support them properly, incrementally
+rather than as one large rearchitecture. "Deferred" turned out to mean
+"continuously re-evaluated against what the project actually needs next,"
+not "rejected outright" or "scheduled for later" — a real nuance, not
+just a rhetorical walk-back, and worth preserving precisely in case a
+future session hits the same apparent contradiction in this file's own
+history.
+
+### What shipped
+
+**`src/logic/contrail.js`** (new) — pure physics, no I/O, same
+self-contained-math precedent `geo.js` already establishes: given ambient
+pressure/temperature/relative-humidity, returns `{forms, persistent}` via
+the Schmidt-Appleman mixing-line criterion (contrail forms if the exhaust
+plume's mixing path crosses liquid saturation before fully diluting into
+ambient air) and an ice-supersaturation check for persistence (does it
+spread into cirrus, or dissipate in seconds). Verified with real Node
+execution against representative cold/humid (forms, persistent),
+warm (doesn't form), and borderline-dry (doesn't form) cases before
+wiring it into anything else.
+
+**`src/logic/upperAirProvider.js`** (extended, not a new provider) — the
+existing cloud-band fetch/cache now also requests
+`temperature_{level}hPa`/`relative_humidity_{level}hPa` for six levels
+(500/400/300/250/200/150 hPa, spanning ~18,000-45,000ft) on the SAME
+Open-Meteo request, refresh cycle, and cache object as the cloud-band
+fields — genuinely more upper-air data, not a separate concern needing
+its own provider. **Verified against the real, current spec directly
+this session** (unlike the cloud-band fields, added 2026-09-08 from a
+secondhand summary): `raw.githubusercontent.com` turned out to be
+reachable from this sandbox even though `api.open-meteo.com` itself
+isn't, so `open-meteo/open-meteo`'s `openapi/forecast.yml` was fetched
+and read directly — confirmed the `temperature_{level}hPa`/
+`relative_humidity_{level}hPa` naming pattern and that all six chosen
+levels are real, valid entries in the current pressure-level enum. Still
+not checked against a live response, same standing caveat as every other
+fetch in this file. Parsing (URL construction, hour-index selection,
+per-level missing-field handling) verified with a real mocked-`fetch()`
+Node run — confirmed a level missing either field gets dropped entirely
+rather than guessed, and the resulting profile sorts ascending by
+pressure as `visibility.js`'s interpolation expects.
+
+**`src/logic/visibility.js`** — `CONTRAIL_MIN_ALTITUDE_FT`/
+`CONTRAIL_MAX_RANGE_NM` are now ONLY the eligibility gate (is this
+aircraft even worth checking), not the whole mechanism. New
+`_contrailRescueCategory()` replaces the inline flat-floor branch in
+`estimate()`'s if/else-if chain (structurally it still has to compete
+with the >40NM cap the same way the original did, not become a
+downstream `_applyXAdjustment` cap like METAR/upper-air/local-obstruction
+— its job is deciding whether that cap even applies to a given aircraft):
+when `upperAir.pressureProfile` has real data at the aircraft's altitude
+(ISA pressure conversion + linear interpolation between the two
+bracketing fetched levels — new `_contrailConditionsAt()`/
+`_isaPressureHpa()`), it runs `Contrail.evaluate()` against TODAY's
+actual conditions. A persistent contrail floors at *Likely visible*
+(stronger than the old flat floor — a spreading, ice-supersaturated
+contrail really is more conspicuous than a short-lived one); forming-but-
+not-persistent floors at *Possibly visible*, matching the old floor's own
+confidence level; real conditions that don't support a contrail forming
+today apply no floor at all — a genuine behavioural improvement over the
+old "any sufficiently-high, sufficiently-close aircraft gets the same
+floor regardless of actual weather" rule. No usable profile yet (fetch
+hasn't succeeded, or this altitude falls outside the fetched range) falls
+back to the ORIGINAL flat floor unchanged — never a regression versus
+what shipped before this. Either tier still never downgrades a BETTER
+angular-size result, same as the original. `MODEL_VERSION` bumped to
+`2026-09-17`.
+
+**`CONTRAIL_ENGINE_EFFICIENCY`** (0.3, `visibility.js`) — new tuned
+constant, same honesty-about-provenance as every other one in this file:
+generic modern-turbofan propulsion efficiency, not per-airframe accurate,
+since ADS-B carries no engine data.
+
+**Verified with real Node execution against the actual shipped files**,
+this project's own established discipline: `_contrailRescueCategory()`
+checked against — no upper-air data at all (flat fallback, unchanged from
+pre-existing behaviour); an empty `pressureProfile` (same fallback); real
+cold/humid conditions at 35,000ft (correctly floors at *Likely visible*,
+persistent); real warm/dry conditions at the same altitude/range
+(correctly returns no rescue at all — verified by confirming the result
+is numerically IDENTICAL to the same aircraft made contrail-ineligible by
+altitude, not just "looks plausible"); the altitude gate (25,000ft never
+rescued regardless of how favourable the weather passed in is); the range
+gate (70nm never rescued, correctly falls through to the existing >40NM
+cap instead); and the never-downgrades-a-better-result invariant (a huge,
+close, high aircraft in unfavourable contrail weather still reads
+*Certainly visible* off angular size alone). All passing against the
+real, shipped code, not a reasoning-only check.
+
+### Not done / left for a future pass
+
+- No real network path to `api.open-meteo.com` from this sandbox, so
+  (same as every prior weather-source addition) the actual live response
+  shape is unverified — worth confirming once deployed, same as
+  `upperAirProvider.js`'s own original cloud-band fields still are.
+- `CONTRAIL_ENGINE_EFFICIENCY` and the six chosen pressure levels are
+  reasonable starting points, not calibrated against anything — same
+  "pending real ground-truth data" status every other tuned constant in
+  this file already carries. `visible_contrail` log observations are
+  exactly what a future calibration pass should check this against, the
+  same way calibration passes #1/#2 used real `not_visible_weather` data
+  for METAR.
+- This session's branch was reset to `main` before this work rather than
+  rebased — its own prior contrail/METAR-duplicate commits (now
+  superseded by what's described above) are not part of this branch's
+  history, though still recoverable by SHA if ever needed. Per the entry
+  above, `main` is the sole branch going forward; this work should land
+  there the same way.

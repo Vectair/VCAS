@@ -6,7 +6,7 @@
  */
 
 const Visibility = (() => {
-  // Model version (2026-09-13) — a plain date string, bumped whenever
+  // Model version (2026-09-17) — a plain date string, bumped whenever
   // estimate()'s scoring logic or any of its tuned constants meaningfully
   // change (the CONTRAIL_*/LOCAL_OBSTRUCTION_*/UPPER_AIR_* thresholds, the
   // CATEGORIES table, the METAR adjustment, etc.). Snapshotted into every
@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-09-13";
+  const MODEL_VERSION = "2026-09-17";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -130,22 +130,42 @@ const Visibility = (() => {
 
   // A high-flying jet's angular size alone often underrates it — the
   // airframe itself may be a barely-resolvable dot, but its contrail is a
-  // bright, obvious streak. Neither figure is derived from any formal
-  // model (no upper-air temperature/humidity data source exists in VCAS,
-  // and adding one would be exactly the kind of weather-display scope this
-  // project has explicitly rejected — see CLAUDE.md) — both are the
-  // project owner's own field experience, same as pinchExponent/
-  // overheadElevationDeg in relevance.js are tuned constants, not
-  // physically derived ones. CONTRAIL_MIN_ALTITUDE_FT (26,000ft) is a
-  // round, defensible floor for where contrails typically start forming in
-  // temperate climates. CONTRAIL_MAX_RANGE_NM (50nm) is specifically an
-  // *identification* range, not a raw-visibility one — the owner's own
-  // words: "beyond that they can still be seen but I couldn't definitively
-  // say they were from a certain aircraft." Matches (and replaces) the
-  // 40nm range extension cap Relevance used pending this real number —
-  // see relevance.js's rangeExtensionCapNm.
+  // bright, obvious streak. CONTRAIL_MIN_ALTITUDE_FT (26,000ft) and
+  // CONTRAIL_MAX_RANGE_NM (50nm) were originally BOTH the whole check —
+  // a flat floor applied to every sufficiently-high, sufficiently-close
+  // aircraft regardless of whether a contrail would actually form that
+  // day, because no upper-air temperature/humidity data source existed in
+  // VCAS at the time (see CLAUDE.md's "Visibility model calibration pass
+  // #2" and "contrail-specific improvements" entries for the full history
+  // of that decision and why it was revisited, not just reversed). They're
+  // still both real, and still real project-owner field experience, not
+  // physically derived — CONTRAIL_MIN_ALTITUDE_FT is a round, defensible
+  // floor for where contrails typically start forming in temperate
+  // climates; CONTRAIL_MAX_RANGE_NM is specifically an *identification*
+  // range, not a raw-visibility one — the owner's own words: "beyond that
+  // they can still be seen but I couldn't definitively say they were from
+  // a certain aircraft" (matches, and replaces, the 40nm range extension
+  // cap Relevance used pending this real number — see relevance.js's
+  // rangeExtensionCapNm). But now that UpperAirProvider's pressure-level
+  // temperature/humidity profile exists (2026-09-17, added specifically
+  // for this), these two constants are ONLY the eligibility gate — is
+  // this aircraft high/close enough to even bother checking — for a real
+  // Schmidt-Appleman physics check (Contrail.evaluate(), src/logic/
+  // contrail.js) against today's actual atmospheric conditions at its
+  // altitude, via `_contrailRescueCategory()` below. The original flat
+  // floor is kept as an explicit fallback for exactly the case that check
+  // can't run (no upper-air fetch has succeeded yet) — never a silent
+  // downgrade in behaviour versus what shipped before.
   const CONTRAIL_MIN_ALTITUDE_FT = 26000;
   const CONTRAIL_MAX_RANGE_NM = 50;
+
+  // Generic modern turbofan overall propulsion efficiency at cruise, for
+  // the Schmidt-Appleman check above. Real efficiency varies by engine
+  // type and thrust setting and isn't available from ADS-B, so this is a
+  // constant shared across every aircraft — an approximation on top of an
+  // already-approximate model, same honesty-about-provenance as every
+  // other tuned constant in this file.
+  const CONTRAIL_ENGINE_EFFICIENCY = 0.3;
 
   // Local obstruction (buildings/wooded landcover, 2026-09-02) — see
   // _applyLocalObstructionAdjustment()'s own comment for the full
@@ -172,6 +192,124 @@ const Visibility = (() => {
   const UPPER_AIR_LOW_BAND_MAX_AGL_FT = 6500;
   const UPPER_AIR_MID_BAND_MAX_AGL_FT = 23000;
   const UPPER_AIR_DENSE_THRESHOLD_PCT = 70;
+
+  // ISA (International Standard Atmosphere) constants — converts an
+  // aircraft's ADS-B barometric altitude to ambient pressure, matching how
+  // that altitude is itself defined in the first place (ADS-B alt_baro is
+  // already an ISA pressure altitude referenced to 1013.25hPa), so this
+  // needs no station/grid elevation correction the way METAR/UpperAir's
+  // AGL fields do — it's the same ISA relationship on both sides.
+  const ISA_P0_HPA        = 1013.25;
+  const ISA_T0_K          = 288.15;
+  const ISA_LAPSE_K_PER_M = 0.0065;
+  const ISA_G             = 9.80665;
+  const ISA_R             = 287.05287;
+  const ISA_TROPOPAUSE_M  = 11000;
+  const ISA_P11_HPA       = 226.32;
+  const ISA_T11_K         = 216.65;
+
+  function _isaPressureHpa(altitudeFt) {
+    const altitudeM = altitudeFt * 0.3048;
+    if (altitudeM <= ISA_TROPOPAUSE_M) {
+      return ISA_P0_HPA * Math.pow(1 - (ISA_LAPSE_K_PER_M * altitudeM) / ISA_T0_K, ISA_G / (ISA_R * ISA_LAPSE_K_PER_M));
+    }
+    return ISA_P11_HPA * Math.exp((-ISA_G * (altitudeM - ISA_TROPOPAUSE_M)) / (ISA_R * ISA_T11_K));
+  }
+
+  /**
+   * Ambient temperature/humidity at an aircraft's altitude, linearly
+   * interpolated between the two bracketing levels of
+   * `upperAir.pressureProfile` (UpperAirProvider, sorted ascending by
+   * pressure — i.e. descending altitude) by pressure, not altitude, since
+   * that's the coordinate the profile is actually sampled on. Clamps to
+   * the nearest end level rather than extrapolating for an aircraft above/
+   * below the fetched range — contrails are gated to
+   * CONTRAIL_MIN_ALTITUDE_FT and up anyway, so the clamp is a safety net
+   * for an unusually high aircraft, not the normal path.
+   *
+   * Returns null if there's no usable profile at all (fetch hasn't
+   * succeeded yet, or fewer than 2 levels came back) — same "absence of
+   * data must never itself change a score" discipline every other
+   * adjustment in this file already follows; callers fall back accordingly.
+   */
+  function _contrailConditionsAt(altitudeFt, upperAir) {
+    const profile = upperAir && upperAir.pressureProfile;
+    if (!Array.isArray(profile) || profile.length < 2 || altitudeFt == null) return null;
+
+    const pressureHpa = _isaPressureHpa(altitudeFt);
+    const first = profile[0], last = profile[profile.length - 1];
+
+    if (pressureHpa <= first.pressureHpa) {
+      return { pressureHpa, temperatureC: first.temperatureC, relativeHumidityPct: first.relativeHumidityPct };
+    }
+    if (pressureHpa >= last.pressureHpa) {
+      return { pressureHpa, temperatureC: last.temperatureC, relativeHumidityPct: last.relativeHumidityPct };
+    }
+    for (let i = 0; i < profile.length - 1; i++) {
+      const a = profile[i], b = profile[i + 1];
+      if (pressureHpa >= a.pressureHpa && pressureHpa <= b.pressureHpa) {
+        const f = (pressureHpa - a.pressureHpa) / (b.pressureHpa - a.pressureHpa);
+        return {
+          pressureHpa,
+          temperatureC: a.temperatureC + f * (b.temperatureC - a.temperatureC),
+          relativeHumidityPct: a.relativeHumidityPct + f * (b.relativeHumidityPct - a.relativeHumidityPct),
+        };
+      }
+    }
+    return null; // unreachable given the clamps above, but never throw on a coordinate that somehow slips through
+  }
+
+  /**
+   * The contrail floor — see the CONTRAIL_MIN_ALTITUDE_FT/MAX_RANGE_NM
+   * comment above for the full history. Structurally this REPLACES a base-
+   * category branch in estimate()'s if/else-if chain (like the >40NM cap
+   * it competes with), not a downstream cap like _applyMetarAdjustment and
+   * friends — its whole job is deciding whether the >40NM cap should even
+   * apply to a specific aircraft, so it has to run at that stage, not after.
+   *
+   * Two tiers:
+   *  1. Real physics, when data allows (upperAir has a usable pressure
+   *     profile at this altitude): runs Contrail.evaluate() against TODAY's
+   *     actual temperature/humidity. No contrail under today's real
+   *     conditions -> returns null, no rescue at all, falls through to
+   *     normal angular-size/40NM-cap handling like any other aircraft. A
+   *     persistent contrail floors at "Likely visible" (stronger than the
+   *     old flat floor — a spreading, ice-supersaturated contrail really is
+   *     more conspicuous than a short-lived one); a forming-but-not-
+   *     persistent one floors at "Possibly visible", matching the old
+   *     behaviour's own confidence level.
+   *  2. Flat fallback, when it doesn't (no successful UpperAirProvider
+   *     fetch yet, or this altitude falls outside the fetched pressure
+   *     range): the original flat "Possibly visible" floor, unchanged —
+   *     never a behavioural regression versus what shipped before this.
+   *
+   * Either tier never overrides a BETTER angular-size result — a big,
+   * close-enough-to-clearly-see jet stays at whatever its own size already
+   * earned it, same discipline the original flat version already had.
+   *
+   * @returns {object|null} A CATEGORIES entry if the rescue applies, else null.
+   */
+  function _contrailRescueCategory(altitudeFt, slantNm, angularSizeDeg, upperAir) {
+    if (altitudeFt == null || altitudeFt < CONTRAIL_MIN_ALTITUDE_FT || slantNm > CONTRAIL_MAX_RANGE_NM) {
+      return null;
+    }
+
+    const angularCat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];
+    const angularIdx = CATEGORIES.indexOf(angularCat);
+    const possiblyIdx = CATEGORIES.findIndex(c => c.label === "Possibly visible");
+    const likelyIdx = CATEGORIES.findIndex(c => c.label === "Likely visible");
+
+    const conditions = _contrailConditionsAt(altitudeFt, upperAir);
+    if (!conditions) {
+      return CATEGORIES[Math.min(angularIdx, possiblyIdx)]; // fallback tier — see docstring above
+    }
+
+    const result = Contrail.evaluate(conditions, CONTRAIL_ENGINE_EFFICIENCY);
+    if (!result.forms) return null; // real conditions don't support a contrail today — no rescue
+
+    const floorIdx = result.persistent ? likelyIdx : possiblyIdx;
+    return CATEGORIES[Math.min(angularIdx, floorIdx)];
+  }
 
   function _sizeForType(typeCode) {
     if (!typeCode) return FALLBACK_SIZES.UNKNOWN;
@@ -404,9 +542,12 @@ const Visibility = (() => {
    *   radiusM }. Omit/null for no adjustment.
    * @param {object} [upperAir]  Current UpperAirProvider.getCached()
    *   snapshot — { cloudCoverLowPct, cloudCoverMidPct, cloudCoverHighPct,
-   *   elevationFt }. Omit/null for no adjustment. Plain 6th positional
-   *   parameter, matching this file's own existing precedent (metar/
-   *   localObstruction) rather than a signature refactor — see CLAUDE.md.
+   *   elevationFt, pressureProfile: [{pressureHpa, temperatureC,
+   *   relativeHumidityPct}, ...] }. Omit/null for no adjustment and the
+   *   contrail check's flat fallback floor (see _contrailRescueCategory).
+   *   Plain 6th positional parameter, matching this file's own existing
+   *   precedent (metar/localObstruction) rather than a signature refactor
+   *   — see CLAUDE.md.
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
@@ -441,19 +582,17 @@ const Visibility = (() => {
 
     let cat;
 
+    // See _contrailRescueCategory()'s own docstring — real Schmidt-Appleman
+    // physics against today's actual upper-air conditions when available,
+    // the original flat altitude/range floor as a fallback otherwise; null
+    // (no rescue at all) when the aircraft isn't even eligible, or when
+    // real conditions say no contrail would form today.
+    const contrailRescue = _contrailRescueCategory(altitudeFt, slantNm, angularSizeDeg, upperAir);
+
     if (veryClose) {
       cat = CATEGORIES[0]; // Certainly visible
-    } else if (
-      altitudeFt != null && altitudeFt >= CONTRAIL_MIN_ALTITUDE_FT && slantNm <= CONTRAIL_MAX_RANGE_NM
-    ) {
-      // High and close enough to plausibly be identifiable by contrail —
-      // never worse than "Possibly visible" even when angular size alone
-      // would rate it lower, but never overrides a BETTER angular-size
-      // result either (a big, close-enough-to-clearly-see jet stays at
-      // whatever its own size already earned it).
-      const angularCat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];
-      const possiblyIdx = CATEGORIES.findIndex(c => c.label === "Possibly visible");
-      cat = CATEGORIES[Math.min(CATEGORIES.indexOf(angularCat), possiblyIdx)];
+    } else if (contrailRescue) {
+      cat = contrailRescue;
     } else if (slantNm > 40) {
       // Beyond 40 NM: cap at Possibly visible, even if angular size (e.g. a
       // very large aircraft) would otherwise put it higher — haze/curvature
