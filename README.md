@@ -390,12 +390,25 @@ If the app actually fails to finish starting (the same inline script's own watch
 
 ## Future Extension Points
 
-- Derive the altitude suppression threshold from GPS altitude as a live local-ground-level estimate, instead of the fixed sea-level value Settings currently sets manually.
-- METAR-based QNH correction for aircraft that only report barometric altitude (no `alt_geom`) — parse the nearest METAR's altimeter setting, apply the standard ~27-30ft/hPa correction. Deferred in favor of the simpler, dependency-free GPS-altitude-preference fix already in place, which covers most modern transponders — though `src/logic/metarProvider.js`'s nearest-station fetch (added for cloud-occlusion/visibility scoring) already does the hard part now, so this would mostly be parsing one more field (`altim`) off data already being fetched, not new infrastructure.
-- Verify the Android compass landscape-mount correction against a real device, and consider a magnetometer calibration prompt if readings prove erratic in the field.
-- Local SDR receiver adapter (new `RoutingProvider`-style adapter alongside `adsbExchangeClient.js`).
-- Higher-accuracy contrail modelling via Google's purpose-built [Contrails API](https://developers.google.com/contrails) (free but requires a Google Cloud API key), as a possible alternative/supplement to the Open-Meteo/Schmidt-Appleman check now shipped (see Visibility Categories above) — worth revisiting once the Ground-Truth Log Panel's `visible_contrail` observations give something real to compare either approach against.
-- Terrain obstruction model.
-- PWA manifest + service worker for offline map tiles.
-- Android APK wrapper via Capacitor or similar.
-- Voice callout: "Traffic, 2 o'clock, A320, 12 miles."
+The full, actively-maintained backlog — new feature ideas plus every known
+gap/polish item, with the reasoning behind each — lives in
+**[`ROADMAP.md`](./ROADMAP.md)**, not here. This section is a short pointer,
+not the list itself, so it can't go stale the way a duplicated copy would.
+
+A couple of headline items, for a reader who doesn't want to open a second
+file: a **briefing page** (static symbology reference + a dynamic,
+preflight-style synthesis of current conditions/nearby airspace affecting
+sightability), **user-submitted meteorological data** (PIREP-style,
+lower-confidence input layered on top of METAR/Open-Meteo), and using
+un-interacted-with aircraft as a weak passive "probably not seen" signal
+to correct for the ground-truth log's own bias toward logging sightings
+over misses — see `ROADMAP.md` for the full reasoning on all three, plus
+routing/native-port/visibility-model gaps not covered here.
+
+Note: the PWA manifest + service worker for the app shell (not offline map
+tiles — VCAS's core function needs live GPS/ADS-B regardless) shipped in
+2026-08-23 — see CLAUDE.md's "App-shell service worker" entry. A native
+Android app is also well underway (see [`android/README.md`](./android/README.md)
+and CLAUDE.md's "Android Auto" entries) as the real successor to the
+earlier "APK wrapper" idea, targeting Android Auto specifically rather
+than a generic wrapped build.

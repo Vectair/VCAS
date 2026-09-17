@@ -1,0 +1,319 @@
+# ROADMAP — VCAS implementation backlog
+
+This is the project's **designated implementation list** — ideas and known
+gaps worth exploring as the app develops, in one place. It did not exist
+before 2026-09-17; before that, this material was scattered as inline
+"not yet done" notes buried inside dated CLAUDE.md entries, with no single
+place to see it all. Created specifically to fix that.
+
+**How this differs from the other two docs**: CLAUDE.md is a dated
+changelog — decisions, history, and *why* things are the way they are; it
+records what happened. README.md is user/setup-facing documentation — what
+the app does and how to configure it today. This file is the *future* —
+things not yet built, in enough detail to pick up without re-deriving them.
+When something here gets built, move it out (delete the entry, or leave a
+one-line "done, see CLAUDE.md's <date> entry" pointer if it's likely to be
+searched for by name later) rather than letting it rot in place as a stale
+bullet — that's exactly the failure this file replaces.
+
+Items are dated where they trace to a specific CLAUDE.md discussion, so the
+fuller reasoning/context can be found there if needed.
+
+---
+
+## New feature ideas
+
+### Briefing page (2026-09-17)
+
+Proposed as a screen accessible only when stationary or in pedestrian/
+cycling mode — the same distraction-gating precedent already applied
+elsewhere in this app (the 5mph interaction gates on the LOG button, the
+RAW popup's log/suppress buttons, the Hybrid manual-tilt override, 3D
+View itself). Two genuinely different halves, worth treating as separate
+scoping efforts rather than one screen built in one pass:
+
+- **Static half** — what each part of the app is and how to read the
+  symbology. Largely already covered by the existing first-launch
+  onboarding screen's own legend (`_renderOnboardingLegend()` in
+  `app.js`, which already pulls real icons/colours straight from
+  `Visibility.getCategories()` so it can't drift from what's actually
+  rendered — see CLAUDE.md's "First-launch onboarding screen" entry).
+  The real gap onboarding doesn't cover: it's shown once per install
+  and then gone. This half of the briefing page is arguably just "make
+  that same reusable content permanently reachable again," not new
+  content to author — reuse `UI.displayColor()`/`AircraftSymbol.svg()`/
+  `Visibility.getCategories()` exactly as onboarding already does,
+  rather than a second hand-copied legend.
+
+- **Dynamic half — the real new work.** A preflight-briefing-style
+  synthesis of current/predicted conditions and how they affect
+  sightability *by direction and altitude*, e.g. "low-level visibility
+  poor due to haze (affects close-in traffic); upper-atmosphere
+  conditions favour contrail persistence." Real infrastructure this
+  could draw on already exists and needs no new integration:
+  `MetarProvider` (surface conditions), `UpperAirProvider` (Open-Meteo
+  cloud bands + the pressure-level profile the new Schmidt-Appleman
+  contrail check already fetches), `LocalObstruction` (building/
+  vegetation density), and `Visibility`/`Relevance`'s own scoring
+  internals. Two things genuinely go beyond what the app has today,
+  each a real, separately-scoped sub-decision:
+  - **Airport/airway/navaid/waypoint proximity.** No aeronautical
+    reference data exists anywhere in this app currently (only live
+    ADS-B positions and route geometry) — would need sourcing a real
+    dataset (e.g. OurAirports' free CSV exports, OpenAIP, or a
+    similar open aeronautical database) and almost certainly a new
+    CORS relay if the source doesn't send permissive headers, same
+    pattern as every other external data source this app has had to
+    work around (adsb.fi, aviationweather.gov). Worth checking CORS
+    headers on whatever source is picked *before* building against it
+    — this project has been burned by assuming a data source's shape/
+    headers without verifying directly more than once (see CLAUDE.md's
+    ADS-B relay debugging saga, 2026-09-15).
+  - **Known schedule data** ("how good is spotting going to be in
+    various directions or altitudes" informed by expected traffic) —
+    flagged by the idea itself as speculative/"potentially." This is
+    a materially larger integration than everything else in this list
+    (a real flight-schedule data source, likely paid/rate-limited,
+    with its own accuracy caveats) — worth treating as optional/
+    deferred within this feature rather than a blocker to shipping the
+    rest of it.
+  - **Route-aware version**: if a nav route is active, the same
+    dynamic content extended along the route — likely traffic hotspots
+    en route, destination conditions. A natural follow-up once the
+    non-route version works, not a prerequisite for it.
+
+### User-submitted meteorological data (2026-09-17)
+
+A PIREP-style community input layer — explicitly lower-confidence than
+METAR/Open-Meteo, not weighted the same. Real design questions, not yet
+answered:
+- **Where it's stored**: this needs to be shared across users, so it's
+  architecturally closer to the existing central observation log
+  (`log.php` + GitHub mirror, not committed to this repo — see
+  CLAUDE.md's "Central observation log" entry) than to a purely local
+  feature. Reusing that same handoff pattern (a small PHP endpoint +
+  shared secret) is the obvious starting point rather than inventing new
+  infrastructure.
+- **Weighting/decay**: needs its own confidence tier, separate from
+  METAR/local-obstruction/upper-air — likely wired into
+  `Visibility.estimate()` as a new optional parameter following the
+  exact pattern `metar`/`localObstruction`/`upperAir` already establish
+  (each is `null`-safe, each only ever caps a category downward, never
+  raises one — the same discipline should apply here). A stale or
+  unweighted submission floor should decay/expire, unlike METAR which
+  is refreshed on its own cadence.
+- **Abuse/spam**: unlike the existing observation log (personal,
+  opt-in, low-volume, from known testers), a user-submitted-met feature
+  that's genuinely shared and influences OTHER users' scoring is a real
+  new surface for bad data (deliberate or accidental) to degrade the
+  model for everyone. Needs real thought before building — at minimum
+  some geographic/temporal clustering or a minimum-corroboration
+  threshold before a submission actually affects scoring, not just
+  "any single tap moves the needle."
+- **UI**: needs to be simple enough that a non-technical tester can use
+  it (same target audience as the existing ground-truth LOG panel) —
+  likely a small set of tap-to-select conditions (visibility band,
+  cloud description) rather than free text.
+
+### Passive "probably not seen" inference from unlogged aircraft (2026-09-17)
+
+The user's own stated logging behaviour: they log *sightings* far more
+than misses, because sightings are rarer — meaning the existing
+ground-truth dataset is real but has a structural bias no calibration
+pass so far has accounted for (every "visibility model calibration"
+entry in CLAUDE.md has worked from explicitly-logged observations only).
+The idea: aircraft that appear/track in the app but are never tapped/
+interacted with could be treated as a weak, *implicit* "probably not
+seen" signal — captured passively, tagged with the same context an
+explicit log entry gets (user motion state, weather at the time,
+position) — then checked in later review for correlation against the
+explicit log, rather than fed into `Visibility.estimate()` directly.
+
+Real design considerations, not yet resolved:
+- **This is a genuinely noisier signal than an explicit log entry, and
+  that needs to be visible in the data, not just assumed understood.**
+  "Not interacted with" conflates "genuinely wasn't visible" with
+  "was visible but the user simply didn't look at the phone" (driving,
+  looked at the sky instead, etc.) — a real confound the explicit log
+  doesn't have, since an explicit "not visible" entry is a deliberate
+  user judgement. Any passive/inferred entry should carry its own
+  distinct `kind` (mirroring `observationLogger.js`'s existing
+  `kind: "error"` vs. real-observation split) so it can never be
+  silently pooled with explicit observations in analysis — e.g.
+  `kind: "inferred-unseen"` vs. the current unmarked "real observation"
+  shape — and any future calibration pass reading this data needs to
+  treat the two very differently (the inferred stream as a large, noisy
+  aggregate-correlation signal only; the explicit stream as the
+  higher-confidence ground truth it already is).
+- **Volume control is the real engineering risk, not the logic itself.**
+  Every aircraft the app tracks and the user never taps would generate
+  an entry — this could dwarf the explicit log's volume by orders of
+  magnitude and risks reproducing the exact "aggregate request-rate"
+  problem the ADS-B relay's own throttling work had to solve (see
+  CLAUDE.md's "Follow-up: server-side throttling for Beta"), just for
+  log volume instead of API calls. Needs its own batching/sampling
+  design (e.g., only counted once per aircraft per some minimum
+  dwell/visibility window, not once per render tick) before this is
+  workable at all.
+- **"Plausibly could have been noticed" needs a real definition.** An
+  aircraft that flashed past at the very edge of the FOV for one tick,
+  or was already suppressed/out of the selected range, shouldn't count
+  the same as one that stayed on-screen, in-range, and un-suppressed
+  for a genuinely noticeable window. Needs a real dwell-time/visibility
+  threshold, not "every aircraft that was ever in the relevant set."
+- Worth prototyping as a **local-only, opt-in analysis tool first**
+  (e.g., something the LOG panel's own developer mode could surface as
+  a stat, "N aircraft seen but never logged this session") before
+  committing to any server-side schema change — cheap to try, and would
+  surface whether the volume/noise problems above are as bad in
+  practice as they look on paper.
+
+---
+
+## Known gaps and polish items (pulled from CLAUDE.md's scattered history)
+
+### Visibility model — pending real calibration data, not urgent code changes
+
+- `CONTRAIL_ENGINE_EFFICIENCY` and the six fetched pressure levels
+  (`visibility.js`) are reasonable starting guesses, uncalibrated
+  against real `visible_contrail` ground-truth data (2026-09-17).
+- `LOCAL_OBSTRUCTION_DENSE_THRESHOLD`/`MAX_ELEVATION_DEG` are similarly
+  uncalibrated — need real density numbers across known reference
+  locations (open airfield vs. suburb vs. city vs. woodland).
+- A real airframe-underconfidence pattern was found in calibration pass
+  review data (8/32 `visible_airframe` cases sitting exactly at the
+  "Possibly visible" tier boundary despite confident real sightings) —
+  flagged as a watch-item, not yet acted on; too thin a sample (n=8) to
+  retune the 0.167° threshold from on its own.
+- `not_visible_obstruction` real cases mostly fall *above*
+  `LOCAL_OBSTRUCTION_MAX_ELEVATION_DEG` (only 3 of 9 logged cases were
+  at/below the 12° gate) — the local-obstruction feature can only ever
+  address about a third of real logged obstruction misses as currently
+  scoped. Confirmed, not yet addressed.
+- Local obstruction's "no true polygon clipping" v1 simplification
+  (centroid-in-radius, not exact geometric intersection) has been
+  confirmed to actually bite in real data (a real case with
+  `vegetationFeatureCount: 6` but `vegetationDensity: 0`) — accepted
+  trade-off, not a bug, but worth revisiting if it recurs often.
+- No `visible_lights` observations have been logged yet — the outcome
+  exists (added 2026-08-27) but is unexercised, so nothing can be
+  learned from it yet.
+- METAR relay, Open-Meteo (cloud-band + pressure-level), and TomTom
+  Orbis parsing were all built against documented schemas, never
+  against a live response — this sandbox can't reach any of those
+  domains. Worth confirming real response shapes match once each has
+  had real traffic.
+
+### Native Android Auto port — behind the PWA in several places
+
+This project's own established pattern is "synced in dedicated passes,
+not every change" — the following PWA features have no native
+equivalent yet, accumulated across many passes without a full sync:
+
+- Traffic Rules (filter/highlight by type/category/altitude/military-
+  civil) — no native settings screen, no `military`/`dbFlags` field in
+  `NormaliseAircraft.kt`.
+- 3D View / sky-compass mode entirely — no `DevicePitch`/
+  `SkyCompassLogic` Kotlin ports, no 4th mode button.
+- Hybrid manual camera-tilt override.
+- Mode-button-order settings (`ModeButtonOrder`).
+- TomTom routing provider / `ActiveRoutingProvider` dispatcher.
+- Colorblind-safe swatches for Traffic Rules, and the status-pill
+  colorblind fix.
+- RAW mode's merged nav-status card, screen-space flight-plan line, and
+  several of the later RAW-redesign rounds' chrome details (nav/route
+  diamond icon colour, rows-backdrop, unbounded-list-to-bounded-list
+  fix from 2026-09-16).
+- Only 2 status pills natively (adsb.fi/MapTiler) vs. the PWA's 4
+  (+ Open-Meteo, + whatever else has shipped since).
+
+A real full native sync pass — not a single-feature port — is probably
+worth scheduling once the PWA's own feature velocity slows down, rather
+than continuing to accumulate gaps indefinitely.
+
+### Android Auto native port — car-side phases not yet started
+
+Per CLAUDE.md's own "Long-term destination" scoping note: phases 1-2
+(bare CarAppService, MapLibre Native map, GPS-driven camera, ADS-B
+polling) are done and confirmed building. Not started:
+- Phase 3: routing + `NavigationTemplate`'s own turn-by-turn display.
+- Phase 4: foreground `Service` + Android's background-location
+  permission flow.
+- Phase 5: settings companion screen, feature-parity pass — RAW's dense
+  instrument-style look may need real redesign to fit Android Auto's
+  own template constraints (distraction-review design question, still
+  open).
+- `TURN_APPROACH`'s `DECOUPLED_MANEUVER` bearing mode is computed by
+  `NavigationCameraEvaluator.kt` but not yet consumed by
+  `applyCameraResult()` on the car side.
+- No destination pin/marker on the car-side route line.
+
+### Routing / navigation
+
+- Off-route detection threshold (`CONFIG.OFF_ROUTE_THRESHOLD_METERS`,
+  50m) is a flat distance cutoff, not mode- or road-type-aware —
+  untuned against real field data.
+- TomTom's Orbis Routing API doesn't return turn-by-turn instruction
+  text (`steps` stays empty) — the guidance card falls back to the
+  camera's own geometric turn detection for TomTom-sourced routes. A
+  real fix needs a live `instructionsType=text` response inspected
+  first, not another schema guess.
+- No real live end-to-end TomTom request has been confirmed from the
+  deployed app (sandbox can't reach `api.tomtom.com`) — worth
+  confirming on a real device once flipped on.
+- METAR-based QNH correction for aircraft reporting only barometric
+  altitude (no `alt_geom`) — `metarProvider.js`'s nearest-station fetch
+  already does the hard part; this would mostly be parsing one more
+  field (`altim`) off data already being fetched.
+
+### Sensors / UI polish
+
+- RAW mode's range selector — a tap-and-hold "fan out all 5 values"
+  interaction was agreed as the right design (vs. a literal rotary
+  knob) but never built; current tap-to-cycle behaviour stays
+  "acceptable for now."
+- A real, narrow (<360px) device could still overflow the bottom
+  bar's mode-toggle row (a genuine floor found at 328px, affecting all
+  three modes equally) — deprioritized since it's below this project's
+  own 360px worst-case standard and no real device has hit it yet.
+- 3D View's `beta - 90` device-pitch-to-elevation mapping is this
+  project's own derivation, never confirmed against real hardware.
+- A real architectural concern (not yet investigated): 3D View's own
+  required near-vertical phone pose (`beta≈90°`) sits close to a
+  documented Euler-angle near-singularity in the alpha/beta/gamma
+  decomposition Android's `deviceorientationabsolute` path relies on —
+  could be a bigger source of "jittery heading" in 3D View specifically
+  than plain sensor noise, and none of the smoothing/dead-zone work
+  shipped so far would fix it if so.
+- `DevicePitch` doesn't reset on `close3DView()` — reopening briefly
+  shows a stale pitch for ~150-300ms (self-heals, cosmetic).
+- `#view3d-hint` ("Point your phone at the sky…") never hides once
+  aircraft are actually in view — cosmetic.
+- Android compass landscape-mount correction (`compassHeading.js`) is
+  derived from documentation, never confirmed on a real device.
+- Magnetic declination correction has never been implemented anywhere
+  in this app (compass heading is magnetic, not true, north).
+
+### Other
+
+- Higher-accuracy contrail modelling via Google's purpose-built
+  [Contrails API](https://developers.google.com/contrails) (needs a
+  Google Cloud key) — worth revisiting as a possible supplement to the
+  Schmidt-Appleman/Open-Meteo check now shipped, once real
+  `visible_contrail` ground-truth data exists to compare either
+  approach against.
+- Terrain obstruction model / true line-of-sight — explicitly scoped
+  and rejected as disproportionate infrastructure for now (no free
+  global high-resolution elevation+building data, no GIS backend) when
+  the local-obstruction feature was designed; worth revisiting only if
+  that changes.
+- Local SDR receiver adapter — a new `RoutingProvider`-style ADS-B
+  adapter alongside `adsbExchangeClient.js`, for a self-hosted feed
+  instead of/alongside adsb.fi.
+- Voice callout: "Traffic, 2 o'clock, A320, 12 miles."
+- iOS has no manifest-driven splash mechanism (`apple-touch-startup-
+  image`) — the in-page `#launch-screen` overlay covers this today, but
+  the gap was noted as still technically open.
+- Derive the low-altitude suppression threshold from live GPS altitude
+  instead of the fixed sea-level value Settings currently sets
+  manually.

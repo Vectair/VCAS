@@ -5,6 +5,31 @@ README is end-user/setup documentation; this file is decisions, conventions,
 and history that aren't obvious from the code alone. Keep this updated as
 things change; it's the main thing that survives between sessions.
 
+## The designated implementation list: ROADMAP.md (2026-09-17)
+
+Not previously written down anywhere, and it should have been — same
+category of gap as the install-method fact below. **`ROADMAP.md` (repo
+root) is the project's designated backlog** — feature ideas not yet built
+plus every known gap/polish item scattered across this file's history,
+consolidated into one place, created specifically because the project
+owner asked whether such a list existed and it didn't. This file
+(CLAUDE.md) stays a dated changelog of what happened and why; new
+"not yet done"/"worth revisiting" items belong in `ROADMAP.md`, not as a
+fresh inline note buried in a new dated section here — add them there
+directly, and when something from it actually gets built, remove it from
+`ROADMAP.md` rather than leaving a stale entry (the exact failure mode
+that made this file necessary in the first place). Three ideas are
+recorded there as of 2026-09-17, all from a single conversation, none
+built yet: a stationary/pedestrian-only "briefing page" (static symbology
+reference + a dynamic preflight-style synthesis of conditions/nearby
+airspace affecting sightability, optionally route-aware), user-submitted
+PIREP-style meteorological data layered under METAR/Open-Meteo, and using
+un-interacted-with tracked aircraft as a weak passive "probably not seen"
+signal to correct for the ground-truth log's own bias toward logging
+sightings over misses (the project owner's own stated behaviour) — see
+`ROADMAP.md` for the full reasoning, open design questions, and every
+older gap pulled in from this file's own history at the same time.
+
 ## Long-term destination: a standalone, self-sufficient native app
 
 **The project owner has stated this multiple times over the course of the
