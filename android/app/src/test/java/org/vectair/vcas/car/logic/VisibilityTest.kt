@@ -382,4 +382,38 @@ class VisibilityTest {
         assertEquals(first, second) // same values...
         assertNotSame(first, second) // ...but distinct list instances
     }
+
+    // ---- elevationDeg (2026-09-17 fix, matching the PWA's own 2026-09-13 one) ----
+
+    @Test
+    fun elevationDeg_deadOverhead_isNinetyDegrees_notZero() {
+        // horizNm == 0 (same lat/lon as the user) — the old `altM>0 &&
+        // horizM>0` guard forced this to 0deg (the horizon); atan2 itself
+        // already handles the zero argument correctly (atan2(positive,0)
+        // === 90deg), so this must read a real 90, not the stale 0.
+        val overhead = Visibility.AircraftInput(userLat, userLon, 30000.0, "A320", null, null)
+        val result = Visibility.estimate(userLat, userLon, overhead)
+        assertEquals(90.0, result.elevationDeg, 0.01)
+    }
+
+    @Test
+    fun elevationDeg_ordinaryNonOverheadCase_stillARealValueBetweenZeroAndNinety() {
+        val ac = acAtRangeNm(10.0, altitudeFt = 10000.0)
+        val result = Visibility.estimate(userLat, userLon, ac)
+        assertTrue(result.elevationDeg > 0.0 && result.elevationDeg < 90.0)
+    }
+
+    @Test
+    fun elevationDeg_groundLevelAtRealDistance_isZero() {
+        val ac = acAtRangeNm(5.0, altitudeFt = null)
+        val result = Visibility.estimate(userLat, userLon, ac)
+        assertEquals(0.0, result.elevationDeg, 0.01)
+    }
+
+    @Test
+    fun elevationDeg_samePositionAndZeroAltitude_isCleanZero_notNaN() {
+        val degenerate = Visibility.AircraftInput(userLat, userLon, null, "A320", null, null)
+        val result = Visibility.estimate(userLat, userLon, degenerate)
+        assertEquals(0.0, result.elevationDeg, 0.0)
+    }
 }

@@ -46,6 +46,7 @@ import org.vectair.vcas.car.logic.OrsGeocoder
 import org.vectair.vcas.car.logic.OrsProvider
 import org.vectair.vcas.car.logic.RouteGeometry
 import org.vectair.vcas.car.logic.TrafficRulesLogic
+import org.vectair.vcas.car.logic.View3DLogic
 import org.vectair.vcas.car.logic.Visibility
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -190,6 +191,26 @@ class MainActivity : Activity() {
     private lateinit var rawPlotView: RawPlotView
     private lateinit var rawListView: RawAircraftListView
     private val modeButtons = mutableMapOf<String, TextView>()
+
+    // ---- 3D View state (2026-09-17) — the planetarium-style free-view
+    // mode, a structural port of the PWA's Sky/3D View (app.js's
+    // open3DView()/close3DView()/refresh3DView(), ui.js's
+    // renderSkyView→render3DView, src/sensors/compassHeading.js+
+    // devicePitch.js → DeviceOrientationSensor.kt). See open3DView()'s
+    // own doc comment for the full port writeup. ----
+    private var view3DOpen = false
+    private lateinit var view3DView: View3DView
+    private var view3DScreenView: View? = null
+    private var view3DAircraftCountText: TextView? = null
+    private var view3DCalibrateBtn: TextView? = null
+    private var view3DBlockedText: TextView? = null
+    private var view3DButton: TextView? = null
+    private val deviceOrientationSensor by lazy { DeviceOrientationSensor(this) }
+    private var view3DAzimuthDeg = 0.0
+    private var view3DPitchDeg = 0.0
+    private var view3DLastAzimuthDeg: Double? = null
+    private var view3DLastPitchDeg: Double? = null
+    private var view3DRenderTickRunnable: Runnable? = null
 
     // ---- RAW popup card state (2026-08-27) ----
     private var rawPopupView: View? = null
@@ -341,6 +362,10 @@ class MainActivity : Activity() {
         val onboardingScreen = buildOnboardingScreen()
         onboardingScreenView = onboardingScreen
         root.addView(onboardingScreen, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+
+        val view3DScreen = buildView3DScreen()
+        view3DScreenView = view3DScreen
+        root.addView(view3DScreen, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
         setContentView(root)
         applyModeVisibility()
@@ -735,6 +760,28 @@ class MainActivity : Activity() {
             if (index > 0) lp.leftMargin = 10
             toggle.addView(btn, lp)
         }
+        // 3D View (2026-09-17) — a genuine 4th button, visually a peer of
+        // RAW/AIR/HYBRID, but deliberately NOT part of `modeButtons`/
+        // `currentMode` — it's a full-screen overlay (same pattern as
+        // Settings/Onboarding), not a persisted display mode, so its own
+        // "active" look only ever reflects whether the overlay is
+        // currently open (sync3DButtonState()), independent of the other
+        // three buttons' mode-based highlight logic.
+        val btn3D = TextView(this).apply {
+            text = "3D"
+            gravity = Gravity.CENTER
+            textSize = 11f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            setPadding(20, 22, 20, 22)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(Color.BLACK)
+                cornerRadius = 4f * resources.displayMetrics.density
+                setStroke((1.5f * resources.displayMetrics.density).roundToInt(), Color.WHITE)
+            }
+            setOnClickListener { open3DView() }
+        }
+        view3DButton = btn3D
+        toggle.addView(btn3D, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = 10 })
         outer.addView(toggle, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         updateModeButtonHighlight()
         return outer
@@ -1629,6 +1676,213 @@ class MainActivity : Activity() {
         onboardingScreenView?.visibility = View.GONE
     }
 
+    // ---- 3D View (2026-09-17) — planetarium-style free-view mode, a
+    // structural port of the PWA's own Sky/3D View. A full-screen modal
+    // overlay (same pattern as Settings/Onboarding), NOT a real 4th
+    // `mode`/`NavDisplayStyle` value — deliberately: `mode`/`currentMode`
+    // never change while this is open, GPS/ADS-B polling keeps running
+    // underneath exactly as it already does behind Settings, and closing
+    // it returns to whatever was showing before with zero coordination
+    // needed against the RAW/AIR/HYBRID switch logic. ----
+
+    /**
+     * A full-screen dark overlay: a header (aircraft count, "Set North"
+     * calibration toggle, close ✕) over the real `View3DView` canvas.
+     * Added last in `onCreate()`, matching every other overlay screen's
+     * own "draws on top of everything" ordering.
+     */
+    private fun buildView3DScreen(): View {
+        val overlay = FrameLayout(this).apply {
+            setBackgroundColor(VcasPalette.parse(VcasPalette.BG_DARK))
+            visibility = View.GONE
+        }
+
+        val v3d = View3DView(this).apply {
+            onAircraftTap = { item ->
+                val altText = item.aircraft.altitudeFt?.let { "${it.roundToInt()} ft" } ?: "alt n/a"
+                val title = (item.aircraft.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: item.aircraft.hex) + " · " + (item.aircraft.type ?: "?")
+                Toast.makeText(this@MainActivity, "$title\n${item.vis.label} · $altText", Toast.LENGTH_LONG).show()
+            }
+        }
+        view3DView = v3d
+        overlay.addView(v3d, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(VcasPalette.parse(VcasPalette.RAW_CHROME_BG))
+            setPadding(24, 20, 24, 20)
+        }
+        val countText = TextView(this).apply {
+            text = "0 aircraft in view"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_PRIMARY))
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+        }
+        view3DAircraftCountText = countText
+        val calibrateBtn = TextView(this).apply {
+            text = "Set North"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 12f
+            typeface = VcasFonts.display(this@MainActivity)
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { onView3DCalibrateClick() }
+        }
+        view3DCalibrateBtn = calibrateBtn
+        val close = TextView(this).apply {
+            text = "✕"
+            setTextColor(VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+            textSize = 20f
+            setPadding(24, 0, 0, 0)
+            setOnClickListener { close3DView() }
+        }
+        header.addView(countText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(calibrateBtn)
+        header.addView(close)
+        overlay.addView(header, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.TOP })
+
+        val blocked = TextView(this).apply {
+            text = "3D View pauses while moving — stop to look around"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            typeface = VcasFonts.display(this@MainActivity, bold = true)
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.argb(220, 40, 20, 20))
+            setPadding(24, 20, 24, 20)
+            visibility = View.GONE
+        }
+        view3DBlockedText = blocked
+        overlay.addView(blocked, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP; topMargin = 140
+        })
+
+        return overlay
+    }
+
+    private fun sync3DButtonState() {
+        val btn = view3DButton ?: return
+        val active = view3DOpen
+        val color = if (active) VcasPalette.parse(VcasPalette.RAW_VALUE_CYAN) else Color.WHITE
+        (btn.background as? android.graphics.drawable.GradientDrawable)?.setStroke(
+            (1.5f * resources.displayMetrics.density).roundToInt(), color
+        )
+        btn.setTextColor(color)
+    }
+
+    /**
+     * Same 5mph distraction gate this project's other RAW-only
+     * interactions (the popup's Suppress button) already apply — pointing
+     * a phone up to scan the sky is at least as much of a driving
+     * distraction as any of those, arguably more (a hand fully off the
+     * wheel, looking up rather than at a fixed dash screen), matching the
+     * PWA's own reasoning for gating 3D View identically. Refuses to
+     * open at all above the threshold rather than opening and
+     * immediately blocking, mirroring `open3DView()`'s own PWA behaviour.
+     */
+    private fun open3DView() {
+        if (currentSpeedMph() > GPS_HEADING_MIN_SPEED_MPH) {
+            Toast.makeText(this, "3D View is only available while stationary", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (view3DOpen) return
+        view3DOpen = true
+        view3DScreenView?.visibility = View.VISIBLE
+        sync3DButtonState()
+        view3DLastAzimuthDeg = null
+        view3DLastPitchDeg = null
+
+        deviceOrientationSensor.onOrientationChanged = { azimuth, pitch ->
+            view3DAzimuthDeg = azimuth
+            view3DPitchDeg = pitch
+        }
+        deviceOrientationSensor.start()
+
+        // A single shared render-tick timer (matching app.js's own
+        // 200ms interval) reads whatever the latest sensor values happen
+        // to be — NOT a render call fired directly from the sensor
+        // listener itself, which would repaint at the sensor's own much
+        // higher real sample rate regardless of whether anything
+        // meaningful changed.
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!view3DOpen) return
+                refresh3DView()
+                // refresh3DView() can itself call close3DView() (the
+                // speed-gate auto-close) — re-check rather than
+                // unconditionally rescheduling a tick for a view that
+                // just closed.
+                if (view3DOpen) mainHandler.postDelayed(this, 200L)
+            }
+        }
+        view3DRenderTickRunnable = runnable
+        mainHandler.post(runnable)
+    }
+
+    private fun close3DView() {
+        view3DOpen = false
+        view3DScreenView?.visibility = View.GONE
+        sync3DButtonState()
+        deviceOrientationSensor.stop()
+        view3DRenderTickRunnable?.let { mainHandler.removeCallbacks(it) }
+        view3DRenderTickRunnable = null
+    }
+
+    private fun refresh3DView() {
+        val location = lastKnownLocation
+        val blocked = currentSpeedMph() > GPS_HEADING_MIN_SPEED_MPH
+        view3DBlockedText?.visibility = if (blocked) View.VISIBLE else View.GONE
+        if (blocked) {
+            close3DView()
+            return
+        }
+        if (location == null) return
+
+        val w = view3DView.width.toDouble()
+        val h = view3DView.height.toDouble()
+        if (w <= 0.0 || h <= 0.0) return
+
+        if (!View3DLogic.shouldUpdateFrame(view3DLastAzimuthDeg, view3DLastPitchDeg, view3DAzimuthDeg, view3DPitchDeg)) return
+        view3DLastAzimuthDeg = view3DAzimuthDeg
+        view3DLastPitchDeg = view3DPitchDeg
+
+        val items = mutableListOf<View3DView.Item>()
+        for (a in latestAircraft) {
+            val bearing = Geo.calculateBearing(location.latitude, location.longitude, a.lat, a.lon)
+            val relBearing = Geo.calculateRelativeBearing(bearing, view3DAzimuthDeg)
+            val vis = Visibility.estimate(
+                location.latitude, location.longitude,
+                Visibility.AircraftInput(a.lat, a.lon, a.altitudeFt, a.type, a.category, a.lastSeenSeconds),
+                metar = null
+            )
+            val elevationOffset = vis.elevationDeg - view3DPitchDeg
+            val pos = View3DLogic.projectTo3DPosition(relBearing, elevationOffset, w, h) ?: continue
+            items.add(View3DView.Item(a, vis, pos))
+        }
+
+        view3DView.update(items, view3DAzimuthDeg, view3DPitchDeg, VcasSettings.isView3DCloudsEnabled(), VcasSettings.isColorblindSafeEnabled())
+        view3DAircraftCountText?.text = "${items.size} aircraft in view"
+    }
+
+    /** "I am currently pointing at true North" — mirrors
+     * `CompassHeading.calibrateTo()`/`onCalibrateNorthClick()` in the PWA.
+     * Forces one immediate repaint (bypassing the dead zone for that one
+     * frame) so the effect is visible right away. */
+    private fun onView3DCalibrateClick() {
+        if (deviceOrientationSensor.hasCalibration()) {
+            deviceOrientationSensor.clearCalibration()
+        } else {
+            deviceOrientationSensor.calibrateTo(0.0)
+        }
+        view3DCalibrateBtn?.let {
+            val active = deviceOrientationSensor.hasCalibration()
+            it.text = if (active) "Clear North" else "Set North"
+            it.setTextColor(if (active) VcasPalette.parse(VcasPalette.RAW_VALUE_CYAN) else VcasPalette.parse(VcasPalette.TEXT_SECONDARY))
+        }
+        view3DLastAzimuthDeg = null // force an immediate repaint
+        view3DLastPitchDeg = null
+        refresh3DView()
+    }
+
     /**
      * HYBRID's map/marker rendering still falls through to AIR's own
      * `renderAirMarkers()`/`applyCameraResult()` — only the
@@ -1670,6 +1924,12 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         stopLocationUpdates()
+        // The orientation sensor listener/render-tick timer have no
+        // Activity-lifecycle awareness of their own — same reasoning
+        // GPS updates are already stopped here, close3DView() itself
+        // already leaves the app in a fully consistent state (button/
+        // overlay both revert), so this is safe to call unconditionally.
+        if (view3DOpen) close3DView()
         mapContainer.onPause()
         super.onPause()
     }

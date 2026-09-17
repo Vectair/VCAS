@@ -28,6 +28,7 @@ object VcasSettings {
     private const val KEY_HIDE_GROUND = "hide_ground_aircraft"
     private const val KEY_ALT_SUPPRESS_ENABLED = "alt_suppress_enabled"
     private const val KEY_ALT_SUPPRESS_FT = "alt_suppress_ft"
+    private const val KEY_3D_CLOUDS = "view3d_clouds_enabled"
 
     // Versioned like the PWA's own `vcas-onboarding-seen-v1` (see app.js's
     // ONBOARDING_SEEN_KEY) — not just a bare boolean, so a future symbology
@@ -83,6 +84,18 @@ object VcasSettings {
         editor.putBoolean(KEY_ALT_SUPPRESS_ENABLED, enabled)
         if (enabled) editor.putInt(KEY_ALT_SUPPRESS_FT, ft)
         editor.apply()
+    }
+
+    // ---- 3D View clouds (2026-09-17) — mirrors src/view3dClouds.js ----
+
+    // On by default — a real visual improvement, not a hidden feature
+    // someone has to discover first, same reasoning the PWA's own default carries.
+    fun isView3DCloudsEnabled(): Boolean = prefs?.getBoolean(KEY_3D_CLOUDS, true) ?: true
+
+    fun toggleView3DClouds(): Boolean {
+        val next = !isView3DCloudsEnabled()
+        prefs?.edit()?.putBoolean(KEY_3D_CLOUDS, next)?.apply()
+        return next
     }
 
     // ---- First-launch onboarding — mirrors app.js's ONBOARDING_SEEN_KEY handling ----

@@ -227,9 +227,14 @@ object Visibility {
         val slantM = sqrt(horizM * horizM + altM * altM)
         val slantNm = slantM / NM_TO_M
 
-        val elevationDeg = if (altM > 0 && horizM > 0) {
-            atan2(altM, horizM) * (180.0 / Math.PI)
-        } else 0.0
+        // Unconditional atan2 — matches the PWA's own 2026-09-13 fix
+        // ("real bug — the elevation was wrong for a dead-overhead
+        // aircraft"): the old `altM>0 && horizM>0` guard forced 0deg
+        // (horizon) for an aircraft passing exactly overhead (horizM==0)
+        // instead of the correct 90deg (straight up), even though
+        // atan2 already handles a zero argument correctly on its own
+        // (atan2(positive,0) === 90deg, atan2(0,0) === 0deg cleanly).
+        val elevationDeg = atan2(altM, horizM) * (180.0 / Math.PI)
 
         val isOverhead = elevationDeg > 70
 
