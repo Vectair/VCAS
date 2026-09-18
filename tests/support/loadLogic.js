@@ -15,6 +15,12 @@
  * Every module in src/logic/ already carries its own
  * `if (typeof module !== "undefined") module.exports = X;` guard, so no
  * shimming beyond the global assignment is needed.
+ *
+ * trafficRules.js (TrafficRulesLogic) is a genuinely standalone pure
+ * module — no dependency on Geo/Visibility/Relevance/etc, and nothing
+ * else references it as a free global — so it's simply require()'d
+ * directly with no ordering concern, matching where it sits in
+ * index.html's own real <script> list (loaded last, after indicators.js).
  */
 const path = require("path");
 const ROOT = path.join(__dirname, "..", "..", "src", "logic");
@@ -30,7 +36,8 @@ function loadLogic() {
   global.Relevance = Relevance;
   const AircraftExtrapolation = require(path.join(ROOT, "aircraftExtrapolation.js"));
   const Indicators = require(path.join(ROOT, "indicators.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators };
+  const TrafficRulesLogic = require(path.join(ROOT, "trafficRules.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic };
 }
 
 module.exports = { loadLogic };

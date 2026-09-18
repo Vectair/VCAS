@@ -50,14 +50,20 @@ dependency on the other modules, verified with analytically-solved
 boundary values (the mixing-line-slope cutoff, the "too warm" threshold
 temperature, the forms/persistence RH boundaries) the same way `geo.js`'s
 own boundary checks are, plus a check that `engineEfficiency` genuinely
-changes the result rather than being a dead parameter.
+changes the result rather than being a dead parameter. `trafficRules.js`
+(`TrafficRulesLogic`, the pure rule-matching engine behind the Traffic
+Rules feature) came next — also standalone, no dependency on the other
+`src/logic/` modules — covering every condition axis (type, comma-
+separated type list, category, altitude above/below, military/civil),
+the AND-not-OR combination of multiple conditions on one rule, and the
+filter (OR-across-enabled-rules) vs. highlight (first-match-wins-in-
+list-order) evaluation semantics.
 
-Not yet covered: `trafficRules.js`, `upperAirProvider.js`/
-`metarProvider.js` (network-fetch modules, would need a mocked `fetch`),
-and any DOM/UI wiring (would need a headless-browser harness, a
-materially bigger lift than these plain-Node checks — see ROADMAP.md's
-own note that "Playwright/DOM harnesses for UI wiring are more expensive
-but still worth a small curated set").
+Not yet covered: `upperAirProvider.js`/`metarProvider.js` (network-fetch
+modules, would need a mocked `fetch`), and any DOM/UI wiring (would need
+a headless-browser harness, a materially bigger lift than these plain-
+Node checks — see ROADMAP.md's own note that "Playwright/DOM harnesses
+for UI wiring are more expensive but still worth a small curated set").
 
 Extending this suite to another `src/logic/` module is the same shape
 every time: add `tests/logic/<module>.test.js`, `require` it through

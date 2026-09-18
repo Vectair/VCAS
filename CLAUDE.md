@@ -12340,3 +12340,80 @@ and drop it from the "not yet covered" list. Not yet covered, unchanged
 from the entries above: `trafficRules.js`, the two network-fetch
 providers, the relay PHP files (still blocked on ROADMAP item #1 — no
 committed source), and any DOM/UI wiring.
+
+## Test suite extended: `trafficRules.js` (2026-09-18, same day)
+
+Direct follow-up, same day the contrail.js addition above shipped: "Add
+trafficRules.js next." `src/logic/trafficRules.js` (`TrafficRulesLogic`)
+is the pure rule-matching engine behind the Traffic Rules feature (see
+its own 2026-09-09 entry above) — genuinely standalone, no dependency on
+`Geo`/`Visibility`/`Relevance`/etc and nothing else references it as a
+free global, so `tests/support/loadLogic.js` needed only a plain
+`require()` added at the end, no new `global` attachment or ordering
+concern (matching where it sits in `index.html`'s own real `<script>`
+list — loaded last, after `indicators.js`). Re-ran the existing six
+test files immediately after the loader change to confirm it was
+backward-compatible before writing anything new against it — this is
+distinct from `src/trafficRules.js`, the sibling state/persistence
+module (localStorage-backed rule CRUD) that this test file does not
+touch.
+
+**`tests/logic/trafficRules.test.js`** (53 checks) — every condition
+axis `matchesConditions()` supports, checked both individually and in
+combination:
+- `getCategories()` returns a fresh, distinct copy each call (mutating
+  one returned copy doesn't affect a later call), with spot-checked real
+  labels including a C1-C5 "surface vehicle" entry — included in the
+  table on purpose even though `normaliseAircraft.js` already excludes
+  those categories upstream, per that module's own doc comment.
+- `typeQuery`: single-value substring match (case-insensitive, not
+  full-string equality), a `null` aircraft type never matching a real
+  query, and the comma-separated-OR "Soviet-era" follow-up (MiG-29/
+  Su-27 matching a `"MiG,Su,Tu,..."` list, an F-16/A320 not matching,
+  spaces/trailing commas handled correctly, and a genuine single-term
+  rule still behaving exactly as it did before that follow-up shipped —
+  a real regression check, not just new coverage).
+- `category`: an exact match, a non-match, `"any"` as a documented
+  no-op, and a `null` aircraft category never matching a specific
+  condition.
+- `altitude`: above/below in both directions, the exact-at-threshold
+  boundary confirmed strict (`>`/`<`, not `>=`/`<=`) on both directions,
+  an unknown (`null`) aircraft altitude never satisfying either
+  direction, and a disabled altitude condition being a true no-op
+  regardless of the aircraft's real altitude.
+- `traffic` (military/civil): the tri-state `military` field's `null`
+  ("unknown") case never satisfying either a military-only or civil-
+  only condition (matching `normaliseAircraft.js`'s own tri-state
+  design — see the Traffic Rules entry above), and `"any"` as a no-op.
+- Multiple conditions on one rule AND together, not OR — a rule with
+  both `category` and `traffic` set only matches when BOTH are
+  satisfied, checked with three aircraft each satisfying exactly one,
+  both, or the other of the two conditions.
+
+`evaluateFilter()`/`evaluateHighlight()` checked against the module's
+own documented semantics, not just individually: `evaluateFilter()`'s
+OR-across-enabled-filter-rules (matching either of two rules hides the
+aircraft), a disabled filter rule never hiding anything even with
+matching conditions, a highlight-mode rule never being applied by
+`evaluateFilter()`, and a non-array `rules` argument degrading to `false`
+rather than throwing. `evaluateHighlight()`'s first-match-wins-in-
+LIST-ORDER semantics — the specific property this project's own
+multi-rule-highlight design depends on — verified by taking the exact
+same two matching rules and reordering them, confirming the returned
+colour flips to match whichever rule is now first (not id-order,
+insertion-order, or "most specific match"), plus the disabled-rule/
+filter-rule-ignored/non-array-degrades-to-null checks mirroring
+`evaluateFilter()`'s own coverage.
+
+**Passed on its first real run** — 53/53 against the real, shipped
+`trafficRules.js`, no premise bugs. **Full aggregate suite: 7 files, 249
+checks, all passing** (`geo.js` 50, `visibility.js` 31, `relevance.js`
+27, `aircraftExtrapolation.js` 27, `indicators.js` 37, `contrail.js` 24,
+`trafficRules.js` 53).
+
+`tests/README.md`'s own scope section updated to describe the new file
+and drop it from the "not yet covered" list. Not yet covered, unchanged
+from the entries above: the two network-fetch providers
+(`upperAirProvider.js`/`metarProvider.js`), the relay PHP files (still
+blocked on ROADMAP item #1 — no committed source), and any DOM/UI
+wiring.
