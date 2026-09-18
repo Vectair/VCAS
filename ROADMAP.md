@@ -65,15 +65,16 @@ past session already found and fixed, with nothing to catch it.
 **A real, committed `tests/` folder now exists** — see `tests/README.md`
 for how to run it (`node tests/run.js`, no npm/framework dependency,
 matching this repo's own "no bundler, no package.json" convention) and
-CLAUDE.md's own dated entries for the full writeup. Covers five
+CLAUDE.md's own dated entries for the full writeup. Covers six
 pure-logic modules now: `geo.js` (50 checks), `visibility.js` (31
 checks), `relevance.js` (27 checks), `aircraftExtrapolation.js` (27
-checks), `indicators.js` (37 checks) — 172 checks total, all verified
-against the real, unmodified source (one genuine borderline test-premise
-bug was caught and fixed by actually running the suite before committing
-it, not assumed correct — the same discipline every one-off verification
-in this project's history has already relied on, applied here to code
-that now stays in the repo afterward).
+checks), `indicators.js` (37 checks), `contrail.js` (24 checks) — 196
+checks total, all verified against the real, unmodified source (one
+genuine borderline test-premise bug was caught and fixed by actually
+running the suite before committing it, not assumed correct — the same
+discipline every one-off verification in this project's history has
+already relied on, applied here to code that now stays in the repo
+afterward).
 
 **Still not covered, real remaining work, not implied to be done**:
 `trafficRules.js`, `upperAirProvider.js`/`metarProvider.js` (network-

@@ -45,14 +45,19 @@ those already-verified modules (e.g. `Indicators.buildAll()`'s computed
 `x`/`y` against an independent `Geo.projectToPolarPosition()` call with
 the same inputs) rather than re-deriving expected values by hand.
 
-Not yet covered: `contrail.js` (exercised indirectly through
-`visibility.js`'s contrail-rescue tests, but with no dedicated file of its
-own yet), `trafficRules.js`, `upperAirProvider.js`/`metarProvider.js`
-(network-fetch modules, would need a mocked `fetch`), and any DOM/UI
-wiring (would need a headless-browser harness, a materially bigger lift
-than these plain-Node checks — see ROADMAP.md's own note that "Playwright/
-DOM harnesses for UI wiring are more expensive but still worth a small
-curated set").
+`contrail.js` was added next — pure Schmidt-Appleman physics with no
+dependency on the other modules, verified with analytically-solved
+boundary values (the mixing-line-slope cutoff, the "too warm" threshold
+temperature, the forms/persistence RH boundaries) the same way `geo.js`'s
+own boundary checks are, plus a check that `engineEfficiency` genuinely
+changes the result rather than being a dead parameter.
+
+Not yet covered: `trafficRules.js`, `upperAirProvider.js`/
+`metarProvider.js` (network-fetch modules, would need a mocked `fetch`),
+and any DOM/UI wiring (would need a headless-browser harness, a
+materially bigger lift than these plain-Node checks — see ROADMAP.md's
+own note that "Playwright/DOM harnesses for UI wiring are more expensive
+but still worth a small curated set").
 
 Extending this suite to another `src/logic/` module is the same shape
 every time: add `tests/logic/<module>.test.js`, `require` it through

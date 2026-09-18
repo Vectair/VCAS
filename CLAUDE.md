@@ -12282,3 +12282,61 @@ from the entry above: `contrail.js` (still only exercised indirectly
 through `visibility.js`'s own contrail-rescue tests), `trafficRules.js`,
 the two network-fetch providers, the relay PHP files (still blocked on
 ROADMAP item #1 — no committed source), and any DOM/UI wiring.
+
+## Test suite extended: `contrail.js` (2026-09-18, same day)
+
+Direct follow-up, same day the indicators.js/aircraftExtrapolation.js
+addition above shipped: "Keep going on the test suite — add contrail.js
+next." `contrail.js` is pure Schmidt-Appleman physics with no dependency
+on the other `src/logic/` modules and no DOM/network I/O — it was
+already loaded by `tests/support/loadLogic.js` (attached to `global`
+before `visibility.js` is required, since `visibility.js`'s own
+`_contrailRescueCategory()` references it as a free identifier) but had
+never been exercised by a dedicated test file of its own, only
+indirectly through `visibility.test.js`'s contrail-rescue checks.
+
+**`tests/logic/contrail.test.js`** (24 checks) — five boundary values
+solved analytically from the module's own real formulas (the mixing-
+line-slope G cutoff at 0.053 Pa/K; the threshold temperature tLM at
+which nothing can form regardless of humidity; the forms-vs-doesn't RH
+boundary where the exhaust plume's mixing path crosses liquid
+saturation; and the persistence RH boundary where ambient air becomes
+ice-supersaturated) via a throwaway independent script, not copied from
+`contrail.js` itself or hand-guessed — the same discipline this
+project's own Kotlin port test-writeups already established
+("independently-derived ground truth, not against itself"). Two of the
+boundaries (G-cutoff, tLM) were checked with exact `t.eq()` since the
+module's own comparisons there are `>`/`>=` against a directly-computable
+constant; the other two (the forms and persistence RH boundaries) were
+checked relationally (±0.5% either side of the analytically-solved
+value) rather than via exact float equality, since those boundaries
+depend on several chained saturation-pressure calculations that don't
+land on a round number — the same "relational, not exact-equality"
+choice `visibility.test.js`'s own boundary checks already make for
+comparable cases.
+
+Also covers: every degenerate-input path (`null`/`undefined` conditions,
+each of the three required fields individually `null`) always returning
+the same safe `{forms:false, persistent:false}` default rather than
+throwing; three representative real-world-shaped scenarios (cold/humid
+cruise altitude — forms and persists; the same altitude/temperature but
+dry — still forms, doesn't persist; a warmer mid-altitude case — never
+forms) cross-checked against this file's own "Contrail visibility" and
+"Real Schmidt-Appleman physics" entries' description of the intended
+behaviour; and a check that `engineEfficiency` is a genuinely load-
+bearing parameter, not a dead one — the same ambient conditions at two
+different efficiencies produce different `{forms, persistent}` results,
+confirmed by first computing both real outputs and checking they
+actually differ, not assumed from reading the formula.
+
+**Passed on its first real run, no premise bugs this time** — 24/24
+against the real, shipped `contrail.js` on the first attempt. **Full
+aggregate suite: 6 files, 196 checks, all passing** (`geo.js` 50,
+`visibility.js` 31, `relevance.js` 27, `aircraftExtrapolation.js` 27,
+`indicators.js` 37, `contrail.js` 24).
+
+`tests/README.md`'s own scope section updated to describe the new file
+and drop it from the "not yet covered" list. Not yet covered, unchanged
+from the entries above: `trafficRules.js`, the two network-fetch
+providers, the relay PHP files (still blocked on ROADMAP item #1 — no
+committed source), and any DOM/UI wiring.
