@@ -333,7 +333,9 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   gap: 8px;
 }
 
-#btn-settings {
+/* #btn-calibrate (2026-09-18) shares this exact look — same top-bar icon
+   button family as #btn-settings, just a second entry point next to it. */
+#btn-settings, #btn-calibrate {
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -350,7 +352,7 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   transition: background .15s, color .15s;
 }
 
-#btn-settings:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+#btn-settings:active, #btn-calibrate:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
 
 /* ---- Top-right controls (status pills + credit) ----
    Was previously unused CSS with no matching element (a leftover from an
@@ -2478,7 +2480,10 @@ body[data-nav-state="turn_approach"] { }
    the same cyan this project already uses elsewhere for "active/on" state
    (--raw-value-cyan) once a calibration is actually in effect, so it reads
    as a real toggle, not a one-shot action button. */
-#btn-3d-calibrate-north {
+/* #btn-3d-calibrate-aircraft (2026-09-18) shares this same plain black/
+   white pill — a second, one-shot entry point (opens the aircraft list)
+   sitting next to the toggleable "Set North" button. */
+#btn-3d-calibrate-north, #btn-3d-calibrate-aircraft {
   flex-shrink: 0;
   padding: 6px 10px;
   border-radius: var(--radius-sm, 4px);
@@ -2768,6 +2773,12 @@ body[data-nav-state="turn_approach"] { }
    .manual-tilt-toggle-disabled/.lp-toggle-disabled elsewhere in this app. */
 #btn-3d.view3d-toggle-disabled { opacity: .35; cursor: not-allowed; }
 
+/* Compass calibration (2026-09-18) — same dimmed-while-moving treatment
+   as #btn-3d above, applied to both its own entry points (top bar and 3D
+   View's header); see app.js's _syncCalibButtonState(). */
+#btn-calibrate.calib-toggle-disabled,
+#btn-3d-calibrate-aircraft.calib-toggle-disabled { opacity: .35; cursor: not-allowed; }
+
 /* Real bug fix (2026-09-13 review): #popup lives outside #view3d-screen's
    own DOM subtree at its normal z-index (60) — #view3d-screen's opaque
    full-screen background sits at z-index 220, so tapping an aircraft dot
@@ -2998,6 +3009,223 @@ body[data-nav-state="turn_approach"] { }
   color: var(--text-muted);
   margin: -4px 0 10px;
 }
+
+.settings-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.settings-value.calibrated {
+  color: var(--raw-value-green);
+}
+
+/* ---- Compass calibration (2026-09-18) ----
+   #calibrate-screen is a modal like #settings-screen/#onboarding-screen,
+   but sits ABOVE #view3d-screen (220) — it must be reachable, via
+   #btn-3d-calibrate-aircraft, from on top of an already-open 3D View —
+   and below #onboarding-screen (250), which only ever matters once, on a
+   first-ever install, well before this is relevant. #calib-map-hint/
+   #calib-confirm-bar share that same tier: both can be shown while 3D
+   View is open too (aircraft-sight only; landmark closes 3D View first,
+   see app.js's onCalibChooseLandmark()). ---- */
+#calibrate-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 235;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dark);
+  animation: settings-in .2s ease-out;
+}
+
+#calibrate-screen.hidden { display: none; }
+
+#calibrate-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+#calibrate-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#btn-calibrate-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+#btn-calibrate-close:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+#calibrate-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+#calib-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#calib-picker.hidden { display: none; }
+
+.calib-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+.calib-option-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+.calib-option-icon { font-size: 22px; }
+.calib-option-label { font-size: 15px; font-weight: 700; }
+.calib-option-hint { font-size: 12px; color: var(--text-secondary); }
+
+#calib-aircraft-panel { display: flex; flex-direction: column; gap: 10px; }
+#calib-aircraft-panel.hidden { display: none; }
+
+#calib-aircraft-back {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+#calib-aircraft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calib-aircraft-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  cursor: pointer;
+}
+
+.calib-aircraft-row:active { background: var(--btn-hover); }
+
+.calib-aircraft-callsign { font-size: 14px; font-weight: 700; color: var(--text-primary); flex-shrink: 0; }
+.calib-aircraft-meta { font-size: 12px; color: var(--text-secondary); }
+
+.calib-aircraft-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Positioned below the real top bar / above the real bottom bar by app.js
+   at show-time (their real heights vary by screen) — see
+   showCalibMapHint()/showCalibConfirmBar(), the same "measure the real
+   DOM, don't guess an offset" approach _rawChromeInsets() already
+   established for #route-card. */
+#calib-map-hint {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: 60px;
+  z-index: 235;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow);
+}
+
+#calib-map-hint.hidden { display: none; }
+
+#calib-map-hint-text { flex: 1; font-size: 13px; color: var(--text-primary); }
+
+#btn-calib-map-hint-cancel {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+#calib-confirm-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 235;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--accent);
+  box-shadow: 0 -4px 24px rgba(0,0,0,.40);
+  animation: slide-up .2s ease-out;
+}
+
+#calib-confirm-bar.hidden { display: none; }
+
+#calib-confirm-text { flex: 1; font-size: 13px; color: var(--text-primary); }
+
+#btn-calib-confirm-cancel, #btn-calib-confirm-ok {
+  flex-shrink: 0;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+#btn-calib-confirm-cancel { background: var(--btn-bg); color: var(--text-secondary); }
+#btn-calib-confirm-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
+#btn-calib-confirm-ok:active, #btn-calib-confirm-cancel:active { box-shadow: var(--btn-shadow-active); }
 
 .traffic-rules-list {
   display: flex;

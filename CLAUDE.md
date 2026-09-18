@@ -11901,3 +11901,180 @@ real, shipped code, not a reasoning-only check.
   history, though still recoverable by SHA if ever needed. Per the entry
   above, `main` is the sole branch going forward; this work should land
   there the same way.
+
+## Manual compass calibration: sighting a known aircraft or landmark, not just North (2026-09-18)
+
+Direct request, worked through as a design discussion before any code:
+the existing 3D View "Set North" button (`CompassHeading.calibrateTo()`,
+see that module's own 2026-09-13 header comment) assumes the user
+already has a reasonable notion of where true North is — not a safe
+assumption in general. The project owner's own proposal: let the user
+instead point the phone at *anything* whose real position VCAS already
+knows (a tracked aircraft, or a tapped map landmark), tap once to name
+it, physically turn to face it with their own eyes (not the — possibly
+still wrong — on-screen display), then tap again to confirm. VCAS reads
+its own GPS fix and the reference's GPS position, computes the true
+bearing between them, and calibrates to *that* instead of a fixed 0°.
+Both reference types were given **equal weighting**, not aircraft-as-
+primary/landmark-as-fallback — direct correction after an initial
+landmark-favouring recommendation: "aiming at one known aircraft gives
+two good GPS locations" (an exact ADS-B fix vs. a thumb-precision map
+tap), so aircraft is if anything the *more* accurate of the two, not
+the more cumbersome one.
+
+**The mechanism is a straight generalisation of what already existed —
+`CompassHeading.calibrateTo(trueHeadingDeg)` already took an arbitrary
+target heading, never just North; nothing about the module itself
+changed.** The only new work is *acquiring* that target heading:
+`Geo.calculateBearing(userLat, userLon, refLat, refLon)` from the
+phone's live GPS fix to the reference's, fed straight into the same
+function the North button already calls. Confirmed directly with the
+project owner before building: a two-tap flow (arm the reference, then
+a separate confirm tap once physically aligned) — NOT a one-tap "assume
+you're already facing it" — specifically because the SECOND tap is what
+actually matters: it re-reads the reference's position fresh at that
+exact instant, so however long the user takes turning to sight it, only
+the aircraft's position *at confirm time* is used, never a stale one
+frozen from when it was picked. No "lock the screen" mechanism was
+needed for this reason, despite it being the user's own first intuition
+going in.
+
+**Landmark selection needs a real, visible, pannable map — RAW and 3D
+View have neither** (RAW is a pure black instrument view; 3D View has
+no map at all, just a procedural sky/ground backdrop — see its own
+2026-09-09 entries above). Choosing "Tap a landmark" from either first
+switches the underlying screen to Hybrid (`_enterNavMode(NavDisplayStyle.HYBRID)`)
+— not AIR, a deliberate choice: it keeps whatever the user was already
+doing (an active route, say) intact rather than jumping to a mode with
+no reason to prefer it. **Aircraft selection has no such constraint** —
+it reads the exact same background-tracked `_currentAircraftList()`
+every screen already keeps live regardless of what's currently
+rendering, so it works identically from RAW, AIR, Hybrid, or 3D View
+with zero screen-specific logic.
+
+### Entry points, one shared flow
+
+- **`#btn-calibrate`** (new, top bar, next to the settings gear) — opens
+  `#calibrate-screen`, a picker between the two methods. Not shown while
+  3D View is open (its own full-screen overlay covers the top bar
+  entirely, same as every other top-bar control).
+- **`#btn-3d-calibrate-aircraft`** (new, 3D View's own header, next to
+  the existing "Set North" button) — jumps straight to the aircraft
+  list, skipping the picker (3D View has no visible map, so offering
+  the landmark option there would be a dead end).
+- **Settings → Compass Calibration** (new section) — "Sight an
+  aircraft"/"Tap a landmark" buttons that close Settings first, then
+  open the same flow at the same step; a status row showing the current
+  offset state; a "Clear" button calling `CompassHeading.clearCalibration()`
+  directly.
+
+All three converge on the same handful of functions in `app.js`
+(`openCalibrateScreen`/`openCalibrateAircraftList`/`onCalibChooseLandmark`/
+`onCalibConfirmClick`/etc.) — no duplicated flow logic per entry point.
+
+### The aircraft list — built fresh, not reusing RAW's own list component
+
+`renderCalibAircraftList()` is a new, separate renderer from RAW's own
+`UI.renderAircraftList()` (ui.js), deliberately: RAW's list is filtered
+to `Relevance.evaluate()`'s driving-relevance teardrop, exactly the
+filter this feature needs to bypass — the whole point is letting the
+user pick *any* real aircraft they can see, including one none of
+VCAS's own displays currently bother showing. Sorted nearest-first (the
+aircraft most likely to be identifiable by eye), ground vehicles/
+obstacles excluded (`isGroundVehicleOrObstacle`), built with real
+`document.createElement`/`textContent` rather than an innerHTML
+template string — callsign is untrusted external (ADS-B) data, and this
+project's own established convention is to avoid needing to escape it
+at all rather than trusting an escape call downstream.
+
+### Landmark picking reuses the existing destination-pick map-tap plumbing, extended
+
+`onMapClicked(lat, lon)` (the same function `toggleDestPickMode()`'s
+arm/disarm flow already drives for setting a route destination) gained
+a new branch checked *first*: if `calibPickingLandmark` is armed, the
+tap supplies a calibration reference instead of a route destination,
+and returns before ever reaching the destination-pick check. The two
+arm flags are made mutually exclusive by construction, not just by
+convention — `onCalibChooseLandmark()` explicitly disarms an active
+`destPickActive` before arming its own flag, so a stray earlier
+destination-pick can never silently steal a tap meant for calibration
+(or vice versa). Reuses `EosMap.setPickingCursor()` for the same
+crosshair-cursor visual feedback destination-picking already gives.
+
+### Speed gating — the same 5mph interaction gate as everything else
+
+Every entry point (`openCalibrateScreen`/`openCalibrateAircraftList`/
+`onCalibChooseLandmark`) refuses to open at all above
+`CONFIG.GPS_HEADING_MIN_SPEED_MPH`, matching this app's own established
+"reading a list and tapping a specific thing is real screen attention
+this app shouldn't invite while driving" convention (LOG, ManualTilt,
+3D View, the RAW popup's log/Suppress buttons all already work this
+way). Wired into the same `applySpeedOverrideIfActive()` convergence
+point every one of those already uses — force-closes whichever of the
+picker/aircraft-list/landmark-hint/confirm-bar happens to be open the
+instant speed crosses the threshold, not left for the user to notice
+and back out of manually. `#btn-calibrate`/`#btn-3d-calibrate-aircraft`
+dim (`.calib-toggle-disabled`) the same way `#btn-3d`'s own
+`.view3d-toggle-disabled` already does.
+
+### A real bug caught by verification, not shipped blind
+
+`#calib-picker` was given `display:flex` styling but never its own
+`#calib-picker.hidden { display: none; }` override — this codebase has
+**no generic `.hidden{display:none}` rule anywhere** (confirmed by
+grepping every existing hideable element: each one, `#settings-screen`/
+`#view3d-screen`/`#route-card`/etc., carries its own explicit
+`#id.hidden` rule, since an ID selector like `#calib-picker{display:flex}`
+would otherwise always outrank a generic class rule). `#calib-aircraft-panel`/
+`#calib-map-hint`/`#calib-confirm-bar`/`#calibrate-screen` all correctly
+got their own override; `#calib-picker` was simply missed. **A first
+verification pass didn't catch this** — it only checked
+`classList.contains("hidden")`, which is true regardless of whether any
+CSS rule actually does anything with that class. Caught instead by a
+real Playwright screenshot (this project's own established discipline:
+verify against real rendering, not just DOM state) showing the picker
+cards still visible, bled through underneath the aircraft list. Fixed,
+and the verification harness itself was hardened afterward to check
+real computed `display` rather than class presence for every hideable
+element — the same "distinguish what the test actually proves" lesson
+this file's own history already teaches elsewhere, caught here before
+shipping rather than after.
+
+**Verified with a real Playwright harness**, this project's established
+fallback for app.js closures given this sandbox's own documented
+MapLibre-CDN flakiness: the real markup (top bar, bottom bar, 3D View
+header, the new calibrate-screen/map-hint/confirm-bar block, and the
+new Settings section) extracted verbatim from the real `index.html`
+(depth-matched div extraction, not retyped), the real `VCAS.css` linked
+directly, and the 18 real calibration-related functions extracted
+verbatim from `app.js` (brace-matched), run against stubbed
+`CompassHeading`/`EosMap`/`NavDisplayStyle`/`UI`/etc. and the REAL
+`geo.js` (so bearing math is genuinely computed, not asserted). 71
+checks: every element exists; every hideable element's `.hidden` class
+actually resolves to `display:none` (the check that caught the bug
+above); the full picker → aircraft-list → row-click → confirm-bar →
+`CompassHeading.calibrateTo()` chain for both reference types, with the
+computed bearing cross-checked against a direct `Geo.calculateBearing()`
+call; the aircraft path re-reading a moved aircraft's position fresh at
+confirm time rather than using its arm-time position (and rejecting a
+since-lost aircraft without silently calibrating to stale data); the
+landmark path's map-tap priority over destination-picking and the
+mutual-exclusion guard between the two; the confirm bar and map hint's
+real measured positioning above/below the real bottom/top bar (not a
+guessed offset); the full speed-gate cycle (blocked above 5mph, allowed
+exactly at 5mph, force-closes whichever UI is open the instant speed
+crosses the threshold, button dimming syncs both ways); and no
+horizontal overflow at this project's standard 360px check. All 71
+pass against the real, shipped code.
+
+**Honest status**: never tested against real device sensors/GPS — the
+harness verifies the DOM/CSS/logic wiring and the bearing arithmetic
+against a real `Geo.calculateBearing()`, not a live magnetometer or a
+real ADS-B feed. The one thing this can't verify from here, same
+standing caveat as every compass-heading fix in this file's history: how
+accurately a real person can visually aim a phone at a real aircraft or
+building by eye — the calibration is only ever as good as that sighting,
+same limitation the existing "face North" button already has. Not done:
+no change to the native Android Auto port (same standing "synced in
+dedicated passes, not every change" note this file carries for every
+other PWA-only feature) — it has no calibration UI of any kind today.

@@ -485,6 +485,16 @@
                 </div>
               </div>
             </div>
+            <!-- Manual compass calibration (2026-09-18) — "point at a known
+                 aircraft or landmark" as a way to find true North, for a
+                 user who doesn't already have a reasonable notion of where
+                 North is (the existing 3D View "Set North" button assumes
+                 they do). Opens #calibrate-screen; see app.js's
+                 openCalibrateScreen(). Not shown at all while 3D View is
+                 open (its own full-screen overlay covers this top bar
+                 entirely) — that screen gets its own equivalent entry
+                 point, #btn-3d-calibrate-aircraft, in its own header. -->
+            <button type="button" id="btn-calibrate" title="Calibrate compass">🧭</button>
             <button type="button" id="btn-settings" title="Settings">⚙</button>
           </div>
         </div>
@@ -622,6 +632,13 @@
                point. Toggles between "Set North" and "Clear North
                Calibration" — see app.js's onCalibrateNorthClick(). -->
           <button type="button" id="btn-3d-calibrate-north" title="Point the phone at true North, then tap this">Set North</button>
+          <!-- Sight-an-aircraft calibration, reachable from 3D View too
+               (2026-09-18) — its own header covers the app's normal top
+               bar, so #btn-calibrate there is unreachable from here.
+               Jumps straight to the aircraft list (skips the picker
+               screen's landmark option, which needs a visible map this
+               view doesn't have) — see app.js's openCalibrateAircraftList(). -->
+          <button type="button" id="btn-3d-calibrate-aircraft" title="Calibrate by sighting a tracked aircraft">Sight Aircraft</button>
           <button type="button" id="btn-3d-view-close" title="Close 3D View">✕</button>
         </div>
         <div id="view3d-body">
@@ -667,6 +684,69 @@
         </div>
       </div>
 
+      <!-- Compass calibration (2026-09-18) — "point at something whose real
+           position VCAS already knows" as a general alternative to already
+           knowing where North is. Two reference types, one shared confirm
+           step: see app.js's openCalibrateScreen()/onCalibConfirmClick()
+           and CLAUDE.md's own design-discussion entry for the reasoning.
+           A modal overlay like #settings-screen/#view3d-screen, but at a
+           higher z-index than both (see VCAS.css) — it needs to be
+           reachable, via #btn-3d-calibrate-aircraft above, from ON TOP of
+           an already-open 3D View. -->
+      <div id="calibrate-screen" class="hidden">
+        <div id="calibrate-header">
+          <div id="calibrate-title">Calibrate Compass</div>
+          <button type="button" id="btn-calibrate-close" title="Close">✕</button>
+        </div>
+        <div id="calibrate-body">
+          <!-- Picker — the two methods. Landmark needs a real, visible map
+               (RAW/3D View have none), so choosing it may first switch the
+               underlying screen to Hybrid — see onCalibChooseLandmark(). -->
+          <div id="calib-picker">
+            <button type="button" class="calib-option-btn" id="calib-choose-aircraft">
+              <span class="calib-option-icon">✈</span>
+              <span class="calib-option-label">Sight an aircraft</span>
+              <span class="calib-option-hint">Pick a tracked aircraft, then point the phone straight at it.</span>
+            </button>
+            <button type="button" class="calib-option-btn" id="calib-choose-landmark">
+              <span class="calib-option-icon">📍</span>
+              <span class="calib-option-label">Tap a landmark on the map</span>
+              <span class="calib-option-hint">Pick a real building or structure you can see, then point at it.</span>
+            </button>
+          </div>
+          <!-- Aircraft picker — filled by app.js's renderCalibAircraftList()
+               from the same live tracked-aircraft list every screen already
+               reads in the background; not gated by driving-relevance, so
+               it can include an aircraft none of RAW/Hybrid's own displays
+               currently bother showing. -->
+          <div id="calib-aircraft-panel" class="hidden">
+            <button type="button" id="calib-aircraft-back">&larr; Back</button>
+            <div id="calib-aircraft-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Landmark-picking hint — shown once "Tap a landmark" is chosen,
+           over the real (now-visible) map, until the next map tap arms a
+           reference. Positioned below the real top bar by app.js at
+           show-time (its own real height varies), not a guessed offset. -->
+      <div id="calib-map-hint" class="hidden">
+        <div id="calib-map-hint-text">Tap a landmark on the map to use as a reference.</div>
+        <button type="button" id="btn-calib-map-hint-cancel">Cancel</button>
+      </div>
+
+      <!-- Shared confirm step for BOTH methods (2026-09-18) — the same
+           "turn to physically face it, then tap" step regardless of
+           whether the reference is a picked aircraft or a tapped landmark.
+           Positioned above the real bottom bar by app.js at show-time,
+           same reasoning as #calib-map-hint above. See app.js's
+           onCalibConfirmClick(). -->
+      <div id="calib-confirm-bar" class="hidden">
+        <div id="calib-confirm-text">Facing it?</div>
+        <button type="button" id="btn-calib-confirm-cancel">Cancel</button>
+        <button type="button" id="btn-calib-confirm-ok">Confirm heading</button>
+      </div>
+
       <!-- Settings screen — "configure occasionally" preferences live here,
            out of the way of the primary driving/spotting view. -->
       <div id="settings-screen" class="hidden">
@@ -708,6 +788,23 @@
                  notes) applies just as much to a settings-screen reorder
                  control as it does to any on-screen driving control. -->
             <div class="settings-order-list" id="settings-mode-order-list"></div>
+          </section>
+
+          <section class="settings-section">
+            <h3>Compass Calibration</h3>
+            <p class="settings-hint">Corrects a systematic sensor offset by sighting something VCAS already knows the real position of — accuracy still depends on how precisely you aim by eye.</p>
+            <div class="settings-row">
+              <span class="settings-label">Status</span>
+              <span class="settings-value" id="calib-status-text">Not calibrated</span>
+            </div>
+            <div class="settings-preset-row">
+              <button type="button" class="settings-preset-btn" id="btn-settings-calibrate-aircraft">Sight an aircraft</button>
+              <button type="button" class="settings-preset-btn" id="btn-settings-calibrate-landmark">Tap a landmark</button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">Clear calibration</span>
+              <button type="button" class="settings-toggle-btn" id="btn-settings-calibrate-clear">Clear</button>
+            </div>
           </section>
 
           <section class="settings-section">

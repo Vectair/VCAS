@@ -91,6 +91,28 @@
   // Destination-pick mode: route button arms it, next map click/tap supplies the target.
   let destPickActive = false;
 
+  // Compass calibration (2026-09-18) — "point at something whose real
+  // position VCAS already knows" as a general alternative to the existing
+  // 3D View "Set North" button, which assumes the user already has a
+  // reasonable notion of where North is. calibPendingType is null until a
+  // reference is armed (a picked aircraft, or a tapped landmark); once
+  // set, #calib-confirm-bar is shown and onCalibConfirmClick() reads the
+  // reference's CURRENT position (fresh, for an aircraft — never frozen
+  // from arm-time, so however long the user takes to physically turn and
+  // sight it doesn't matter) to compute the true bearing the phone should
+  // read right now. calibPickingLandmark is a separate, mutually-
+  // exclusive-with-destPickActive arm flag for the very next map tap (see
+  // onMapClicked()) — a landmark, unlike an aircraft, has no "current"
+  // position to re-read at confirm time, so its lat/lon is captured once,
+  // at tap time.
+  let calibScreenOpen = false;
+  let calibPickingLandmark = false;
+  let calibPendingType = null;   // "aircraft" | "landmark" | null
+  let calibPendingHex = null;    // aircraft path only
+  let calibPendingLat = null;    // landmark path only
+  let calibPendingLon = null;
+  let calibPendingLabel = null;
+
   // Destination search-by-name — debounce timer, and a token to discard a
   // stale response if a newer search superseded it before the fetch resolved.
   let _destSearchDebounceTimer = null;
@@ -303,6 +325,7 @@
     View3DClouds.init();
     _updateView3DCloudsToggleBtn();
     _sync3DButtonState();
+    _syncCalibButtonState();
 
     DevMode.init();
     _initDevTools();
@@ -319,6 +342,7 @@
     EosMap.onMapClick(onMapClicked);
     EosMap.onUserInteraction(onUserPannedMap);
     _initSettingsScreen();
+    _initCalibrateScreen();
     _initDevModeUnlock();
     _initOnboarding();
 
@@ -531,10 +555,293 @@
       document.getElementById("tr-color").value = btn.dataset.color;
     });
 
+    // Compass calibration (2026-09-18) — both buttons close Settings first
+    // (a real screen swap, not a stacked modal-on-modal) before opening
+    // #calibrate-screen at whichever step they name; see openCalibrateScreen()
+    // and openCalibrateAircraftList()/onCalibChooseLandmark().
+    document.getElementById("btn-settings-calibrate-aircraft")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      screen?.classList.add("hidden");
+      openCalibrateAircraftList();
+    });
+
+    document.getElementById("btn-settings-calibrate-landmark")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      screen?.classList.add("hidden");
+      onCalibChooseLandmark();
+    });
+
+    document.getElementById("btn-settings-calibrate-clear")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      CompassHeading.clearCalibration();
+      _updateCalibSettingsStatus();
+    });
+
     _renderAltPresets();
     _renderModeOrderList();
     _renderTrafficRulesList();
     _refreshSettingsScreen();
+  }
+
+  // ---- Compass calibration (2026-09-18) ----
+  // Two reference types share one confirm step — see the module-level
+  // calibPending* comment above and CompassHeading.calibrateTo()'s own
+  // header comment for the underlying mechanism. Entry points: the top-bar
+  // #btn-calibrate (RAW/AIR/Hybrid — hidden while 3D View covers the top
+  // bar), #btn-3d-calibrate-aircraft (3D View's own header — aircraft only,
+  // it has no visible map for the landmark path), and Settings' own
+  // "Sight an aircraft"/"Tap a landmark" buttons (wired in
+  // _initSettingsScreen() above, since they live inside that screen).
+
+  function _initCalibrateScreen() {
+    document.getElementById("btn-calibrate")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openCalibrateScreen();
+    });
+
+    document.getElementById("btn-calibrate-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeCalibrateScreen();
+    });
+
+    document.getElementById("calib-choose-aircraft")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openCalibrateAircraftList();
+    });
+
+    document.getElementById("calib-choose-landmark")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onCalibChooseLandmark();
+    });
+
+    document.getElementById("calib-aircraft-back")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onCalibBackClick();
+    });
+
+    document.getElementById("btn-3d-calibrate-aircraft")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openCalibrateAircraftList();
+    });
+
+    document.getElementById("btn-calib-map-hint-cancel")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onCalibMapHintCancelClick();
+    });
+
+    document.getElementById("btn-calib-confirm-cancel")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onCalibConfirmCancelClick();
+    });
+
+    document.getElementById("btn-calib-confirm-ok")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onCalibConfirmClick();
+    });
+  }
+
+  /** Opens the picker (choose method) — the top-bar entry point. Gated the
+   * same way every other point-and-read interaction in this app is (LOG,
+   * ManualTilt, 3D View): reading a list/tapping a specific thing is real
+   * screen attention this app shouldn't invite while actually driving. */
+  function openCalibrateScreen() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return;
+    document.getElementById("calibrate-screen")?.classList.remove("hidden");
+    document.getElementById("calib-picker")?.classList.remove("hidden");
+    document.getElementById("calib-aircraft-panel")?.classList.add("hidden");
+  }
+
+  function closeCalibrateScreen() {
+    document.getElementById("calibrate-screen")?.classList.add("hidden");
+  }
+
+  function onCalibBackClick() {
+    document.getElementById("calib-aircraft-panel")?.classList.add("hidden");
+    document.getElementById("calib-picker")?.classList.remove("hidden");
+  }
+
+  /** Jumps straight to the aircraft list, skipping the picker — used by
+   * 3D View's own header button and Settings' "Sight an aircraft" button,
+   * both of which already know which method they want. */
+  function openCalibrateAircraftList() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return;
+    document.getElementById("calibrate-screen")?.classList.remove("hidden");
+    document.getElementById("calib-picker")?.classList.add("hidden");
+    document.getElementById("calib-aircraft-panel")?.classList.remove("hidden");
+    renderCalibAircraftList();
+  }
+
+  /** Built from the same live, background-tracked aircraft list every
+   * screen already reads (_currentAircraftList()) — NOT gated by driving-
+   * relevance (Relevance.evaluate()'s teardrop filter), unlike RAW's own
+   * on-plot aircraft list, since the whole point is letting the user pick
+   * whatever real aircraft they can actually see, which may not be one
+   * VCAS's own display would otherwise bother showing. Sorted nearest
+   * first — the aircraft most likely to be identifiable by eye. Built with
+   * real DOM elements + textContent, not an innerHTML template string —
+   * callsign is untrusted external (ADS-B) data. */
+  function renderCalibAircraftList() {
+    const container = document.getElementById("calib-aircraft-list");
+    if (!container || userLat === null) return;
+    container.innerHTML = "";
+
+    const list = _currentAircraftList()
+      .filter(a => !a.isGroundVehicleOrObstacle)
+      .map(a => ({ a, distanceNm: Geo.calculateDistanceNm(userLat, userLon, a.lat, a.lon) }))
+      .sort((x, y) => x.distanceNm - y.distanceNm);
+
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "calib-aircraft-empty";
+      empty.textContent = "No aircraft currently tracked.";
+      container.appendChild(empty);
+      return;
+    }
+
+    list.forEach(({ a, distanceNm }) => {
+      const row = document.createElement("div");
+      row.className = "calib-aircraft-row";
+
+      const callsign = document.createElement("span");
+      callsign.className = "calib-aircraft-callsign";
+      callsign.textContent = a.callsign || a.hex;
+
+      const meta = document.createElement("span");
+      meta.className = "calib-aircraft-meta";
+      const type = a.type || "—";
+      const alt = a.altitudeFt != null ? `${Math.round(a.altitudeFt).toLocaleString()}ft` : "—";
+      meta.textContent = `${type} · ${alt} · ${distanceNm.toFixed(1)}nm`;
+
+      row.appendChild(callsign);
+      row.appendChild(meta);
+
+      const label = a.callsign || a.hex;
+      const hex = a.hex;
+      row.addEventListener("click", () => onCalibAircraftRowClick(hex, label));
+      container.appendChild(row);
+    });
+  }
+
+  function onCalibAircraftRowClick(hex, label) {
+    calibPendingType = "aircraft";
+    calibPendingHex = hex;
+    calibPendingLabel = label;
+    closeCalibrateScreen();
+    showCalibConfirmBar();
+  }
+
+  /** Landmark needs a real, visible map to tap — RAW has none (pure black
+   * instrument background) and 3D View has none either, so choosing this
+   * from either first switches the underlying screen to Hybrid (kept
+   * simple and non-destructive: it doesn't touch an active route, unlike
+   * jumping to AIR would risk nothing but does add an unnecessary camera
+   * transition). AIR/Hybrid, which already have a visible map, are left
+   * exactly as they are. */
+  function onCalibChooseLandmark() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return;
+    if (view3DOpen) close3DView();
+    closeCalibrateScreen();
+    if (mode === "nav" && NavDisplayStyle.isRaw()) _enterNavMode(NavDisplayStyle.HYBRID);
+    // Destination-picking and landmark-picking both arm the SAME next map
+    // tap — never let both be active at once (the tap would only ever be
+    // consumed by whichever onMapClicked() checks first).
+    if (destPickActive) toggleDestPickMode();
+    calibPickingLandmark = true;
+    EosMap.setPickingCursor(true);
+    const hint = document.getElementById("calib-map-hint");
+    const topBar = document.getElementById("top-bar");
+    if (hint) {
+      // Measure the real top bar rather than guessing an offset — same
+      // approach _rawChromeInsets() already established for #route-card;
+      // its real height varies (status pills can wrap to two lines).
+      if (topBar) hint.style.top = (topBar.offsetHeight + 8) + "px";
+      hint.classList.remove("hidden");
+    }
+  }
+
+  function onCalibMapHintCancelClick() {
+    calibPickingLandmark = false;
+    EosMap.setPickingCursor(false);
+    document.getElementById("calib-map-hint")?.classList.add("hidden");
+  }
+
+  function showCalibConfirmBar() {
+    const bar = document.getElementById("calib-confirm-bar");
+    const bottomBar = document.getElementById("bottom-bar");
+    const text = document.getElementById("calib-confirm-text");
+    if (!bar) return;
+    if (bottomBar) bar.style.bottom = bottomBar.offsetHeight + "px";
+    if (text) text.textContent = `Facing ${calibPendingLabel}?`;
+    bar.classList.remove("hidden");
+  }
+
+  function hideCalibConfirmBar() {
+    document.getElementById("calib-confirm-bar")?.classList.add("hidden");
+    calibPendingType = null;
+    calibPendingHex = null;
+    calibPendingLat = null;
+    calibPendingLon = null;
+    calibPendingLabel = null;
+  }
+
+  function onCalibConfirmCancelClick() {
+    hideCalibConfirmBar();
+  }
+
+  /** The one step both reference types converge on: true bearing from the
+   * phone's own current GPS fix to the reference's GPS position, fed into
+   * CompassHeading.calibrateTo() exactly as the existing "Set North"
+   * button already does with a fixed 0° — see that module's own header
+   * comment for why the offset works the same way regardless of which
+   * true heading it's anchored to. */
+  function onCalibConfirmClick() {
+    if (userLat === null || calibPendingType === null) return;
+
+    let refLat = null, refLon = null;
+    if (calibPendingType === "aircraft") {
+      // Re-read the aircraft's CURRENT position, not whatever was true
+      // when it was picked (see the module-level comment on why) — it may
+      // also simply no longer be tracked at all.
+      const current = _currentAircraftList().find(a => a.hex === calibPendingHex);
+      if (!current) {
+        const text = document.getElementById("calib-confirm-text");
+        if (text) text.textContent = "Lost track of that aircraft — cancel and pick another.";
+        return;
+      }
+      refLat = current.lat;
+      refLon = current.lon;
+    } else if (calibPendingType === "landmark") {
+      refLat = calibPendingLat;
+      refLon = calibPendingLon;
+    } else {
+      return;
+    }
+
+    const bearing = Geo.calculateBearing(userLat, userLon, refLat, refLon);
+    CompassHeading.calibrateTo(bearing);
+    hideCalibConfirmBar();
+    _updateCalibSettingsStatus();
+    // Same immediate-repaint pattern onCalibrateNorthClick() already uses
+    // — force one fresh frame reflecting the new offset right away rather
+    // than waiting for the next sensor tick, if 3D View is open.
+    if (view3DOpen) { _view3DLastAzimuthDeg = null; refresh3DView(); }
+  }
+
+  function _updateCalibSettingsStatus() {
+    const el = document.getElementById("calib-status-text");
+    if (!el) return;
+    const calibrated = CompassHeading.hasCalibration();
+    el.textContent = calibrated ? "Calibrated" : "Not calibrated";
+    el.classList.toggle("calibrated", calibrated);
+  }
+
+  /** Keeps #btn-calibrate/#btn-3d-calibrate-aircraft's dimmed look in sync
+   * — called from the same applySpeedOverrideIfActive() convergence point
+   * every other speed-gated control already uses. */
+  function _syncCalibButtonState() {
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    document.getElementById("btn-calibrate")?.classList.toggle("calib-toggle-disabled", blocked);
+    document.getElementById("btn-3d-calibrate-aircraft")?.classList.toggle("calib-toggle-disabled", blocked);
   }
 
   /** Moves the real #btn-raw/#btn-air/#btn-hybrid/#btn-3d elements into
@@ -881,6 +1188,7 @@
 
     _updateColorblindToggleBtn();
     _refreshRoutingProviderSettings();
+    _updateCalibSettingsStatus();
   }
 
   /** Hidden-unless-DevMode section (see index.html's own comment) — shows
@@ -1515,6 +1823,18 @@
     // notice and back out manually themselves.
     if (view3DOpen && userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) close3DView();
     _sync3DButtonState();
+    // Compass calibration (2026-09-18) — same convergence point, same
+    // "force-revert the instant speed crosses the threshold" reasoning as
+    // ManualTilt/3D View above, applied to whichever of the three
+    // calibration UI states happens to be open right now.
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
+      if (document.getElementById("calibrate-screen") && !document.getElementById("calibrate-screen").classList.contains("hidden")) {
+        closeCalibrateScreen();
+      }
+      if (calibPickingLandmark) onCalibMapHintCancelClick();
+      if (calibPendingType !== null) hideCalibConfirmBar();
+    }
+    _syncCalibButtonState();
   }
 
   function onSpeedSimChanged() {
@@ -2647,6 +2967,21 @@
   }
 
   function onMapClicked(lat, lon) {
+    // Landmark calibration's own arm flag — checked first since it and
+    // destPickActive are mutually exclusive by construction (see
+    // onCalibChooseLandmark()) but this is the one place both would ever
+    // compete for the same tap if that guard were ever bypassed.
+    if (calibPickingLandmark) {
+      calibPickingLandmark = false;
+      EosMap.setPickingCursor(false);
+      document.getElementById("calib-map-hint")?.classList.add("hidden");
+      calibPendingType = "landmark";
+      calibPendingLat = lat;
+      calibPendingLon = lon;
+      calibPendingLabel = "the tapped location";
+      showCalibConfirmBar();
+      return;
+    }
     if (!destPickActive) return;
     destPickActive = false;
     EosMap.setPickingCursor(false);
