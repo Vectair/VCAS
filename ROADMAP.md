@@ -48,26 +48,39 @@ not automated deployment. Needs the project owner to paste in (or upload)
 the actual current live file for each relay as the starting point, since
 no session has ever had direct access to what's actually deployed.
 
-### 2. No persisted, repeatable automated test suite
+### 2. No persisted, repeatable automated test suite — STARTED (2026-09-18)
 
 Every verification in this project's entire history — hundreds of
 Playwright/Node checks across dozens of features (camera-anchor math,
 the rings/dots banded-scale check, label decluttering, the relay
 CORS/rate-gate behaviour, colorblind-mode compliance, the manual
 compass-calibration flow, etc.) — was built fresh in a session's own
-scratchpad and discarded once it passed. There is no `tests/` directory
+scratchpad and discarded once it passed. There was no `tests/` directory
 in this repo and no CI. At the app's current scale (dozens of features
 that provably interact — RAW's plot scale, the camera evaluator, the
 range-ring/dot coordinate system, the relay dispatch logic) there is
 real, growing risk that a future change silently regresses something a
 past session already found and fixed, with nothing to catch it.
-**Fix**: start promoting the highest-value one-off harnesses into a real,
-committed test suite (plain Node scripts against the pure-logic modules
-— `geo.js`, `visibility.js`, `relevance.js`, the relay PHP files — are
-the cheapest and highest-signal place to start; Playwright/DOM harnesses
-for UI wiring are more expensive but still worth a small curated set).
-No CI runner is set up yet either — even a manually-run `npm test`-style
-entry point would be a real improvement over the current zero.
+
+**A real, committed `tests/` folder now exists** — see `tests/README.md`
+for how to run it (`node tests/run.js`, no npm/framework dependency,
+matching this repo's own "no bundler, no package.json" convention) and
+CLAUDE.md's own dated entry for the full writeup. Covers the three
+highest-value pure-logic modules so far: `geo.js` (50 checks),
+`visibility.js` (31 checks), `relevance.js` (27 checks) — 108 checks
+total, all verified against the real, unmodified source (one genuine
+borderline test-premise bug was caught and fixed by actually running the
+suite before committing it, not assumed correct).
+
+**Still not covered, real remaining work, not implied to be done**:
+`indicators.js`, `aircraftExtrapolation.js`, `trafficRules.js`,
+`upperAirProvider.js`/`metarProvider.js` (network-fetch modules — need a
+mocked `fetch`), the relay PHP files (blocked on #1 above — no committed
+source to test against yet), any DOM/UI wiring (would need a headless-
+browser harness, a materially bigger lift than these plain-Node checks),
+and no CI runner wiring these into GitHub Actions yet (currently a
+manual `node tests/run.js`, a real improvement over zero but not yet
+automatic on every push/PR).
 
 ### 3. API keys ship in plaintext in the public `config.js` bundle, with no monitoring
 

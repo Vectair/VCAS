@@ -12078,3 +12078,107 @@ same limitation the existing "face North" button already has. Not done:
 no change to the native Android Auto port (same standing "synced in
 dedicated passes, not every change" note this file carries for every
 other PWA-only feature) — it has no calibration UI of any kind today.
+
+## Infrastructure: a real, committed test suite — first entry (2026-09-18)
+
+Direct follow-up to a "what's missing that isn't on the list yet" review
+(see ROADMAP.md's new "Infrastructure & process gaps" section, marked
+higher priority than the existing feature/polish backlog) — item #1 on
+that list (committing the relay source) is blocked on the project owner
+having PC/cPanel access, so this session started on item #2 instead,
+picked specifically because it needs no external access at all: the
+entire history of this project's own verification work has been real,
+thorough, and genuinely executed — but every single Playwright/Node
+harness across dozens of features has lived in a session's own scratchpad
+and been discarded once it passed. There was no `tests/` directory in
+this repo, no CI, nothing left behind to catch a future regression.
+
+**`tests/` (new, repo root)** — a real, committed, framework-free test
+suite. `tests/support/assert.js` is a ~40-line dependency-free assertion
+helper (`ok`/`eq`/`approx`, a per-file pass/fail counter, sets
+`process.exitCode` non-zero on any failure); `tests/support/loadLogic.js`
+loads the real `src/logic/` modules in plain Node by replicating exactly
+how `index.html` loads them as sibling `<script>` tags sharing one global
+scope — `geo.js`/`contrail.js` are attached to `global` before
+`visibility.js`/`relevance.js` are `require()`'d, since those two
+reference `Geo`/`Contrail` as free (undeclared) identifiers rather than
+importing them. Every module in `src/logic/` already carries its own
+`if (typeof module !== "undefined") module.exports = X;` guard — the
+same thing every one-off verification script in this project's history
+has already relied on — so no new shimming was needed, only a committed
+place to keep the harness.
+
+**Deliberately no npm/test framework** — this repo has no
+`package.json`/bundler anywhere (see the `localObstruction.js` build
+history's own "no bundler, no npm" finding), and introducing one just for
+testing would be a new dependency this project has consistently avoided
+elsewhere. `tests/run.js` spawns each `tests/logic/*.test.js` file as its
+own child process (so one file's thrown error or global-scope leak can
+never corrupt another's state) and prints an aggregate summary; each test
+file also runs standalone (`node tests/logic/geo.test.js`) for fast
+iteration while working on one module — matching how every prior
+verification script in this project's history has always been run.
+
+**Scope for this first pass**: the three highest-value, most
+self-contained pure-logic modules, per ROADMAP.md's own recommendation
+that pure logic is "the cheapest and highest-signal place to start" —
+`geo.js` (50 checks: cardinal bearings, exact 1°-arc distances, the
+documented real `bandedRadiusFraction` case — an 8nm aircraft against
+`[2,5,10]` bands landing at exactly 2.6/3.0 — `maxRadiusForBearing`'s
+exact dead-ahead formula, `circularPlotRadius`'s self-consistency,
+`projectToPolarPosition`'s FOV-null/edge/y-inversion behaviour,
+`destinationPoint`'s round-trip through `calculateBearing`/
+`calculateDistanceMeters`, `circleCoordinates`'s closed-ring property,
+`arcCoordinates`'s open-arc endpoints, and `computePlotLayout`'s
+portrait/landscape/degenerate-input/boundary behaviour — see the
+"RAW-mode redesign, round 7" entry above for why several of these
+specific properties matter); `visibility.js` (31 checks: the very-close
+override, the 2026-09-13 overhead-elevation fix at 90°/0°/degenerate
+inputs, staleness degrade and its `>20` not `>=20` boundary, METAR cloud
+occlusion using `baseMslFt` and the horizontal-not-slant reported-
+visibility cap, the upper-air cloud-band cap's low-band immunity, local
+obstruction's dual density+elevation gate and its `veryClose` exemption,
+and the full contrail-rescue interaction — no-upperAir flat fallback,
+real persistent/non-persistent/non-forming physics outcomes, the
+altitude and range eligibility gates, and the never-downgrades-a-better-
+result invariant); `relevance.js` (27 checks: the overhead override and
+its `>70` not `>=70` boundary, the teardrop's exact closed-form values at
+0°/180°/60° — including the documented `teardropRangeNm(60) === 9.75`
+case — the high-altitude range-extension gate and its `>=26000ft`
+boundary, a custom `rMaxNm` larger than the extension cap surviving
+unshrunk, and predicted-entry lookahead cross-checked against a freshly-
+written independent reimplementation of the same sampling algorithm using
+only `Geo`'s own already-verified public functions — not copied from
+`relevance.js` itself, the same "check the implementation against
+independently-derived ground truth, not against itself" discipline this
+project's own Kotlin `RelevanceTest.kt` writeup already established).
+**108 checks total, all passing against the real, unmodified source.**
+
+**A real bug in the test's own premise was caught by actually running
+it, not assumed correct** — the same "vacuous test" pitfall this
+project's Kotlin port test-writeups have flagged before: a first draft of
+the "never downgrades a better angular-size result" contrail check used
+a big aircraft (A388) at 30,000ft, which turned out to land right at
+~0.501° angular size — dangerously close to the 0.5° "Certainly visible"
+cutoff, not a comfortable margin. Caught immediately by running the
+suite (it failed, reporting "Likely visible" instead of the expected
+"Certainly visible"); fixed by pinning the altitude at the contrail
+eligibility floor (26,000ft) instead of a higher cruise altitude, which
+leaves real margin above the cutoff (angular size ~0.577° there) — the
+fix is documented inline in the test file itself so a future edit
+doesn't reintroduce the same borderline case.
+
+**Not yet covered, real remaining work — see `tests/README.md` and
+ROADMAP.md's own updated item #2**: `indicators.js`,
+`aircraftExtrapolation.js`, `contrail.js` (exercised indirectly through
+`visibility.js`'s contrail-rescue tests, no dedicated file of its own
+yet), `trafficRules.js`, the two network-fetch providers
+(`upperAirProvider.js`/`metarProvider.js`, would need a mocked `fetch`),
+the relay PHP files (blocked on ROADMAP item #1 — no committed source to
+test against yet), and any DOM/UI wiring (a materially bigger lift than
+these plain-Node checks — would need a headless-browser harness the way
+every one-off Playwright verification in this project's history already
+does, just kept around afterward instead of discarded). No CI wiring
+into GitHub Actions yet either — currently a manual `node tests/run.js`,
+a real improvement over the prior zero but not yet automatic on every
+push/PR.
