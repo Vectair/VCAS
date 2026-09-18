@@ -21,6 +21,99 @@ fuller reasoning/context can be found there if needed.
 
 ---
 
+## Infrastructure & process gaps — HIGHER PRIORITY than everything below (2026-09-18)
+
+Surfaced by a direct "what's missing that isn't on the list yet" review,
+not tied to any one feature. These are foundational/process gaps rather
+than user-facing features — the project owner has explicitly marked this
+whole section as higher priority than the feature ideas and polish items
+further down, and work is starting here next.
+
+### 1. The relay source code isn't in version control at all
+
+`adsb-relay/relay.php` and `metar-relay/relay.php` (the CORS relays for
+adsb.fi and aviationweather.gov — see CLAUDE.md's "ADS-B data source" and
+"Visibility model calibration pass #1" entries) only ever exist as files
+handed to the project owner directly via `SendUserFile`, never committed
+to this repo. Every session that needs to touch them has to reconstruct
+them from CLAUDE.md's own prose description rather than reading a real
+file — and this already caused three real, sequential bugs in the same
+relay on 2026-09-15 alone (a missing CORS-preflight handler, an opaque
+`file_get_contents()` failure mode, and a flat-out wrong upstream URL).
+**Fix**: commit the real, currently-deployed relay source into this repo
+(e.g. a `relays/adsb-relay/relay.php` + `relays/metar-relay/relay.php`
+structure), even though deployment itself stays manual (Bluehost has no
+CI/CD hook today) — the goal is a diffable, readable source of truth,
+not automated deployment. Needs the project owner to paste in (or upload)
+the actual current live file for each relay as the starting point, since
+no session has ever had direct access to what's actually deployed.
+
+### 2. No persisted, repeatable automated test suite
+
+Every verification in this project's entire history — hundreds of
+Playwright/Node checks across dozens of features (camera-anchor math,
+the rings/dots banded-scale check, label decluttering, the relay
+CORS/rate-gate behaviour, colorblind-mode compliance, the manual
+compass-calibration flow, etc.) — was built fresh in a session's own
+scratchpad and discarded once it passed. There is no `tests/` directory
+in this repo and no CI. At the app's current scale (dozens of features
+that provably interact — RAW's plot scale, the camera evaluator, the
+range-ring/dot coordinate system, the relay dispatch logic) there is
+real, growing risk that a future change silently regresses something a
+past session already found and fixed, with nothing to catch it.
+**Fix**: start promoting the highest-value one-off harnesses into a real,
+committed test suite (plain Node scripts against the pure-logic modules
+— `geo.js`, `visibility.js`, `relevance.js`, the relay PHP files — are
+the cheapest and highest-signal place to start; Playwright/DOM harnesses
+for UI wiring are more expensive but still worth a small curated set).
+No CI runner is set up yet either — even a manually-run `npm test`-style
+entry point would be a real improvement over the current zero.
+
+### 3. API keys ship in plaintext in the public `config.js` bundle, with no monitoring
+
+`CONFIG.ORS_API_KEY`, `MAPTILER_KEY`, and `TOMTOM_API_KEY` (unlike
+`ADSB_RELAY_KEY`/`METAR_RELAY_KEY`, which only exist server-side behind
+a relay) all ship directly in the deployed app's own JS, readable by
+anyone via browser devtools. Nothing confirms whether MapTiler's or
+TomTom's dashboards actually have domain/referrer restriction enabled —
+ORS and TomTom in particular have never had the same scrutiny the
+adsb.fi/METAR keys got specifically because those two *had* to be moved
+server-side (no CORS header). If any of these three leaked and got
+scraped, there is no usage ledger or alert the way the two relays now
+have via their own `?stats=1` endpoint (see the 2026-09-11 "Relay request
+ledger" work) — quota exhaustion or abuse would only be noticed once the
+app itself started failing for real users. **Fix**: confirm each
+provider's dashboard has origin/referrer restriction actually turned on,
+and consider whether ORS/TomTom should eventually get the same
+relay-with-ledger treatment adsb.fi/METAR already have, at least for
+visibility even if not strictly required for CORS.
+
+### 4. Accessibility beyond colour has never been addressed
+
+The 2026-09-14 colorblind-mode compliance audit covers colour, but
+nothing in this app's history has ever touched screen-reader support,
+ARIA labelling/roles, or keyboard navigation for Settings, popups, the
+Traffic Rules rule builder, or the compass-calibration flow. Not urgent
+at the current "a handful of known testers" scale, but a real gap before
+any wider release — the same category of thing the Pre-V1 checklist
+already tracks for other concerns (adsb.fi attribution, script-load
+fragility), just never added for this one.
+
+### 5. No deploy health-check
+
+`.github/workflows/deploy-pages.yml` builds and pushes on every commit
+to `main`; nothing afterward confirms the live site actually works. The
+2026-09-01 service-worker staleness saga is the concrete example of the
+cost: a real regression sat silently live for days because a broken
+deploy and a working one look identical from the Actions log alone —
+the only signal was a project owner's own manual report. **Fix**: even a
+minimal post-deploy smoke check (a scripted fetch of the live URL
+confirming the page loads and a key script/asset resolves, or a manual
+checklist run after each deploy) would close a real, already-demonstrated
+gap.
+
+---
+
 ## New feature ideas
 
 ### Briefing page (2026-09-17)
