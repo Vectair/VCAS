@@ -199,6 +199,10 @@ equivalent yet, accumulated across many passes without a full sync:
   fix from 2026-09-16).
 - Only 2 status pills natively (adsb.fi/MapTiler) vs. the PWA's 4
   (+ Open-Meteo, + whatever else has shipped since).
+- Manual compass calibration (sight a tracked aircraft or tap a map
+  landmark to find true North, 2026-09-18) — no native equivalent at
+  all; the native port still only has whatever `CompassHeading.kt`
+  parity existed before this.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
