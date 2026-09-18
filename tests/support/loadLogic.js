@@ -1,12 +1,16 @@
 /**
  * Loads the real, unmodified src/logic/ modules in plain Node — replicating
  * how index.html loads them as sibling <script> tags sharing one global
- * scope. geo.js/contrail.js are attached to `global` BEFORE visibility.js/
- * relevance.js are require()'d, since those two reference `Geo`/`Contrail`
- * as free (undeclared) identifiers rather than importing them — exactly how
- * a browser resolves an undeclared identifier against `window`, and exactly
- * the loading order every one-off Playwright/Node verification harness in
- * this project's own history has had to replicate for these files.
+ * scope. Dependencies are attached to `global` BEFORE the modules that
+ * reference them are require()'d, since those reference `Geo`/`Contrail`/
+ * `Visibility`/`Relevance` as free (undeclared) identifiers rather than
+ * importing them — exactly how a browser resolves an undeclared identifier
+ * against `window`, and exactly the loading order every one-off Playwright/
+ * Node verification harness in this project's own history has had to
+ * replicate for these files. Load order mirrors index.html's real
+ * <script> order: geo -> contrail -> visibility -> relevance ->
+ * aircraftExtrapolation -> indicators (indicators.js reads Relevance.
+ * DEFAULTS/Visibility.estimate/Geo.* as free globals too).
  *
  * Every module in src/logic/ already carries its own
  * `if (typeof module !== "undefined") module.exports = X;` guard, so no
@@ -22,7 +26,11 @@ function loadLogic() {
   global.Contrail = Contrail;
   const Visibility = require(path.join(ROOT, "visibility.js"));
   const Relevance = require(path.join(ROOT, "relevance.js"));
-  return { Geo, Contrail, Visibility, Relevance };
+  global.Visibility = Visibility;
+  global.Relevance = Relevance;
+  const AircraftExtrapolation = require(path.join(ROOT, "aircraftExtrapolation.js"));
+  const Indicators = require(path.join(ROOT, "indicators.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators };
 }
 
 module.exports = { loadLogic };

@@ -12182,3 +12182,103 @@ does, just kept around afterward instead of discarded). No CI wiring
 into GitHub Actions yet either — currently a manual `node tests/run.js`,
 a real improvement over the prior zero but not yet automatic on every
 push/PR.
+
+## Test suite extended: `aircraftExtrapolation.js` + `indicators.js` (2026-09-18, same day)
+
+Direct follow-up, same day the first test-suite entry above shipped:
+"Add indicators.js and aircraftExtrapolation.js to the test suite."
+`tests/support/loadLogic.js` was extended to also load and export these
+two modules — `AircraftExtrapolation` needs no new global (it only calls
+`Geo`, already attached), but `Visibility`/`Relevance` now have to be
+attached to `global` before `indicators.js` is required, since it reads
+both as free identifiers the same way `visibility.js`/`relevance.js`
+already read `Geo`/`Contrail`. Re-ran the existing three test files
+immediately after this loader change to confirm it was backward-
+compatible before writing anything new against it.
+
+**`tests/logic/aircraftExtrapolation.test.js`** (27 checks) — the
+early-return guards all checked via reference identity (`assertSame`-
+style, via `===`), not `assertEquals`, matching the same discipline the
+Kotlin `AircraftExtrapolationTest.kt` port test already established for
+this exact function: missing `groundSpeedKt`, missing `trackDeg`,
+`onGround===true`, `elapsedSeconds===0`, and a negative
+`elapsedSeconds` clamping to 0 all correctly return the SAME instance
+back, not a reconstructed copy that merely looks equal. Normal
+extrapolation is cross-checked as an EXACT match against a direct
+`Geo.destinationPoint()` call with the same bearing/distance (not a
+looser/relational check — the real function is a thin wrapper around it
+with identical double arithmetic in the same order, so exact equality is
+the correct bar here), covering un-clamped extrapolation, a case far
+beyond `maxElapsedSeconds` (confirmed to use the CAPPED distance, and
+confirmed to genuinely differ from what the uncapped distance would have
+produced — proves real clamping is happening, not a coincidental match),
+and the exact-at-the-cap boundary. A field-preservation check confirms
+every other field survives extrapolation untouched, only lat/lon
+actually changing. `extrapolateAll()` checked for independent per-
+element handling and order preservation across a mixed list (no-track,
+on-ground, and normally-flying aircraft together), plus the trivial
+empty-list case.
+
+**`tests/logic/indicators.test.js`** (37 checks) — since `indicators.js`
+is purely an orchestration layer over four already-independently-
+verified modules, most checks either exercise pure filtering/sorting
+logic directly, or cross-check its output against a DIRECT call to the
+underlying module with the same inputs, rather than hand-deriving
+expected numbers:
+- `capForViewportWidth()`'s three tier boundaries (499/500/900/901px).
+- `build()`'s relevance filter (a dead-behind, non-converging aircraft
+  excluded); its suppression filter (excluded by hex regardless of
+  relevance, with an unsuppressed control case confirming the filter
+  itself is doing the work); its sort order (visibility score
+  descending, then distance ascending on ties) — verified with four
+  aircraft at three distinct, independently-confirmed tier labels
+  (`Certainly`/`Likely`/`Possibly visible` twice, via a direct
+  `Visibility.estimate()` call first) rather than assumed from the
+  aircraft's own setup parameters.
+- `buildAll()` including an irrelevant aircraft (confirmed via its own
+  `relevance.relevant === false`) and sorting purely by distance
+  regardless of relevance.
+- The hard staleness cutoff's exact `< threshold*3` (not `<=`) boundary,
+  and the separate `isStale` flag's own `> threshold` (not `>=`)
+  boundary — two different thresholds on the same underlying value,
+  checked independently.
+- `relativeTrackDeg` present (matching a direct
+  `Geo.calculateRelativeBearing()` call) when the aircraft transmits a
+  track, `null` when it doesn't.
+- Position cross-checks against a direct `Geo.projectToPolarPosition()`
+  call using the SAME inputs `_computeAll()` itself derives: a plain
+  dead-ahead case with no plot-region overrides (relying on
+  `undefined`, not `null`, for the omitted `anchorY`/`fovHalfAngleDeg`
+  fields — JS default parameters only trigger on `undefined`, and
+  `_computeAll()` reads `userState.anchorY` as a raw property read with
+  no `!= null` fallback of its own, so this had to be modeled precisely
+  to actually exercise `Geo`'s own defaults rather than silently passing
+  `null` through); a full RAW-style case with every plot-region override
+  (`plotWidth`/`plotHeight`/`plotOffsetX`/`plotOffsetY`/`plotSafeInset`/
+  `plotBandsNm`) set to values deliberately different from the plain
+  viewport, confirmed to differ from what the plain-viewport case would
+  produce (proving the override path is genuinely used, not
+  coincidentally matching); and `plotSafeInset: null` correctly falling
+  back to `safeInset` rather than jumping straight past it to `Geo`'s
+  own default.
+- A decoupling check: an aircraft nearly overhead at a bearing well
+  outside a 75° FOV half-angle is confirmed `relevant: true, reason:
+  "overhead"` (Relevance's overhead rule doesn't care about the FOV)
+  while `x`/`y` are both `null` (Geo's FOV restriction is a separate,
+  purely geometric concern) — the same decoupling
+  `IndicatorsTest.kt`'s own Kotlin port test already verified, checked
+  again here against the real JS source.
+
+**Both files passed on their first real run** — `aircraftExtrapolation.
+test.js` immediately (27/27); `indicators.test.js` also immediately
+(37/37), with no premise bugs this time (unlike the visibility.js
+contrail test in the entry above). **Full aggregate suite: 5 files, 172
+checks, all passing** (`geo.js` 50, `visibility.js` 31, `relevance.js`
+27, `aircraftExtrapolation.js` 27, `indicators.js` 37).
+
+`tests/README.md`'s own scope section updated to describe both new files
+and drop them from the "not yet covered" list. Not yet covered, unchanged
+from the entry above: `contrail.js` (still only exercised indirectly
+through `visibility.js`'s own contrail-rescue tests), `trafficRules.js`,
+the two network-fetch providers, the relay PHP files (still blocked on
+ROADMAP item #1 — no committed source), and any DOM/UI wiring.

@@ -37,8 +37,15 @@ already carries its own `module.exports` guard for exactly this).
 Started with the three highest-value, most self-contained pure-logic
 modules — `geo.js`, `visibility.js`, `relevance.js` — per ROADMAP.md's own
 recommendation that the pure-logic modules are "the cheapest and
-highest-signal place to start." Not yet covered: `indicators.js`,
-`aircraftExtrapolation.js`, `contrail.js` (exercised indirectly through
+highest-signal place to start." `aircraftExtrapolation.js` and
+`indicators.js` were added next — the latter is the orchestration layer
+over `Geo`/`Visibility`/`Relevance`/`AircraftExtrapolation` together, so
+its own tests lean on cross-checking its output against direct calls to
+those already-verified modules (e.g. `Indicators.buildAll()`'s computed
+`x`/`y` against an independent `Geo.projectToPolarPosition()` call with
+the same inputs) rather than re-deriving expected values by hand.
+
+Not yet covered: `contrail.js` (exercised indirectly through
 `visibility.js`'s contrail-rescue tests, but with no dedicated file of its
 own yet), `trafficRules.js`, `upperAirProvider.js`/`metarProvider.js`
 (network-fetch modules, would need a mocked `fetch`), and any DOM/UI
