@@ -2993,9 +2993,11 @@
   }
 
   /**
-   * Debounced input handler's target — geocodes `query` via OrsGeocoder and
-   * renders whatever comes back. Guarded with a token so a slow response to
-   * an earlier keystroke can't clobber a faster response to a later one.
+   * Debounced input handler's target — geocodes `query` via ActiveGeocoder
+   * (ORS/Pelias, supplemented by TomTom when ORS comes back thin — see
+   * src/routing/activeGeocoder.js) and renders whatever comes back.
+   * Guarded with a token so a slow response to an earlier keystroke can't
+   * clobber a faster response to a later one.
    */
   async function _searchDestination(query) {
     const text = (query || "").trim();
@@ -3006,7 +3008,7 @@
 
     const token = ++_destSearchToken;
     const focus = (userLat !== null) ? { lat: userLat, lon: userLon } : null;
-    const results = await OrsGeocoder.search(text, focus);
+    const results = await ActiveGeocoder.search(text, focus);
     if (token !== _destSearchToken) return; // superseded by a newer search
 
     UI.renderDestSearchResults(results, _onDestSearchResultSelected);

@@ -12761,3 +12761,151 @@ asked). Not done: no change to the native Android Auto port (same
 standing "synced in dedicated passes, not every change" note this file
 carries for every other PWA-only fix) — it has no 3D View equivalent at
 all today, so there's nothing there to sync.
+
+## Destination search misses legitimate named businesses — TomTom added as an automatic (not dev-gated) fallback geocoder (2026-09-19)
+
+Direct report: "When I've been testing it it isn't finding many of the
+places I search for. And they're not necessarily obscure places either
+for example a popular daycare center in formby from a national chain."
+Investigated by reading the real code rather than guessing: VCAS's
+destination search has always had exactly ONE geocoding source —
+`OrsGeocoder.search()`, hitting OpenRouteService's Pelias-based
+`/geocode/search` endpoint, called from a single site
+(`app.js`'s `_searchDestination()`). No fallback existed anywhere.
+
+**Real root cause, not a VCAS bug**: Pelias's geocoding data is strong
+for street addresses (OpenAddresses/WhosOnFirst/GeoNames-backed) but
+comparatively weak for named businesses/POIs, since that layer comes
+from manual OpenStreetMap tagging — genuinely patchy, especially for
+individual branches of national chains (one location of a chain may be
+tagged in OSM, a near-identical one two towns over may simply never have
+been). A Pelias miss was previously a total miss for VCAS users, with no
+second source to try. Gave the project owner two immediate workarounds
+(search by street address instead of business name; use the existing
+tap-the-map picker) and recommended TomTom's own Search API as a
+fallback, reusing the architectural pattern already proven for TomTom's
+existing routing integration (`tomtomProvider.js`/
+`activeRoutingProvider.js`, see the TomTom entries above). Confirmed via
+`AskUserQuestion`: **"Add TomTom as a fallback geocoder."**
+
+**Deliberately a different shape of integration from the TomTom routing
+provider, not a copy-paste of it** — the routing dispatcher SWAPS which
+provider is primary (a hidden dev-mode toggle, ORS vs TomTom, mutually
+exclusive per request, since routing is a genuinely experimental
+alternative). Geocoding needed the opposite: ORS/Pelias stays the
+permanent, always-queried primary, and TomTom is purely ADDITIVE —
+consulted only to supplement a weak ORS result set, its results MERGED
+in rather than replacing anything, and with **no user-facing toggle and
+no dev-mode gate at all**. This is a real, reported usability bug fix for
+every user, not an experimental power-user feature to opt into.
+
+**Request/response shape and CORS support verified against a real
+primary source — not guessed, and not needing a live device curl this
+time.** This sandbox still can't reach `developer.tomtom.com`/
+`docs.tomtom.com`/`api.tomtom.com` directly (confirmed again this
+session via `WebFetch`, all three blocked at the egress proxy) — but
+`registry.npmjs.org` IS reachable, and TomTom publishes its own official
+JavaScript SDK there (`@tomtom-org/maps-sdk`, description: "TomTom maps,
+search, geocoding, routing... for JavaScript"). Downloaded the real
+tarball and read the ACTUAL (unminified-in-structure, if not in variable
+names) request-building and response-parsing source directly, not just
+the `.d.ts` type declarations, and not a docs-page summary:
+
+- **Real endpoint, confirmed from the SDK's own `buildRequest` function**:
+  `GET https://api.tomtom.com/maps/orbis/places/search/
+  {encodeURIComponent(query)}.json` — the query is a URL PATH segment,
+  not a `?query=` param the way classic v1 or a naive guess might
+  assume. Same Orbis product family `tomtomProvider.js` already uses for
+  routing (`/maps/orbis/routing/calculateRoute`), not the classic v1
+  Search API.
+- **Real query params, confirmed from the SDK's own param-serialization
+  functions (`ge`/`Te`/`fe`)**: `apiVersion=1` (Search's own default,
+  distinct from Routing's `apiVersion=2`), `key`, `limit`, and — a real,
+  non-obvious difference from classic v1's combined `lat,lon` string —
+  position bias sent as two SEPARATE params, `lat` and `lon`.
+- **Real response shape, confirmed from the SDK's own
+  `CommonSearchPlaceResultAPI`/`AddressProperties`/`SearchPlaceProps`/POI
+  type declarations AND the real result-to-Feature mapping function
+  (`Ne`)**: `{ summary: {...}, results: [{ id, type, score, dist?,
+  position: {lat, lon}, address: { freeformAddress, municipality,
+  country, countryCode, postalCode, streetName, streetNumber, ... },
+  poi?: { name, categories, brands, phone, url, openingHours } }] }` —
+  `poi` present only for POI-type results (a named business), absent for
+  a plain street/address result.
+- **CORS**: the SDK's own `services` sub-package README states it's
+  usable directly from "browser + Node.js + React Native," and its real
+  `sendRequest` implementation for this exact endpoint (`q`, shared with
+  several other GET services in the SDK) is a plain `fetch(url, options)`
+  — no CORS-proxy/backend requirement anywhere in the SDK's own design.
+  Strong, but not 100% ironclad, evidence — unlike the sibling Orbis
+  Routing endpoint, whose CORS headers WERE directly observed via a real
+  device curl (see the TomTom Routing entries above), this endpoint's
+  live response headers haven't actually been seen yet. Flagged in both
+  `tomtomGeocoder.js`'s own header comment and ROADMAP.md as worth a real
+  on-device check once a key is filled in — if CORS turns out to be
+  missing here specifically, the existing try/catch already degrades
+  TomTom's contribution to "always empty," not a broken search.
+
+**`src/routing/tomtomGeocoder.js`** (new) — same public shape as
+`orsGeocoder.js`'s own `search(text, focus)` → `Promise<Array<{label,
+lat, lon}>>`, so `ActiveGeocoder` can treat the two interchangeably.
+`_labelFor()` combines `poi.name` + `address.freeformAddress` when a POI
+name exists ("Tops Day Nursery Formby, 1 Example Road, Formby,
+Merseyside L37 1AB") — TomTom splits these into two separate fields
+where ORS/Pelias's own `label` is already one combined human-readable
+string, so this reconstructs the equivalent. Same defensive shape as
+every other fetch-based provider in this codebase: blank key → `[]`
+with no network call at all (the normal, current state until a real key
+is filled in, not an error); sub-3-char query → `[]`; timeout/non-ok/
+thrown fetch → `[]`, never throws.
+
+**`src/routing/activeGeocoder.js`** (new) — the dispatcher
+`_searchDestination()` (`app.js`) now calls instead of `OrsGeocoder`
+directly. Always queries ORS first. Only also queries TomTom when BOTH
+`CONFIG.TOMTOM_API_KEY` is set AND ORS returned fewer than
+`MERGE_THRESHOLD` (3) results — "returns nothing (or too little)," per
+the project owner's own framing when confirming this fix, not tuned
+against real field data yet (same honest provenance this file's other
+tuned constants carry). TomTom results within `DEDUPE_DISTANCE_M` (120m)
+of an existing ORS result are dropped as duplicates (via `Geo.
+calculateDistanceMeters`, the same shared primitive every other distance
+check in this codebase already uses, not a second implementation) rather
+than shown twice; the merged list is capped at `MAX_MERGED_RESULTS` (8).
+
+**Verified with real Node execution against the actual shipped files, not
+reasoning alone** — 25 checks (mocked `fetch`/`CONFIG`, the real
+`geo.js`/`orsGeocoder.js`/`tomtomGeocoder.js`/`activeGeocoder.js`
+required fresh each time): blank key never even attempts a TomTom
+`fetch()` call, regardless of how thin ORS's results are; TomTom is
+correctly skipped when ORS already meets the threshold; the real
+reported scenario (ORS returns 0, TomTom configured) correctly calls
+TomTom, correctly drops a malformed no-position TomTom result, correctly
+finds the POI result, and correctly produces the exact combined
+`"{poi.name}, {freeformAddress}"` label using real position.lat/lon (not
+swapped, not from a wrong field); a plain non-POI TomTom result falls
+back to `freeformAddress` alone; a near-duplicate TomTom result is
+deduped against an existing ORS one while a genuinely distinct TomTom
+result is kept; a TomTom HTTP error and a thrown TomTom fetch both
+degrade cleanly to ORS's own results without `ActiveGeocoder` itself ever
+throwing; a sub-3-char query calls neither provider; the merge cap is
+enforced; and — a direct URL-construction check —
+`TomTomGeocoder.search()`'s real built URL matches the confirmed Orbis
+Search endpoint shape exactly, including `lat`/`lon` as separate params.
+All 25 pass against the real, shipped code. Re-ran the full existing
+`tests/` suite afterward (`node tests/run.js`) — still 249/249, unaffected
+since this change touches only `src/routing/`/`app.js`/`index.html`, none
+of `src/logic/`.
+
+**Config**: `CONFIG.TOMTOM_API_KEY` (`config.js`) is now documented as a
+SHARED key covering both the existing experimental routing provider and
+this new automatic geocoding fallback — same key, same combined
+free-tier quota pattern ORS's own single key already uses for
+Directions+Geocoding together. Still blank as of this entry; both
+integrations already degrade safely with no key set, so nothing breaks
+in the meantime.
+
+Not done, and not implied by this entry: no change to the native Android
+Auto port's own destination search (`OrsGeocoder.kt`, already ported —
+see the earlier native-port entries above) — same standing "synced in
+dedicated passes, not every change" note this file carries for every
+other PWA-only fix.

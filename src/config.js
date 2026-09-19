@@ -9,22 +9,49 @@ const CONFIG = {
   // Free OpenRouteService "Standard" API key — https://openrouteservice.org/dev/#/home
   ORS_API_KEY: "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjM1NzZmMDA4Nzc2OTQ3YzdiYjcwZWFjYzIzMDgwYTIwIiwiaCI6Im11cm11cjY0In0=",
 
-  // Optional, experimental second routing provider — TomTom's Orbis
-  // Routing API v2 (real-time-traffic-aware ETAs, unlike ORS's static
-  // pace), DRIVING ONLY — Orbis's own docs state travelMode's only
-  // allowed value is "car", so cycling/walking always use ORS regardless
-  // of this key (see src/routing/activeRoutingProvider.js). Confirmed
-  // 2026-09-16 directly from TomTom's own Orbis Routing docs (not a
-  // secondhand summary): the response headers table states
-  // `Access-Control-Allow-Origin: *` (wildcard) — no CORS relay needed,
-  // same as adsb.fi/aviationweather.gov's relays weren't an option for.
-  // Same docs also confirm Routing API pricing/quota (free up to 20,000
-  // requests/month) is identical whether using classic v1 or Orbis — no
-  // separate cost for choosing this. Leave blank to disable entirely; see
-  // activeRoutingProvider.js for the hidden dev-mode toggle that switches
-  // to it (ORS stays the default either way, and is always the fallback
-  // if a TomTom driving request fails). Get a free key at
-  // https://developer.tomtom.com.
+  // Shared key for TWO optional TomTom integrations — same key covers
+  // both, no separate signup (TomTom's Search and Routing APIs are billed
+  // under one combined key/quota, same as ORS's own combined
+  // Directions+Geocoding key above):
+  //
+  // 1. Second routing provider — TomTom's Orbis Routing API v2
+  //    (real-time-traffic-aware ETAs, unlike ORS's static pace), DRIVING
+  //    ONLY — Orbis's own docs state travelMode's only allowed value is
+  //    "car", so cycling/walking always use ORS regardless of this key
+  //    (see src/routing/activeRoutingProvider.js). Confirmed 2026-09-16
+  //    directly from TomTom's own Orbis Routing docs (not a secondhand
+  //    summary): the response headers table states
+  //    `Access-Control-Allow-Origin: *` (wildcard) — no CORS relay
+  //    needed, same as adsb.fi/aviationweather.gov's relays weren't an
+  //    option for. Leave blank to disable entirely; see
+  //    activeRoutingProvider.js for the hidden dev-mode toggle that
+  //    switches to it (ORS stays the default either way, and is always
+  //    the fallback if a TomTom driving request fails).
+  // 2. Destination-search fallback geocoder — TomTom's Orbis Search API
+  //    (fuzzy search over a licensed commercial POI dataset), queried
+  //    automatically (no toggle, no dev-mode gate — a real bug fix, not
+  //    an experimental feature) whenever ORS/Pelias's own geocoder comes
+  //    back with too few results for a free-text search. Fixes real,
+  //    reported cases where ORS/Pelias has no data for a legitimate,
+  //    non-obscure named business (see CLAUDE.md, "Destination search
+  //    misses legitimate named businesses") — Pelias's POI coverage comes
+  //    from manual OpenStreetMap tagging and is genuinely patchy for
+  //    individual branches of national chains; TomTom's own commercial
+  //    index often has them. See src/routing/activeGeocoder.js/
+  //    tomtomGeocoder.js. Request/response shape and CORS support were
+  //    both confirmed directly from TomTom's own official, npm-published
+  //    `@tomtom-org/maps-sdk` package source — see tomtomGeocoder.js's
+  //    own header comment for the full trail — not a live device curl
+  //    the way the routing endpoint's CORS was confirmed; worth a real
+  //    on-device check once a key is filled in.
+  //
+  // Both Routing API and Search API pricing/quota are free up to 20,000
+  // requests/month each, per TomTom's own pricing table (confirmed
+  // 2026-09-16 for Routing; Search's own line item wasn't independently
+  // re-checked but is listed the same way in the same table). Get a free
+  // key at https://developer.tomtom.com. Leave this blank to disable BOTH
+  // integrations — each one already degrades safely (never a crash, never
+  // a broken search/route) with no key set.
   TOMTOM_API_KEY: "",
 
   // ---- ADS-B data provider(s) ----
