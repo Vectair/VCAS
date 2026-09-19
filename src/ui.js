@@ -1286,6 +1286,19 @@ const UI = (() => {
   // just shows, nothing to declutter at this scale). Reuses _displayColor
   // so a 3D View dot always matches the same colourblind-safe/plain
   // colour choice every other view already makes for that aircraft.
+  //
+  // Dot size/opacity/label distance (2026-09-19, direct report: "it's
+  // giving the same relevance to all aircraft regardless of [distance/
+  // visibility likelihood]") — View3DLogic.dotAppearance() derives a
+  // size (real apparent angular size, so a big/close aircraft reads as
+  // a genuinely bigger dot) and an opacity (final visibility confidence,
+  // so a low-likelihood sighting fades rather than shouting as loud as a
+  // certain one) from the same Visibility.estimate() fields already
+  // flowing through `item.vis` — no new computation here, this function
+  // only applies what that pure module already derived. Distance is
+  // spelled out in the label text too (not left to size perception
+  // alone), matching how RAW's own labels put real numbers in text
+  // rather than relying purely on a visual scale.
 
   function render3DView(items, onItemClick) {
     const container = document.getElementById("view3d-items");
@@ -1293,11 +1306,14 @@ const UI = (() => {
 
     container.innerHTML = items.length === 0 ? "" : items.map(item => {
       const color = _displayColor(item.vis);
-      const label = _escapeHtml(item.aircraft.callsign || item.aircraft.hex);
+      const { sizePx, opacity } = View3DLogic.dotAppearance(item.vis.angularSizeDeg, item.vis.score);
+      const callsign = _escapeHtml(item.aircraft.callsign || item.aircraft.hex);
+      const distanceText = item.vis.slantRangeNm != null ? item.vis.slantRangeNm.toFixed(1) + "nm" : "";
+      const label = distanceText ? `${callsign} · ${distanceText}` : callsign;
       const hex = _escapeHtml(item.aircraft.hex);
       return `
-        <div class="view3d-dot" data-hex="${hex}" style="left:${item.x}px;top:${item.y}px;">
-          <div class="view3d-dot-marker" style="background:${color}"></div>
+        <div class="view3d-dot" data-hex="${hex}" style="left:${item.x}px;top:${item.y}px;opacity:${opacity};">
+          <div class="view3d-dot-marker" style="background:${color};width:${sizePx}px;height:${sizePx}px;"></div>
           <div class="view3d-dot-label">${label}</div>
         </div>`;
     }).join("");

@@ -12661,3 +12661,103 @@ data classes already carried every field this fix needed (`color`/
 logic-layer change was needed, mirroring how the PWA fix itself never
 touched `visibility.js`. The real remaining check is still opening this
 in Android Studio and building it, same as every prior native pass.
+
+## 3D View: dot size/opacity now scale with real distance and visibility likelihood (2026-09-19)
+
+Direct report: "we need a way of improving the way distance and
+visibility likelihood is shown in 3D mode. Right now it's giving the
+same relevance to all aircraft regardless of these two." Confirmed by
+reading `UI.render3DView()` directly — real bug, not a misreading: every
+dot was a fixed 14px circle at full opacity, differing only by tier
+colour (`.view3d-dot-marker`'s CSS had a hardcoded `width:14px;
+height:14px`, no opacity rule anywhere on `.view3d-dot`/`.view3d-dot-
+marker` at all) — a tiny, barely-visible contrail-rescue aircraft at
+40nm rendered exactly as prominently as a huge airliner passing directly
+overhead.
+
+**Fix reuses already-computed `Visibility.estimate()` fields — no new
+physics, no new fetch, purely a rendering change.** `app.js`'s
+`refresh3DView()` already builds each 3D View item's `vis` from
+`Indicators.buildAll()` (itself built on `Visibility.estimate()`), which
+already carries both `angularSizeDeg` (the aircraft's real apparent
+size — wingspan/length over slant range, the same number that decides
+its base tier before any contrail/METAR/local-obstruction/staleness
+adjustment) and `score` (the FINAL confidence, 10/33/66/100, after every
+one of those adjustments — can diverge from `angularSizeDeg` via the
+contrail floor, a weather/obstruction cap, or a staleness degrade).
+Deliberately uses BOTH, not just one: a small-but-confidently-rescued
+contrail and a large-but-weather-capped jet now read as visibly
+different from each other, rather than both collapsing into one
+"aircraft exists" signal the way a single combined metric would.
+
+New `View3DLogic.dotAppearance(angularSizeDeg, score)` (pure function,
+`src/logic/view3dLogic.js`) — `sizePx` linearly maps `angularSizeDeg`
+from 0 up to a new tuned constant `DOT_REF_ANGULAR_DEG` (1.0°,
+deliberately above the 0.5° "Certainly visible" tier cutoff so only a
+genuinely close/large aircraft saturates the dot at its own maximum
+size) onto `[DOT_MIN_PX, DOT_MAX_PX]` (8px/22px), clamped at both ends;
+`opacity` maps `score` (already bounded 10-100) onto `[DOT_MIN_OPACITY,
+1]` via a plain `score/100`, floored at `DOT_MIN_OPACITY` (0.3) so even
+a "Very unlikely" (score 10) aircraft stays faintly visible/tappable
+rather than vanishing outright — matching how the PWA's own hollow
+"Very unlikely" SVG icon (`fillOpacity:0` in `visibility.js`'s
+`CATEGORIES` table) still has a visible stroke everywhere else in the
+app, never a literal zero-opacity nothing. Same honest "reasonable
+starting guess, not physically derived" provenance this file already
+carries for `FOV_HALF_H_DEG`/`CONTRAIL_MIN_ALTITUDE_FT`/etc. — pending
+real field calibration once this has actually been used to find real
+aircraft.
+
+`UI.render3DView()` (`ui.js`) calls `dotAppearance()` once per item and
+applies `opacity` to the outer `.view3d-dot` container (so the label
+fades along with the marker, not just the marker alone) and `sizePx` to
+`.view3d-dot-marker`'s own inline `width`/`height` (overriding the CSS
+rule's now-fallback-only 14px). **Distance is also spelled out directly
+in the label text** (`"BIGJET1 · 0.9nm"`, using `vis.slantRangeNm`,
+already computed), not left to size perception alone — matching how
+RAW's own labels put real numbers in text rather than relying purely on
+a visual scale.
+
+**Verified with real execution, this project's own established
+discipline, at two levels**: (1) 13 real Node checks against the actual
+shipped `dotAppearance()` — exact boundary values at `angularSizeDeg=0`/
+`=DOT_REF_ANGULAR_DEG`/`>DOT_REF_ANGULAR_DEG` (correctly clamped, no
+overshoot), the exact midpoint size at half the reference angle, the
+exact `score/100` opacity at 33/66/100, the `DOT_MIN_OPACITY` floor at
+score 10 (and at a hypothetical negative score), strict monotonicity on
+both axes, degenerate `undefined` inputs degrading to the safe minimums
+rather than `NaN`, and — the specific property this whole fix exists to
+prove — the same `angularSizeDeg` at two different tier scores producing
+two different opacities (confirming score drives opacity independently
+of size, not the other way round). (2) A real Playwright/Chromium
+harness driving the actual, unmodified `ui.js`/`view3dLogic.js`/
+`visibility.js`/`geo.js` (not stubs) — built two real aircraft via an
+actual `Visibility.estimate()` call each (a huge A388 ~0.9nm away vs. a
+small C172 ~32nm away, not hand-typed `vis` objects), called the real,
+shipped `UI.render3DView()`, and read back the REAL rendered DOM: the
+close/large aircraft's marker is genuinely wider and taller than the
+far/small one's, genuinely more opaque, and its label genuinely includes
+a distance figure matching `vis.slantRangeNm` to one decimal place; the
+far aircraft's dot still renders at/above the 0.3 floor rather than
+vanishing; click-wiring and the empty-list-clears-the-container path
+were both re-confirmed unaffected. A real screenshot (see this session's
+own delivered image) confirms the visual result reads correctly: a
+large, bright, fully-opaque red dot for the close/certain aircraft next
+to a tiny, faded, barely-visible dot for the far/unlikely one. Also
+re-ran the full existing `tests/` suite (`node tests/run.js`) — still
+249/249, unaffected, since this change touches only `ui.js`/
+`view3dLogic.js`, neither of which any existing test file covers, and no
+other `src/logic/` file was touched.
+
+**Explicit scope, not silently implied to be more**: no change to
+`.view3d-dot-marker`'s border/box-shadow (still a fixed white
+1.5px-border + drop-shadow regardless of size/opacity — a deliberate
+choice, not an oversight, since a size-scaled border on an 8px dot would
+start to visually dominate the fill at the small end); no change to
+`#view3d-crosshair` or the compass-tick strip's own rendering; no change
+to how RAW/AIR/Hybrid render aircraft (their own decluttering/label
+systems are untouched, this pass is 3D-View-only, matching what was
+asked). Not done: no change to the native Android Auto port (same
+standing "synced in dedicated passes, not every change" note this file
+carries for every other PWA-only fix) — it has no 3D View equivalent at
+all today, so there's nothing there to sync.

@@ -151,9 +151,61 @@ const View3DLogic = (() => {
     return ticks;
   }
 
+  // Dot prominence (2026-09-19, direct report: "it's giving the same
+  // relevance to all aircraft regardless of [distance/visibility
+  // likelihood]"). Every aircraft dot used to render at a fixed 14px/
+  // full-opacity regardless of how big it'd actually look or how
+  // confident Visibility.estimate() actually is — the same uniform-
+  // prominence problem this project has already fixed once for a
+  // different display (RAW's own banded polar scale exists precisely so
+  // "does distance correlate with plotted position" holds — see
+  // CLAUDE.md's "Rings and dots share one scale" history). 3D View has
+  // no equivalent scale at all: dotAppearance() is the fix, driven by
+  // two ALREADY-COMPUTED Visibility.estimate() fields rather than new
+  // physics — angularSizeDeg (real apparent size: wingspan/length over
+  // slant range, the same number that decides which tier an aircraft
+  // falls into before any contrail/METAR/obstruction adjustment) sizes
+  // the dot, and score (the FINAL confidence after every adjustment —
+  // can diverge from angularSizeDeg via the contrail floor, a METAR/
+  // upper-air/local-obstruction cap, or staleness degrade) sets its
+  // opacity. Using both, not just one, means a small-but-confidently-
+  // rescued contrail and a large-but-weather-capped jet read distinctly
+  // different from each other, not collapsed into one "aircraft exists"
+  // signal.
+  //
+  // Same honest "reasonable starting guess, not physically derived"
+  // provenance as FOV_HALF_H_DEG/FOV_HALF_V_DEG above — DOT_REF_ANGULAR_DEG
+  // (1.0°) is comfortably above the 0.5° "Certainly visible" tier cutoff
+  // (visibility.js's own CATEGORIES table), so only a genuinely close/large
+  // aircraft saturates the dot at its maximum size; most real sightings
+  // will land well under it. MIN_DOT_OPACITY (0.3) keeps even a
+  // score:10 ("Very unlikely") aircraft faintly visible/tappable rather
+  // than invisible — matching how the PWA's own hollow "Very unlikely"
+  // SVG icon (fillOpacity:0 in CATEGORIES) still has a visible stroke
+  // elsewhere in the app, never a literal zero-opacity nothing.
+  const DOT_MIN_PX = 8;
+  const DOT_MAX_PX = 22;
+  const DOT_REF_ANGULAR_DEG = 1.0;
+  const DOT_MIN_OPACITY = 0.3;
+
+  /**
+   * @param {number} angularSizeDeg  Visibility.estimate()'s own real
+   *   apparent-size figure (degrees) — bigger/closer aircraft, bigger dot.
+   * @param {number} score  Visibility.estimate()'s own final confidence
+   *   score (10-100) — more likely to actually be seen, more opaque dot.
+   * @returns {{sizePx:number, opacity:number}}
+   */
+  function dotAppearance(angularSizeDeg, score) {
+    const sizeT = Math.max(0, Math.min(1, (angularSizeDeg || 0) / DOT_REF_ANGULAR_DEG));
+    const sizePx = DOT_MIN_PX + sizeT * (DOT_MAX_PX - DOT_MIN_PX);
+    const opacity = Math.max(DOT_MIN_OPACITY, Math.min(1, (score || 0) / 100));
+    return { sizePx, opacity };
+  }
+
   return {
-    projectTo3DPosition, horizonScreenY, compassTicks, shouldUpdateFrame,
+    projectTo3DPosition, horizonScreenY, compassTicks, shouldUpdateFrame, dotAppearance,
     FOV_HALF_H_DEG, FOV_HALF_V_DEG, FRAME_UPDATE_THRESHOLD_DEG,
+    DOT_MIN_PX, DOT_MAX_PX, DOT_REF_ANGULAR_DEG, DOT_MIN_OPACITY,
   };
 })();
 
