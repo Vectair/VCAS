@@ -263,12 +263,15 @@
     // Real icon-drawing code (AircraftSymbol.svg) and the real tier table
     // (Visibility.getCategories()) — not hand-approximated shapes/colours —
     // so this can't silently drift from what the app actually renders.
-    // Colour comes from UI.displayColor(), the SAME theme/colourblind-aware
+    // Colour comes from UI.displayColor(), the SAME colourblind-aware
     // selection every live indicator/marker/popup already uses (2026-09-14
     // colorblind audit) — a real, previously-shipped gap: this used to read
     // cat.color directly, always the plain (non-colourblind) palette, so a
     // colourblind user turning that setting on would see a legend
     // describing colours they'd never actually see rendered on screen.
+    // Since displayColor() now returns the same colours in every style
+    // (2026-09-19), this legend automatically matches too, with zero
+    // change needed here.
     container.innerHTML = Visibility.getCategories()
       .map((cat) => {
         const icon = AircraftSymbol.svg(cat.shape, UI.displayColor(cat), 22, cat.fillOpacity);

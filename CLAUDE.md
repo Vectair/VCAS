@@ -12417,3 +12417,143 @@ from the entries above: the two network-fetch providers
 (`upperAirProvider.js`/`metarProvider.js`), the relay PHP files (still
 blocked on ROADMAP item #1 — no committed source), and any DOM/UI
 wiring.
+
+## Indicator colours brought in line with RAW across AIR, Hybrid, and 3D View (2026-09-19)
+
+Direct instruction: "bring the indicator colours in the other 3 screens
+in line with the colors in the RAW screen. The exception of course
+being color blind, that should stay as is." Read the actual colour-
+selection code in all four places before touching anything, per this
+project's own established discipline: `ui.js`'s `_displayColor()`
+(shared by RAW/Hybrid's `renderIndicators()`/`renderSuppressedDots()`
+and 3D View's `render3DView()`, plus both `showPopup()`/`showAirPopup()`)
+and `map.js`'s own separate, necessarily-duplicated copy (AIR's
+`_airMarkerHtml()` — a different module, documented as "field-for-field
+consistent" with ui.js's version, not a shared function).
+
+**Root cause of the divergence**: `visibility.js`'s `CATEGORIES` table
+carries five colour fields per tier — `color`/`colorDay` (a plain
+Night/Day-theme-following pair) and `colorRaw` (pixel-sampled directly
+from a real TCAS/ND cockpit reference photo — see "RAW mode fidelity"
+above). `_displayColor()` only ever picked `colorRaw` when
+`NavDisplayStyle.isRaw()` was true — AIR/Hybrid always used the plain
+`color`/`colorDay` pair instead, and 3D View's own colour depended on
+whatever the user's Hybrid/Raw *preference* happened to be set to
+(the documented "isRaw() isn't mode-scoped" gotcha), not which screen
+was actually showing.
+
+**Fix**: both `_displayColor()` copies (`ui.js`, `map.js`) now return
+`vis.colorRaw || vis.color` unconditionally once past the colourblind
+check — dropping the `NavDisplayStyle`/`colorDay` branch entirely, so
+every screen renders RAW's exact hex values. The colourblind override
+is untouched: still checked first, still wins regardless of style,
+exactly as before — verified explicitly (see below), not just assumed
+from leaving that branch alone.
+
+**A real, necessary consequence, not scope creep: two of the four tiers
+(`colorRaw` `#ffffff` for "Possibly visible"/"Very unlikely") were only
+ever designed against RAW's own always-black background.** Applying them
+in Hybrid/AIR's Day theme, where `.indicator-label`/`.air-label-box` used
+to follow the resolved theme (a near-white box in Day), would have made
+those two tiers' icons and box text genuinely invisible — the *exact*
+problem this file already documents RAW itself solving once, for RAW
+alone, back when RAW first adopted `colorRaw` (see "RAW mode fidelity"):
+"Day's near-white background behind a white diamond icon... is illegible
+in every direction at once." Extended that same fix universally instead
+of re-solving it a second time later: `.indicator-label`'s and
+`.air-label-box`'s backgrounds are now unconditionally the dark value
+(`rgba(14,17,23,.88)`, the same literal RAW always used) with no Day-theme
+override left to win by specificity, and `.actype`/`.indicator-altitude`
+in both are now unconditionally `#f0f0f0` rather than following
+`--text-secondary`'s own Day/Night value (which assumed a box that no
+longer changes with theme). The now-fully-unused `--label-bg` custom
+property (only ever consumed by these two selectors, confirmed via a
+repo-wide grep before removing it) was deleted from all three of its
+declaration sites (`:root`, the Day-theme block, the RAW-scoped block)
+rather than left as a disabled shell.
+
+**A second, adjacent legibility gap found and fixed in the same pass,
+also a necessary consequence rather than an independent ask**:
+`AircraftSymbol.svg()`'s own doc comment already states the plan for
+this exact scenario — the stroke always matches the fill colour
+(necessary for the hollow "Very unlikely" tier, where the stroke IS the
+whole visible shape), so "edge definition against light day-theme
+backgrounds... comes from the CSS drop-shadow already applied to
+`.indicator-shape`/`.air-icon`." That shadow was a single, downward-
+offset blur (`0 1px ...`) — fine against RAW's uniform black, insufficient
+around a white icon sitting on Hybrid's or AIR's own real map tiles
+(pale roads/fields/buildings can appear anywhere, not just below the
+icon). Added a second, non-offset (`0 0`) all-around dark halo
+drop-shadow layered on top of the original directional one, on
+`.indicator-shape` and `.air-icon` — the same "stack two drop-shadows"
+pattern `.selected`/`.rule-highlight` already used for their own glow
+rings. Since a `filter` declaration fully replaces an ancestor's rather
+than merging with it, the `.selected`/`.rule-highlight` override rules
+for both `.indicator-shape` and `.air-icon` needed the same halo added
+alongside their own glow, or a selected/highlighted white-tier icon
+would have silently lost its new edge definition the moment it was
+tapped or matched by a Traffic Rule. 3D View's own dot marker
+(`.view3d-dot-marker`) needed no equivalent change — it already carries
+a real `box-shadow: 0 0 6px rgba(0,0,0,.6)` (uniformly surrounding, not
+directional) plus a `.85`-opacity white border, confirmed sufficient by
+a real screenshot against a light day-sky backdrop rather than assumed.
+
+**Verified with a real Playwright/Chromium harness** (this sandbox's
+locally-installed `playwright` npm package driven against the
+pre-installed Chromium binary, a `file://`-origin page so
+`localStorage` — needed by `ColorblindMode`/`TrafficRules` — is actually
+available, not `page.setContent()`'s opaque-origin default) loading the
+real, unmodified `geo.js`/`visibility.js`/`colorblindMode.js`/
+`themeManager.js`/`aircraftSymbol.js`/`trafficRules.js` (both the pure-
+logic and state modules)/`navDisplayStyle.js`/`ui.js` via `<script>`
+tags, plus the real `VCAS.css`: 32 checks total, all passing against the
+real, shipped code —
+- `UI.displayColor()` returns the real `colorRaw` value for all four
+  tiers, in both Night and Day theme, confirming Night/Day now produce
+  IDENTICAL colour sets (no more `colorDay` divergence);
+- colourblind mode, toggled on, still returns `colorblindSafe`/
+  `colorblindSafeDay` correctly in both themes — completely unaffected;
+- a real `UI.renderIndicators()` call in Day theme for the white-fill
+  "Possibly visible" tier produces a `.indicator-label` background of
+  exactly `rgba(14, 17, 23, 0.88)` (not the old light value),
+  `.actype`/`.indicator-altitude` text of exactly `rgb(240, 240, 240)`,
+  a border-color alpha of `0x33` (not the old day-theme `0xcc`), the
+  rendered `<svg>` shape's own `fill` attribute genuinely `#ffffff`, and
+  `.indicator-shape`'s computed `filter` carrying exactly two
+  `drop-shadow()` layers;
+- the same dark-box/light-text/two-shadow pattern confirmed for
+  `.air-label-box`/`.air-icon` (AIR's own markup);
+- `.selected`/`.rule-highlight` states on `.indicator-shape` confirmed
+  to carry all THREE expected `drop-shadow()` layers (their own glow +
+  the new dark halo + the original offset shadow) — the specific
+  "filter replaces, doesn't merge" risk named above;
+- `getComputedStyle(document.documentElement).getPropertyValue(
+  "--label-bg")` resolves to an empty string, confirming the variable is
+  genuinely gone, not just unreferenced;
+- `UI.render3DView()` confirmed rendering the same `colorRaw` white for
+  the same tier;
+- a real screenshot of the rendered indicator against a light
+  (`#eaeef1`) backdrop shows the white diamond icon, its direction
+  arrow, and its dark label box all clearly legible — the concrete,
+  visual confirmation the halo fix actually works, not just that the
+  computed `filter` string looks plausible; a second screenshot of 3D
+  View's dot marker against a light day-sky blue backdrop confirms its
+  own pre-existing box-shadow treatment needed no change.
+
+Also ran the full existing `tests/` suite (`node tests/run.js`) — still
+249/249, unaffected, since this change touches only `ui.js`/`map.js`/
+`app.js`/`VCAS.css`, none of `src/logic/`.
+
+**Honest status**: the popup's own `.pop-vis-badge` (`#popup`,
+`showPopup()`/`showAirPopup()`) was checked by reading its CSS rather
+than a fresh render — its text colour is a fixed `#000` regardless of
+background, and every one of the four `colorRaw` values (including pure
+white) already gives black text comfortable contrast, so no change was
+needed there; not independently screenshotted this pass, since nothing
+about it actually changed.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own Kotlin `Visibility.kt`/
+`PhoneAircraftIcons.kt`/`RawPlotView.kt` still implement the old
+per-style colour selection this round just replaced in the web app.

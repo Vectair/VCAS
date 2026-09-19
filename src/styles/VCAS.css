@@ -49,7 +49,6 @@
   --shadow:         0 4px 20px rgba(0,0,0,.6);
   --bar-bg-rgb:     18,24,28;
   --overlay-bg-rgb: 18,24,28;
-  --label-bg:       rgba(18,24,28,.82);
   /* "Lighting" language for switch-cap-style buttons (#btn-settings,
      .mode-btn, #btn-recenter, .dpb-mode-btn, .settings-toggle-btn,
      .settings-preset-btn, .route-btn, #btn-raw-range, #btn-settings-close)
@@ -129,7 +128,6 @@ body[data-theme="day"] {
   --shadow:         0 4px 20px rgba(0,0,0,.12);
   --bar-bg-rgb:     212,221,226;
   --overlay-bg-rgb: 212,221,226;
-  --label-bg:       rgba(237,240,243,.92);
   --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.10);
   --btn-shadow-active: inset 0 1px 3px rgba(0,0,0,.18), inset 0 -1px 0 rgba(255,255,255,.5);
 }
@@ -167,7 +165,6 @@ body[data-mode="nav"][data-nav-style="raw"] {
   --shadow:         0 4px 20px rgba(0,0,0,.6);
   --bar-bg-rgb:     18,24,28;
   --overlay-bg-rgb: 18,24,28;
-  --label-bg:       rgba(18,24,28,.82);
   --btn-shadow:        inset 0 1px 0 rgba(255,255,255,.08), inset 0 -1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.5);
   --btn-shadow-active: inset 0 1px 4px rgba(0,0,0,.65), inset 0 -1px 0 rgba(255,255,255,.04);
   /* --raw-chrome-bg and --raw-value-green/--raw-value-cyan all live in
@@ -1223,7 +1220,11 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
    UI.selectAircraft in ui.js). A glow rather than fighting .indicator-label's
    own inline border-color (set per-aircraft by _borderColor()) avoids
    needing !important to win the specificity fight against an inline style. */
-.indicator.selected .indicator-shape { filter: drop-shadow(0 0 4px #ffff00) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+/* filter fully replaces .indicator-shape's own (it doesn't merge across
+   selectors) — so the 2026-09-19 dark halo added there is repeated here
+   too, or a selected/highlighted white-tier icon would lose its edge
+   definition against a light map the moment it's tapped/matched. */
+.indicator.selected .indicator-shape { filter: drop-shadow(0 0 4px #ffff00) drop-shadow(0 0 2px rgba(0,0,0,.7)) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
 .indicator.selected .indicator-label { box-shadow: 0 0 0 2px #ffff00; }
 
 /* User-defined highlight rules (src/logic/trafficRules.js) — same glow-ring
@@ -1232,7 +1233,7 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
    (--rule-highlight-color) rather than a second hardcoded colour. Applied
    independently of .selected — an aircraft can be both selected (tapped)
    and rule-highlighted at once, and both rings simply stack. */
-.indicator.rule-highlight .indicator-shape { filter: drop-shadow(0 0 5px var(--rule-highlight-color)) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+.indicator.rule-highlight .indicator-shape { filter: drop-shadow(0 0 5px var(--rule-highlight-color)) drop-shadow(0 0 2px rgba(0,0,0,.7)) drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
 .indicator.rule-highlight .indicator-label { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
 
 /* "Something's out there" edge marker (RAW range selector, ui.js's
@@ -1281,7 +1282,19 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+  /* Strengthened 2026-09-19 alongside the colour-alignment change below: two
+     of the four tiers now render pure white (colorRaw) in every style, not
+     just RAW's always-black background — AircraftSymbol.svg's own comment
+     already flags the drop-shadow here as what carries edge definition
+     against a light background, since the stroke matches the fill colour
+     (necessarily, for the hollow "Very unlikely" tier). The old shadow was
+     a single downward-offset blur — fine against RAW's uniform black, not
+     enough for a white icon sitting on Hybrid's own light map tiles (pale
+     roads/fields/buildings). Added a second, non-offset (0 0) dark halo
+     that surrounds the icon on every side, on top of the original
+     directional shadow (kept for depth) — the same "stack two drop-shadows"
+     pattern .selected/.rule-highlight below already use. */
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.7)) drop-shadow(0 1px 2px rgba(0,0,0,.55));
 }
 
 /* Direction-of-travel indicator — anchored at the shape's own centre (not
@@ -1309,7 +1322,7 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: var(--label-bg);
+  background: rgba(14,17,23,.88);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 3px 7px;
@@ -1317,43 +1330,35 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   text-align: center;
 }
 
-body[data-theme="day"] .indicator-label {
-  background: rgba(245,243,238,.88);
-}
-
-/* RAW's map/traffic colours are always forced dark regardless of Day/
-   Night/Auto (see colorRaw in visibility.js), but the label BOX itself
-   still followed the resolved theme — Day's near-white background behind
-   a white diamond icon, both rendered over RAW's forced-black map, is
-   illegible in every direction at once. Wins over the Day override above
-   via source order (this rule comes later) even though data-theme="day"
-   and data-nav-style="raw" are both present on <body> simultaneously.
-   (Border colour isn't set here — .indicator-label's border-color is
-   inline per-element, from _borderColor() in ui.js, which is RAW-aware
-   for the same reason.) */
-body[data-mode="nav"][data-nav-style="raw"] .indicator-label {
-  background: rgba(14,17,23,.88);
-}
-body[data-mode="nav"][data-nav-style="raw"] .indicator-label .actype,
-body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude {
-  color: #f0f0f0;
-}
-
+/* The label box is unconditionally dark now, not just in RAW (2026-09-19 —
+   see VCAS.css's own .indicator-shape comment and CLAUDE.md's "indicator
+   colours brought in line with RAW" entry). Every display style's aircraft
+   indicators now share RAW's own colorRaw palette, including colours (the
+   "Possibly visible"/"Very unlikely" tiers' pure white) that were only ever
+   designed against a dark background — a near-white Day-theme box behind a
+   white diamond icon was illegible in every direction at once, the exact
+   problem this box's own RAW-only override used to solve just for RAW.
+   The old Day-theme-following background (rgba(245,243,238,.88)) and the
+   old RAW-only override (which is now what the base rule always is) are
+   both gone — this is just what the box looks like in every style now.
+   Same reasoning below: .actype/.indicator-altitude are unconditionally
+   light text rather than following --text-secondary's own Day/Night value,
+   which assumed a box that changed with theme and no longer does. (Border
+   colour isn't set here — .indicator-label's border-color is inline
+   per-element, from _borderColor() in ui.js.) */
 .indicator-label .actype {
   font-size: 10px;
-  color: var(--text-secondary);
+  color: #f0f0f0;
   line-height: 1.3;
 }
 
 .indicator-label .indicator-altitude {
-  /* --text-muted is too low-contrast against the day theme's pale label
-     background (tuned for subtle chrome, not label text) — reuse
-     --text-secondary, same as .actype, just one size smaller. B612 Mono —
-     a real TCAS/ND traffic tag's altitude readout is a digital/monospace
-     figure, unlike the type string above it, which stays on B612. */
+  /* B612 Mono — a real TCAS/ND traffic tag's altitude readout is a
+     digital/monospace figure, unlike the type string above it, which
+     stays on B612. */
   font-family: 'B612 Mono', monospace;
   font-size: 9px;
-  color: var(--text-secondary);
+  color: #f0f0f0;
   line-height: 1.3;
   margin-top: 1px;
 }
@@ -1390,11 +1395,20 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,.8));
+  /* Second (0 0, non-offset) dark halo added 2026-09-19, same reasoning as
+     .indicator-shape's own comment above — AIR markers now render the same
+     colorRaw palette (including pure white for two tiers) against AIR's
+     real map tiles, which can be just as light as Hybrid's. */
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.75)) drop-shadow(0 1px 3px rgba(0,0,0,.8));
 }
 
+/* Unconditionally dark now, not just in Night theme (2026-09-19) — same
+   reasoning as .indicator-label's own comment above: AIR's markers use the
+   same colorRaw palette in every theme now, including pure white for two
+   tiers, which needs a dark box behind it regardless of Day/Night. The old
+   Day-theme-following background is gone. */
 .air-label-box {
-  background: var(--label-bg);
+  background: rgba(14,17,23,.88);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 1px 5px;
@@ -1403,17 +1417,13 @@ body[data-mode="nav"][data-nav-style="raw"] .indicator-label .indicator-altitude
 
 /* User-defined highlight rules (src/logic/trafficRules.js) — AIR mode's
    equivalent of .indicator.rule-highlight above. .air-icon already carries
-   its own drop-shadow, so the override combines both into one filter value
-   rather than replacing it (a later `filter` declaration doesn't merge with
-   an earlier one the way box-shadow's comma-list does). */
+   its own drop-shadow(s), so the override combines all of them into one
+   filter value rather than replacing it (a later `filter` declaration
+   doesn't merge with an earlier one the way box-shadow's comma-list does). */
 .air-marker-inner.rule-highlight .air-icon {
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,.8)) drop-shadow(0 0 5px var(--rule-highlight-color));
+  filter: drop-shadow(0 0 2px rgba(0,0,0,.75)) drop-shadow(0 1px 3px rgba(0,0,0,.8)) drop-shadow(0 0 5px var(--rule-highlight-color));
 }
 .air-marker-inner.rule-highlight .air-label-box { box-shadow: 0 0 0 2px var(--rule-highlight-color); }
-
-body[data-theme="day"] .air-label-box {
-  background: rgba(245,243,238,.88);
-}
 
 .air-label-box .callsign {
   font-size: 10px;
@@ -1421,18 +1431,23 @@ body[data-theme="day"] .air-label-box {
   line-height: 1.3;
 }
 
+/* Unconditionally light text now, not following --text-secondary's own
+   Day/Night value — see .air-label-box's own comment above, same
+   reasoning as .indicator-label .actype. */
 .air-label-box .actype {
   font-size: 9px;
-  color: var(--text-secondary);
+  color: #f0f0f0;
   line-height: 1.3;
 }
 
 .air-label-box .indicator-altitude {
   /* Same reasoning as .indicator-label .indicator-altitude above — a
-     digital altitude readout, not display-face label text. */
+     digital altitude readout, not display-face label text. Colour is
+     unconditionally light now (2026-09-19), not --text-secondary — see
+     .air-label-box's own comment above. */
   font-family: 'B612 Mono', monospace;
   font-size: 8px;
-  color: var(--text-secondary);
+  color: #f0f0f0;
   line-height: 1.3;
 }
 

@@ -322,39 +322,36 @@ const UI = (() => {
   // ---- Edge indicators ----
 
   /**
-   * The category `color` values are tuned for the night theme's dark
-   * background; on the day theme's light one, the same colors (especially
-   * the yellow) are a near-worst-case low-contrast pairing. `colorDay` is a
-   * darker, theme-safe variant for exactly that case. When the colorblind
-   * toggle is on, swaps to the Okabe-Ito-based colorblindSafe/
-   * colorblindSafeDay pair instead — see visibility.js for why. Falls back
-   * to `color` if a caller ever passes a vis object missing a variant.
+   * Every display style's aircraft indicators now share RAW's own
+   * `colorRaw` palette (2026-09-19, direct instruction: "bring the
+   * indicator colours in the other 3 screens in line with the colors in
+   * the RAW screen") — not just RAW itself. This used to branch on
+   * NavDisplayStyle.isRaw() and fall back to the day/night-shifted
+   * `colorDay`/`color` pair everywhere else; that branch is gone, so
+   * Hybrid/3D View (both of which call this same function) and — via
+   * map.js's own separate copy — AIR now render the identical hex values
+   * RAW always has. Falls back to `color` if a caller ever passes a vis
+   * object missing colorRaw. Colourblind mode is completely unaffected —
+   * still checked first, still wins regardless of style, exactly as
+   * before.
    */
   function _displayColor(vis) {
     const day = ThemeManager.getResolved() === "day";
     // Accessibility wins over reference-fidelity — colourblind-safe applies
-    // even in RAW style, checked first regardless of which style is active.
+    // regardless of which display style/mode is active.
     if (ColorblindMode.isEnabled()) {
       return (day ? vis.colorblindSafeDay : vis.colorblindSafe) || vis.color;
     }
-    if (typeof NavDisplayStyle !== "undefined" && NavDisplayStyle.isRaw()) {
-      return vis.colorRaw || vis.color;
-    }
-    return (day ? vis.colorDay : null) || vis.color;
+    return vis.colorRaw || vis.color;
   }
 
-  /** Border alpha alone (independent of colorDay) was too faint against the
-   * day theme's near-white label background — stronger on day, unchanged
-   * (still subtle, by design) on night. RAW's label box is always dark
-   * regardless of Day/Night/Auto (see the CSS for .indicator-label under
-   * [data-nav-style="raw"]), so it always wants the night-strength alpha —
-   * otherwise a Day-resolved theme would give RAW a much stronger border
-   * than a Night-resolved one, even though the box looks identical either
-   * way. */
+  /** Since every style now uses the same colours _displayColor() returns
+   * (2026-09-19, see its own doc comment above), and .indicator-label's own
+   * box is unconditionally dark in every style now too (see VCAS.css), the
+   * weaker "dark box" alpha is always the right one — no more day/night or
+   * RAW-vs-not branch needed here. */
   function _borderColor(vis) {
-    const raw = (typeof NavDisplayStyle !== "undefined") && NavDisplayStyle.isRaw();
-    const alpha = (!raw && ThemeManager.getResolved() === "day") ? "cc" : "33";
-    return _displayColor(vis) + alpha;
+    return _displayColor(vis) + "33";
   }
 
   /** Small chevron pointing "up" before rotation — see relativeTrackDeg usage above. */

@@ -574,17 +574,20 @@ const EosMap = (() => {
     }
   }
 
-  // Same reasoning as UI._displayColor() — the category colors are tuned for
-  // the night theme's dark background; day theme needs the darker variant
-  // for legible text/shape-fill. When the colorblind toggle is on, swaps to
-  // the Okabe-Ito-based colorblindSafe/colorblindSafeDay pair instead — see
-  // visibility.js for why.
+  // Same function as UI._displayColor() (ui.js), necessarily duplicated
+  // here since this is a different module — kept field-for-field
+  // consistent with it. AIR's markers now use the same colorRaw palette
+  // RAW/Hybrid/3D View all use (2026-09-19, direct instruction: "bring the
+  // indicator colours in the other 3 screens in line with the colors in
+  // the RAW screen") instead of the old day/night-shifted colorDay/color
+  // pair. Colourblind mode is unaffected — still checked first, still wins
+  // regardless of style.
   function _displayColor(vis) {
     const day = ThemeManager.getResolved() === "day";
     if (ColorblindMode.isEnabled()) {
       return (day ? vis.colorblindSafeDay : vis.colorblindSafe) || vis.color;
     }
-    return (day ? vis.colorDay : null) || vis.color;
+    return vis.colorRaw || vis.color;
   }
 
   /** Small chevron pointing "up" before rotation — mirrors ui.js's own copy. */
