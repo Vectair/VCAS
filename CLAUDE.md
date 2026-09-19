@@ -12557,3 +12557,107 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — its own Kotlin `Visibility.kt`/
 `PhoneAircraftIcons.kt`/`RawPlotView.kt` still implement the old
 per-style colour selection this round just replaced in the web app.
+
+## Native Android port: indicator colours synced to match RAW (2026-09-19, same day)
+
+Direct follow-up to the PWA fix immediately above, same day: "Sync this
+change to the native Android Auto port." Read every native consumer of
+aircraft-indicator colour before editing anything, per this project's own
+established discipline, and found the gap was narrower than the PWA's
+own fix — most of the native app was already correct:
+
+- **`RawPlotView.kt`'s `displayColorHex()` and `RawAircraftListView.kt`'s
+  own inline equivalent — already correct, no change needed.** Both
+  always used `vis.colorRaw.ifBlank { vis.color }` (colourblind-off case)
+  since RAW was always the one native screen already using `colorRaw`,
+  mirroring the PWA's own pre-fix RAW-only behaviour exactly.
+- **`MainActivity.kt`'s `showRawPopup()` — already correct, no change
+  needed.** RAW's own native popup badge already used
+  `item.vis.colorRaw.ifBlank { item.vis.color }`.
+- **`MainActivity.kt`'s `renderAirMarkers()` (~line 1400) — the real
+  gap**, the exact native mirror of the bug just fixed in the PWA's
+  `map.js`: `colorHex` was `vis.color` (colourblind off) — the plain,
+  theme-following colour, never `colorRaw`. Fixed to
+  `vis.colorRaw.ifBlank { vis.color }`, matching the colourblind branch's
+  existing `.ifBlank` pattern; the stale comment above it (which
+  explicitly framed this as "AIR/HYBRID have no RAW-style reference-
+  fidelity color to weigh against... just a straight swap to vis.color"
+  — true before today, no longer true) was rewritten to describe the new,
+  correct behaviour instead of leaving a comment that actively
+  contradicted the code beneath it.
+
+**A real, necessary consequence, not scope creep — same shape as the
+PWA fix's own legibility work, but a genuinely different mechanism since
+there's no CSS here.** Confirmed via `PhoneMapContainer.kt` that AIR/
+HYBRID's real map style is MapTiler's own bright `streets-v2`
+(`https://api.maptiler.com/maps/streets-v2/style.json`) — pale roads/
+parks/buildings, not a forced-dark background the way RAW's pure-black
+instrument view is. This directly contradicted a stale claim in
+`MainActivity.kt`'s own class-doc-comment ("this app is always-dark,
+matching RAW's own 'no day mode for a cockpit instrument' precedent") —
+that description is only ever true of the app's CHROME (top bar/buttons/
+settings, no Day/Night toggle, `VcasPalette.kt` has no day-variant
+colours), never the actual AIR/HYBRID map tile imagery underneath the
+markers, which has always been genuinely light. Switching to `colorRaw`
+— which includes pure white for two of the four visibility tiers
+("Possibly visible"/"Very unlikely") — onto that real light background
+with no contrast mechanism at all would have shipped exactly the same
+invisible-icon regression the PWA itself had before its own CSS
+drop-shadow-halo fix, just with no CSS available to fix it the same way.
+
+`PhoneAircraftIcons.kt`'s `drawShape()`/`drawDirectionArrow()` had **zero
+outline/shadow/halo mechanism of any kind** before this pass — confirmed
+by reading the full 182-line file — a real blocker, not a precaution.
+Added the Canvas equivalent of the PWA's own `drop-shadow(0 0 ...)`
+halo: a new `haloPaint(widthPx)` helper (a dark, ~55%-opacity, round-
+joined/round-capped `STROKE` `Paint`) drawn on the exact same `Path`
+BEFORE the real coloured fill+stroke, in both `drawShape()` (a wider
+5.5px halo, tuned for the icon's own real on-map size) and
+`drawDirectionArrow()` (a narrower 3.2px halo — the arrow is a much
+smaller shape than the icon, and the wider width would have visually
+swallowed it). An outline-along-the-same-path is the direct Canvas
+analogue of CSS `filter: drop-shadow()` — Canvas has no equivalent cheap
+blur/shadow primitive, so this achieves the same "edge definition against
+any background" goal by a different, but equivalent, mechanism.
+Confirmed the bitmap's own existing size margin (`halfSize = SHAPE_PX/2 +
+ARROW_GAP_PX + ARROW_PX_H + 2f`) already has enough headroom that neither
+halo gets clipped at the bitmap's edge — the shape halo's own extra reach
+(2.75px beyond the shape's edge) is well inside the existing 2px-plus
+margin the arrow case already needed room for, and the arrow halo's own
+extra reach (1.6px) fits inside that same margin at the arrow's own tip
+position, checked by hand against the real translate/rotate math rather
+than assumed.
+
+**Unlike the PWA fix, no "force a label box dark" step was needed here**
+— confirmed via `renderAirMarkers()`'s own code that AIR/HYBRID markers
+have no persistent on-map label/box element at all, only a plain-text
+`Toast` shown on tap (this class's own doc comment already states this:
+"AIR/HYBRID's marker tap is still a plain `Toast`... there's nothing to
+suppress FROM there"). There is no native equivalent of the PWA's
+`.air-label-box` to fix, so the native sync is genuinely simpler in this
+one respect than the web fix it mirrors.
+
+Both edited files' doc comments were updated to describe the new,
+current behaviour rather than left stale: `MainActivity.kt`'s class-level
+comment gained a new "**Indicator colours match RAW everywhere now**"
+paragraph explaining the fix, the real legibility risk, and the pointer
+to `PhoneAircraftIcons.kt`'s own new halo mechanism; its adjacent
+"always-dark" simplification note was reworded to make explicit that it
+describes CHROME only, never the real (light) map tile imagery, so a
+future reader can't repeat the same "always-dark" misreading this
+investigation itself had to untangle. `PhoneAircraftIcons.kt`'s own doc
+comment gained a matching "**Dark halo/outline behind the shape and
+arrow**" paragraph.
+
+**Honest status, same caveat as every other native UI file in this
+project**: never compiled — no Android SDK in this sandbox, same
+limitation as everything else in `android/`. Verified by careful manual
+re-reads of both diffs plus a real brace/paren-balance check (a small
+Python script that strips comments/string literals and counts
+`{}`/`()`/`[]` pairs) run against both files — both balanced cleanly,
+no mismatch. `logic/Visibility.kt`'s own `EstimateResult`/`CategoryEntry`
+data classes already carried every field this fix needed (`color`/
+`colorDay`/`colorRaw`/`colorblindSafe`/`colorblindSafeDay`) — no
+logic-layer change was needed, mirroring how the PWA fix itself never
+touched `visibility.js`. The real remaining check is still opening this
+in Android Studio and building it, same as every prior native pass.

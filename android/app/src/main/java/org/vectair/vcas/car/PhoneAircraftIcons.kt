@@ -61,6 +61,24 @@ import kotlin.math.roundToInt
  * aircraft that happens to share the same tier/heading-bucket — instead
  * of leaking a new bitmap into the style's image cache on every 3-second
  * ADS-B poll forever.
+ *
+ * **Dark halo/outline behind the shape and arrow (2026-09-19)** — added
+ * once `MainActivity.kt`'s `renderAirMarkers()` started using the same
+ * `colorRaw` palette RAW's own display already used (see that file's own
+ * doc comment for why), which includes pure white for two of the four
+ * visibility tiers. AIR/HYBRID's real map background (MapTiler's
+ * `streets-v2` style) is genuinely light in many places, unlike RAW's
+ * always-black instrument view — a plain white fill+stroke with nothing
+ * behind it would be illegible there. This is the Canvas equivalent of
+ * the PWA's own fix for the identical problem: a second, wider, semi-
+ * transparent black `STROKE` `Paint` drawn BEFORE the coloured fill/
+ * stroke, on the exact same `Path` — an outline halo, not a blur/shadow
+ * (Canvas has no cheap drop-shadow primitive the way CSS `filter:
+ * drop-shadow()` does; an outline along the same path achieves the same
+ * "edge definition against any background" goal directly). Applied to
+ * both `drawShape()` (the icon) and `drawDirectionArrow()` (the track
+ * indicator) — the direction arrow needs it just as much as the shape,
+ * since it renders in the same colour and sits over the same map.
  */
 object PhoneAircraftIcons {
 
@@ -113,6 +131,26 @@ object PhoneAircraftIcons {
         return bitmap
     }
 
+    // Dark, semi-transparent outline width/alpha for the halo drawn behind
+    // both the shape and the direction arrow — see this file's own doc
+    // comment ("Dark halo/outline behind the shape and arrow") for why.
+    // Wide enough to show clearly around a thin diamond/square outline at
+    // this bitmap's real on-map size, without visually swallowing the
+    // shape itself. The arrow gets a narrower halo — it's a much smaller
+    // shape than the icon, and the same 5.5px width would swallow it.
+    private const val SHAPE_HALO_WIDTH_PX = 5.5f
+    private const val ARROW_HALO_WIDTH_PX = 3.2f
+    private const val HALO_ALPHA = 140 // ~55% opacity black
+
+    private fun haloPaint(widthPx: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.BLACK
+        alpha = HALO_ALPHA
+        strokeWidth = widthPx
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
+
     private fun drawShape(canvas: Canvas, shape: String, color: Int, fillOpacity: Double, centerX: Float, centerY: Float) {
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
@@ -146,6 +184,9 @@ object PhoneAircraftIcons {
                 path.close()
             }
         }
+        // Halo first, on the same path, before the real fill/stroke — a
+        // dark outline the coloured shape then sits on top of.
+        canvas.drawPath(path, haloPaint(SHAPE_HALO_WIDTH_PX))
         canvas.drawPath(path, fillPaint)
         canvas.drawPath(path, strokePaint)
     }
@@ -155,6 +196,7 @@ object PhoneAircraftIcons {
             style = Paint.Style.FILL
             this.color = color
         }
+        val arrowHaloPaint = haloPaint(ARROW_HALO_WIDTH_PX)
         val sx = ARROW_PX_W / ARROW_VIEWBOX_W
         val sy = ARROW_PX_H / ARROW_VIEWBOX_H
         // Local frame: tip at y=0 (pointing toward -Y, "away from the icon"),
@@ -176,6 +218,8 @@ object PhoneAircraftIcons {
         // icon's own centre point, not the arrow's own local origin) so the
         // arrow's base sits ARROW_GAP_PX above the icon's own edge.
         canvas.translate(-ARROW_PX_W / 2f, -(SHAPE_PX / 2f + ARROW_GAP_PX + ARROW_PX_H))
+        // Halo first, same reasoning as drawShape()'s own halo.
+        canvas.drawPath(arrowPath, arrowHaloPaint)
         canvas.drawPath(arrowPath, arrowPaint)
         canvas.restore()
     }

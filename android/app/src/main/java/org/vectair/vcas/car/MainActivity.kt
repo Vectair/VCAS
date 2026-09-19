@@ -131,15 +131,37 @@ import kotlin.math.roundToInt
  * `buildSettingsScreen()`'s own doc comment gives for excluding "Data &
  * Logging" from the settings screen.
  *
+ * **Indicator colours match RAW everywhere now (2026-09-19 sync,
+ * mirroring the PWA's own same-day `ui.js`/`map.js` fix)** — AIR/HYBRID's
+ * `renderAirMarkers()` now selects `colorRaw` unconditionally (colourblind-
+ * safe still wins when that setting is on), the same palette RAW's own
+ * `displayColorHex()` has always used, instead of the old plain `color`/
+ * `colorDay` pair. This is a *real* legibility concern here, not just a
+ * cosmetic swap — `PhoneMapContainer.kt`'s AIR/HYBRID map style is
+ * MapTiler's genuinely light "streets-v2" (pale roads/buildings/parks),
+ * not a forced-dark background the way RAW's is, so the two white-
+ * `colorRaw` tiers ("Possibly visible"/"Very unlikely") would be
+ * illegible against it without help. `PhoneAircraftIcons.kt`'s
+ * `drawShape()`/`drawDirectionArrow()` gained a dark halo/outline drawn
+ * behind the coloured fill for exactly this reason — the Canvas
+ * equivalent of the PWA's own CSS drop-shadow halo fix on
+ * `.indicator-shape`/`.air-icon` — see that file's own doc comment.
+ * AIR/HYBRID still has no persistent on-map label box the way the PWA's
+ * `.air-label-box` is (marker taps are a plain `Toast`, see below), so
+ * unlike the PWA fix, no "force a label box dark" step was needed here.
+ *
  * **Known, deliberately-scoped simplifications, not silently-left
  * gaps**: no own-position marker in AIR/HYBRID (the camera already
  * centres on the true GPS fix); AIR/HYBRID symbols are cleared/rebuilt
  * each poll rather than diffed by hex; no `AircraftExtrapolation`
- * smoothing between polls anywhere yet; no Day/Night theming (this app
- * is always-dark, matching RAW's own "no day mode for a cockpit
- * instrument" precedent — genuinely deferred now because `VcasPalette.kt`
- * has no day-variant colours to switch to, NOT because there's nowhere
- * to put a toggle now that a real settings screen exists); HYBRID's
+ * smoothing between polls anywhere yet; no Day/Night THEME toggle for
+ * app chrome (this app's chrome is always-dark, matching RAW's own "no
+ * day mode for a cockpit instrument" precedent — genuinely deferred now
+ * because `VcasPalette.kt` has no day-variant colours to switch to, NOT
+ * because there's nowhere to put a toggle now that a real settings
+ * screen exists — this is purely about chrome/UI colours, not the real
+ * map tile imagery AIR/HYBRID actually shows, which has always been
+ * MapTiler's own light "streets-v2" style regardless); HYBRID's
  * route line is one plain `LineLayer`, not the PWA's own 3-layer glow/
  * line/highlight polyline; no destination pin/marker on the map for
  * either the tap-map or search-box picking method; `TURN_APPROACH`'s
@@ -1371,13 +1393,18 @@ class MainActivity : Activity() {
             val title = (a.callsign?.trim()?.takeIf { it.isNotEmpty() } ?: a.hex) + " · " + (a.type ?: "?")
             val info = "$title\n${vis.label} · $altText · ${"%.1f".format(distanceNm)} nm"
 
-            // Colourblind-safe palette (2026-08-27) — AIR/HYBRID have no
-            // RAW-style reference-fidelity color to weigh against, unlike
-            // RawPlotView.kt's own displayColorHex(), so this is just a
-            // straight swap: vis.color normally, vis.colorblindSafe when
-            // the setting is on, matching ui.js's own _displayColor()
-            // priority (colourblind wins whenever it's enabled).
-            val colorHex = if (VcasSettings.isColorblindSafeEnabled()) vis.colorblindSafe.ifBlank { vis.color } else vis.color
+            // Colour selection matches RAW's own displayColorHex() now
+            // (2026-09-19 sync, mirroring the PWA's ui.js/map.js
+            // _displayColor() fix the same day): colourblind-safe wins
+            // when the setting is on, otherwise every screen — AIR,
+            // HYBRID, and RAW alike — uses the same colorRaw palette
+            // (pixel-sampled from a real TCAS/ND cockpit reference
+            // photo), never the old plain vis.color/colorDay pair. This
+            // used to be a genuine straight swap to vis.color specifically
+            // because AIR/HYBRID had "no RAW-style reference-fidelity
+            // color to weigh against" — that's no longer true; every
+            // screen now weighs the same reference-matched palette.
+            val colorHex = if (VcasSettings.isColorblindSafeEnabled()) vis.colorblindSafe.ifBlank { vis.color } else vis.colorRaw.ifBlank { vis.color }
             val iconName = PhoneAircraftIcons.iconNameFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg)
             if (style.getImage(iconName) == null) {
                 style.addImage(iconName, PhoneAircraftIcons.bitmapFor(vis.shape, colorHex, vis.fillOpacity, a.trackDeg))

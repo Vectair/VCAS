@@ -312,11 +312,6 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Indicator colours brought in line with RAW across AIR/Hybrid/3D View
-  (2026-09-19) — the native port's Kotlin `Visibility.kt`/
-  `PhoneAircraftIcons.kt`/`RawPlotView.kt` still implement the old
-  per-style colour selection (colorDay/color following Day/Night theme
-  outside RAW) this round replaced in the web app.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
