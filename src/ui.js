@@ -1068,11 +1068,48 @@ const UI = (() => {
     if (!svg) return;
     if (!Array.isArray(coords) || coords.length === 0) { clearRouteLine(); return; }
 
+    // ROUTE_LINE_MAX_POINTS caps the point BUDGET, not the raw prefix of
+    // `coords` to use — a real route's vertices are NOT evenly spaced by
+    // distance (a short winding local road right after departure can carry
+    // far more ORS-returned coordinates than a long straight stretch later
+    // in the same route). Taking coords[0..30) unconditionally meant the
+    // budget could be entirely consumed by that first wiggle, silently
+    // never reaching the rest of a multi-mile route at all — reported
+    // directly (2026-09-20) as "the whole route renders squashed inside the
+    // 2nm ring" against a real ~9-mile route, when the real cause was never
+    // the ring/banded-distance math (unchanged and correct) but that the
+    // drawn line simply never got past its own starting neighbourhood.
+    // Sampling `ROUTE_LINE_MAX_POINTS` indices evenly across the FULL
+    // `coords` array (not the whole route's real physical length, which
+    // would need extra distance math this "rudimentary" line was never
+    // meant to carry — see this function's own doc comment) guarantees
+    // coverage of the entire remaining route regardless of how its own
+    // vertex density happens to vary.
+    let sampledCoords = coords;
+    let sampledTurnIndex = turnIndex;
+    if (coords.length > ROUTE_LINE_MAX_POINTS) {
+      const step = (coords.length - 1) / (ROUTE_LINE_MAX_POINTS - 1);
+      const indices = [];
+      for (let i = 0; i < ROUTE_LINE_MAX_POINTS; i++) indices.push(Math.round(i * step));
+      sampledCoords = indices.map(idx => coords[idx]);
+      if (turnIndex != null) {
+        // Map the turn to whichever SAMPLED point sits closest to the real
+        // turnIndex, so the label still lands near the real turn rather
+        // than silently disappearing once decimation drops its exact index.
+        let bestI = 0, bestDist = Infinity;
+        for (let i = 0; i < indices.length; i++) {
+          const d = Math.abs(indices[i] - turnIndex);
+          if (d < bestDist) { bestDist = d; bestI = i; }
+        }
+        sampledTurnIndex = bestI;
+      }
+    }
+
     const points = [];
     let turnPoint = null;
     let started = false;
-    for (let i = 0; i < coords.length && points.length < ROUTE_LINE_MAX_POINTS; i++) {
-      const [lon, lat] = coords[i];
+    for (let i = 0; i < sampledCoords.length; i++) {
+      const [lon, lat] = sampledCoords[i];
       const bearing = Geo.calculateBearing(userLat, userLon, lat, lon);
       const relativeBearing = Geo.calculateRelativeBearing(bearing, userHeading);
       const rangeNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
@@ -1099,7 +1136,7 @@ const UI = (() => {
       }
       started = true;
       points.push(pos);
-      if (turnIndex != null && i === turnIndex) turnPoint = pos;
+      if (sampledTurnIndex != null && i === sampledTurnIndex) turnPoint = pos;
     }
 
     if (points.length < 2) { clearRouteLine(); return; }

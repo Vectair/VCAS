@@ -13219,3 +13219,74 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — its own `RawPlotView.kt` route-line
 rendering has no FOV-skip equivalent and no guidance-toggle-visibility
 concept at all.
+
+## RAW navigation route follow-up #2: route line squashed inside the 2nm ring — a raw-vertex-count truncation bug, not a scale bug (2026-09-20, same day)
+
+Direct follow-up, with a side-by-side real screenshot comparison against
+Google Maps for the same destination: "This is the same destination in
+VCAS compared to Google. The main issue here appears to be scale,
+according to Google this is 9 miles but VCAS has it all within the 2
+miles arc." The RAW screenshot showed the green flight-plan line as a
+short zigzag entirely inside the 2nm ring, with the route card correctly
+reading "12.1 km" (~7.5mi, roughly matching Google's own 9.0mi for a
+different — but comparable — route choice) — i.e. the app KNEW the real
+distance correctly, only the drawn LINE was wrong.
+
+**Root cause: `renderRouteLine()`'s own `ROUTE_LINE_MAX_POINTS` (30) cap
+took the first 30 raw ORS coordinate vertices, not the first 30 by
+distance.** A real route's vertex density is NOT even — a short winding
+local road right after departure (matching the real "Great Altcar"
+wiggle visible in the Google Maps comparison screenshot, right at the
+route's own start) can carry far more OSM-derived coordinate points than
+a long straight stretch of A-road much later in the same route. Taking
+`coords[0..30)` unconditionally meant that entire 30-point budget could
+be — and, per the reported screenshot, was — consumed by that initial
+wiggle alone, so the line never progressed any further along the route
+at all, regardless of the real destination's true distance. This has
+nothing to do with the banded-distance/ring-radius math itself (already
+verified correct via the "Rings and dots share one scale now" fix and
+its own numerical proof, both above) — it's a pure truncation bug in
+which raw vertices got selected for drawing.
+
+**Fix**: when `coords.length > ROUTE_LINE_MAX_POINTS`, sample
+`ROUTE_LINE_MAX_POINTS` indices evenly spaced across the FULL coordinate
+array (`Math.round(i * step)` for `step = (coords.length-1) /
+(ROUTE_LINE_MAX_POINTS-1)`) rather than taking a raw prefix — guarantees
+the sampled points span the entire remaining route regardless of how
+unevenly its own vertices happen to be distributed, matching this
+function's own "rudimentary, not exact" spec (no real distance-based
+resampling was needed, just even INDEX sampling across the whole array).
+`turnIndex` (a real index into the pre-decimation array, used to place
+the on-plot turn label) is remapped to whichever sampled point sits
+closest to it, rather than silently losing the label the instant
+decimation drops its exact original index.
+
+Verified with a real Playwright/Chromium harness against the actual,
+unmodified `geo.js`/`ui.js` (not stubs), constructing a deliberately
+pathological synthetic route matching the reported failure mode exactly:
+40 densely-packed vertices covering under 0.3nm (the "wiggle"), followed
+by only 10 more vertices covering the remaining ~8.7nm out to a real
+9nm-distant destination — the precise shape that broke the old
+first-30-vertices logic. Before this fix, the drawn line's own last
+point would have landed inside/near the 2nm ring, matching the reported
+screenshot exactly; with the fix, the line's last drawn point lands at
+`{x:197,y:306}` — bit-for-bit identical to a DIRECT, independent
+`Geo.projectToPolarPosition()` call for the true destination's own real
+bearing/range — comfortably past the 2nm ring's own 36.9px radius, at
+102.9px. Also re-ran both of the same-day FOV-skip fix's own regression
+scenarios (a leading out-of-FOV point still gets skipped correctly; a
+genuine mid-route FOV exit still truncates the line at exactly the right
+point) — both still pass unchanged, confirming the two fixes compose
+correctly rather than interfering with each other. Re-ran the full
+real-app end-to-end harness (real `app.js`/`ui.js`, a real successful
+mocked ORS route) from the earlier same-day investigation too — the
+route line still renders correctly for an ordinary, non-pathological
+route. Re-ran the full existing `tests/` suite afterward — still
+249/249, unaffected (this fix touches only `ui.js`, none of
+`src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no RAW flight-plan-line rendering
+at all yet (see "Native Android port: RAW-mode/chrome design-sync pass"
+above, "Explicitly NOT done in this pass").
