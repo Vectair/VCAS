@@ -13290,3 +13290,93 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — it has no RAW flight-plan-line rendering
 at all yet (see "Native Android port: RAW-mode/chrome design-sync pass"
 above, "Explicitly NOT done in this pass").
+
+## RAW navigation route follow-up #3: the line traced the plot's own edge for its entire beyond-range remainder; the route-card distance re-verified independently (2026-09-20, same day)
+
+Direct follow-up, same day as follow-up #2 above, with two more real
+device screenshots (10NM and 2NM range selections, same destination):
+"That's better but I don't think it's still quite right compared to the
+total distance. Please just triple check the actual distance from A to B
+vs the displayed distance. I realize it might be just due to the
+variable ranges in-between each range arc. Also, unlike the aircraft
+pins, the navigation line off the screen shouldn't show." Two separate
+asks, both worked through before touching any code.
+
+**Part 1 — the distance readout was already correct; verified
+independently rather than assumed.** `_updateRouteCard()`'s displayed
+figure (`RouteGeometry.distanceToIndex()`, a real Haversine sum along the
+route's own coordinates from the user's snapped position to the final
+vertex) has NOTHING to do with the plot's banded ring scale at all —
+`routeGeometry.js` doesn't reference `bandsNm`/`RING_BANDS_NM`/
+`circularPlotRadius`/`bandedRadiusFraction` anywhere (grep-confirmed, not
+just asserted). Built a standalone Node harness constructing a route with
+a KNOWN true distance (via `Geo.destinationPoint`, so the real geodesic
+length is known by construction, not measured after the fact) and
+compared the app's own `RouteGeometry.distanceToIndex()` output against
+an INDEPENDENT sum using `Geo.calculateDistanceMeters` (`geo.js`'s own
+separate Haversine implementation, not `routeGeometry.js`'s internal
+`_dist`) — matched to within 0.1%. A second scenario placed the
+"user" partway along a 12km route and confirmed the REMAINING-distance
+figure correctly reflects only the un-travelled back half (~6km), not
+the full original total, matching an independent sum of just that
+portion. **Conclusion given directly to the project owner**: the
+"12.1 km" text is genuinely correct; the user's own instinct ("I realize
+it might be just due to the variable ranges in-between each range arc")
+was right — any mismatch a person perceives is about how the LINE is
+drawn on the non-linear plot, not the number.
+
+**Part 2 — the real bug, and it wasn't a scale-math error either: the
+LINE had no concept of "beyond the currently selected range" at all.**
+`Geo.bandedRadiusFraction()` correctly clamps any point beyond the last
+`bandsNm` entry to radius fraction 1.0 (the plot's outer edge) — this is
+the deliberate, correct treatment for a SINGLE point (a suppressed
+aircraft dot beyond range: one marker at the boundary, in the right
+bearing, no false precision about how much farther it really is). But
+`renderRouteLine()` applied that same per-point clamp to EVERY sampled
+route point with no separate handling — so once a route's real distance
+exceeded the currently selected range (e.g. viewing "2NM" while the
+destination is 6.5nm away), roughly the entire remaining route (every
+point beyond 2nm) collapsed to that same fixed outer radius and was
+strung together into a polyline, tracing a real but scale-meaningless
+path hugging the plot's own outer boundary for the rest of its length —
+exactly what "the navigation line off the screen shouldn't show, unlike
+the aircraft pins" was describing: pins beyond range never draw more
+than that one boundary marker, but the line kept drawing dozens of them
+chained together.
+
+**Fix**: `renderRouteLine()` now computes `maxRangeNm = bandsNm[bandsNm.
+length - 1]` (the exact same figure `app.js`'s own `selectedRangeNm` is
+derived from) and, the instant a point's real `rangeNm` exceeds it,
+pushes that ONE point (still correctly projected/clamped, same as
+before) and then breaks — the line's own equivalent of a suppressed
+dot, not a continued trace. Symmetric with the existing FOV-exit
+handling added in follow-up #1 above (a real FOV exit still breaks
+immediately as before; this is purely a second, independent cutoff on
+top of it, checked only for points that ARE within the FOV).
+
+Verified with a real Playwright/Chromium harness against the actual,
+unmodified `geo.js`/`ui.js` — three scenarios: (1) the literal reported
+case (a real 6.5nm/12.1km destination, "2NM" selected, i.e.
+`bandsNm=[2]`) — confirmed the line now draws at most one point beyond
+the genuinely-in-range set (10 points drawn against 18 real in-range
+route coordinates out of 60 total), with its final point's own radius
+(183.9px) never exceeding the plot's true max radius (184.3px, within
+sub-pixel rounding) — before this fix, the same scenario would have kept
+tracing outward for the remaining ~42 sampled points; (2) the SAME
+destination with "10NM" selected (`bandsNm=[2,5,10]`, nothing beyond the
+selected range at all) — confirmed all 20 route points still draw
+normally, proving the fix doesn't over-truncate a route that's genuinely
+within the current view; (3) a regression re-check of follow-up #1's own
+FOV-exit scenario (a route curving to a 100° relative bearing while still
+under 1nm, nowhere near the range boundary) — confirmed it still stops
+at exactly the 3 in-FOV points, proving the two cutoffs (FOV vs. range)
+compose correctly rather than one masking the other. Re-ran both of
+follow-up #2's own decimation-fix regression scripts unchanged (still
+pass) and the full existing `tests/` suite (still 249/249, unaffected —
+this fix touches only `ui.js`, none of `src/logic/`). `node --check
+src/ui.js` clean.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no RAW flight-plan-line rendering
+at all yet.

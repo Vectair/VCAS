@@ -312,11 +312,15 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Two real route-display bug fixes from 2026-09-20 (RAW's flight-plan
+- Four real route-display bug fixes from 2026-09-20 (RAW's flight-plan
   line no longer vanishing when only the leading route point falls
   outside the FOV; the guidance-text-off toggle's stronger dashed-border
-  affordance) — `RawPlotView.kt`'s own route-line rendering has no
-  equivalent FOV-skip fix, and there's no native concept of a
+  affordance; the raw-vertex-count truncation fix so the line spans the
+  whole route instead of squashing inside the first ring; the line no
+  longer tracing the plot's outer edge for its entire beyond-selected-
+  range remainder) — `RawPlotView.kt`'s own route-line rendering has none
+  of these fixes (no FOV-skip, no even-sampling decimation, no
+  range-boundary cutoff), and there's no native concept of a
   guidance-text visibility toggle at all yet.
 
 A real full native sync pass — not a single-feature port — is probably

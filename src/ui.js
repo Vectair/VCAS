@@ -1105,6 +1105,20 @@ const UI = (() => {
       }
     }
 
+    // Beyond this real nm figure, every point — regardless of how much
+    // farther the route actually goes — clamps to the exact same outer-
+    // edge radius (Geo.bandedRadiusFraction saturates at 1.0 past the last
+    // band). That's the correct, deliberate treatment for a single POINT
+    // (a suppressed aircraft dot beyond range: one marker at the boundary,
+    // in the right bearing, no false precision about real distance) — but
+    // stringing MANY such clamped points together traces a meaningless
+    // path hugging that same boundary for the entire remainder of the
+    // route, which is what "the navigation line off the screen shouldn't
+    // show — unlike the aircraft pins" (reported directly, 2026-09-20) was
+    // actually describing: pins beyond range never draw more than that one
+    // boundary marker either. See the loop's own break below.
+    const maxRangeNm = bandsNm[bandsNm.length - 1];
+
     const points = [];
     let turnPoint = null;
     let started = false;
@@ -1137,6 +1151,7 @@ const UI = (() => {
       started = true;
       points.push(pos);
       if (sampledTurnIndex != null && i === sampledTurnIndex) turnPoint = pos;
+      if (rangeNm > maxRangeNm) break; // this edge point IS the line's own suppressed-dot equivalent — see maxRangeNm's own comment above
     }
 
     if (points.length < 2) { clearRouteLine(); return; }
