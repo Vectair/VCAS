@@ -365,6 +365,14 @@
         </div>
       </div>
 
+      <!-- Route-request-failed toast — requestRouteTo() previously failed
+           completely silently (a console.warn only) whenever the routing
+           provider came back with nothing (rate limit, network hiccup, a
+           malformed response) — from the user's own point of view, picking
+           a destination just did nothing at all, indistinguishable from a
+           much broader "the whole nav-route feature is missing" symptom.
+           See _showRouteErrorToast() in app.js. -->
+      <div id="route-error-toast" class="hidden"></div>
 
       <!-- Aircraft detail popup -->
       <div id="popup" class="hidden"></div>

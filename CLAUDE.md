@@ -12974,3 +12974,137 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — it has no equivalent destination-pick
 banner to begin with (its own destination search is a settings-screen-
 adjacent card, not a floating map overlay).
+
+## RAW navigation route: not a rendering bug — a silently-failed route request had zero user feedback (2026-09-20)
+
+Direct report, after a status summary of RAW's navigation-route work
+(the flight-plan line, turn/junction label, and merged ND-style
+nav-status card, all shipped 2026-09-06 through round 11): "All of the
+stuff you just mentioned is not appearing when navigation is on." Real
+investigation, not assumed from a code read alone — every plausible
+static-code candidate (the route-line render call site's own gating in
+`refreshIndicators()`'s `isRawView` branch, `_rawChromeInsets()`'s RAW
+positioning of `#route-card`, CSS specificity between the generic and
+RAW-scoped `#nav-guidance-card` background rules, `requestRouteTo()`'s
+own unconditional route-activation calls) was read and came back
+structurally correct — worth recording that a clean code read alone
+wasn't enough to settle this, matching this project's own repeated
+"verify against real execution, not just reasoning" discipline.
+
+**Built a real, empirical end-to-end reproduction rather than continuing
+to guess from more reading.** A genuine gap not previously needed
+anywhere else in this project: every prior "boot app.js for real" style
+harness in this codebase's history either extracted individual functions
+verbatim (brace-matched) or worked around the unreachable MapLibre CDN by
+never booting the whole app. This investigation needed the REAL, full
+`init()` → GPS fix → destination pick → route request → `refreshIndicators()`
+chain to actually run, across dozens of app.js's own closure-private
+functions and module-level variables with no exported surface
+(`window.EosApp` only exposes `init`/`toggleDestPickMode`/`clearActiveRoute`/
+two camera transitions — nowhere near enough to drive this directly).
+
+Solved by loading the REAL, completely unmodified `index.html` (real
+`app.js`, real `ui.js`, real every logic/routing module) through a real
+Chromium page via a local static file server, with Playwright's
+`page.route()` swapping only the two files that genuinely need a real
+MapLibre instance (`src/map.js`, `src/map/cameraController.js`) for
+small, faithful no-op stubs matching their real call surface (grepped
+directly from `app.js`) — every other real request (adsb.fi/METAR
+relays, Open-Meteo, TomTom, MapLibre's own CDN JS/CSS, Google Fonts) is
+simply aborted, which the app is already designed to degrade gracefully
+against. `navigator.geolocation` and `navigator.serviceWorker.register`
+are overridden via `page.addInitScript()` (deliberately using
+`Object.defineProperty`, not a plain assignment — see the real gotcha
+below) to feed controlled GPS fixes and prevent a first-load SW
+install/`controllerchange`/`location.reload()` cycle from silently
+resetting the whole test mid-run. The real ORS directions endpoint is
+mocked with a small, realistic 3-step response (depart → turn right onto
+"Example Street" → arrive), letting `orsProvider.js`'s and
+`maneuverTracker.js`'s own real parsing/maneuver-selection logic run
+unmodified end to end.
+
+**Two real Playwright/Chromium harness gotchas hit and fixed while
+building this — both worth remembering for the next time this exact
+"boot the real app end-to-end" technique is needed:**
+1. `navigator.geolocation` is a getter-only accessor on
+   `Navigator.prototype` — a plain `navigator.geolocation = {...}`
+   assignment silently no-ops (no error, no effect) rather than actually
+   replacing it. This was the root cause of a genuinely confusing first
+   result: `_vcasAppReady` went true (so `init()` itself completed
+   without throwing) while `window._mapInitialised`/`EosMap.init()`/the
+   map-click callback all stayed unset, because `onGpsSuccess()` never
+   ran at all — the fake geolocation was never actually wired to
+   anything. `Object.defineProperty(navigator, "geolocation", {value:...})`
+   is what actually replaces the accessor.
+2. On a genuinely fresh browser context (no service worker installed
+   yet), the real SW installs+activates+claims mid-test and fires
+   app.js's own `controllerchange` → `location.reload()` handler (see
+   "PWA: real bug — the app-shell service worker" and its "cache-busting
+   nonce" follow-up above) — a real, correct production behaviour, but
+   one that silently reloads the whole page out from under a test with
+   no SW-specific assertions of its own, doubling every script request
+   and wiping all prior page state. Disabling `navigator.serviceWorker.register`
+   for the duration of the test sidesteps it entirely.
+
+**Result: with a real, successful route request, every single feature
+the user reported missing rendered completely correctly** — the merged
+nav-status card ("IN 131 M TURN RIGHT", the destination/arrival-clock
+row, SPD/distance), the screen-space flight-plan line, and its "Example
+Street" turn label all confirmed both via real DOM state (`hidden` class
+removed, real computed non-zero geometry, real text content matching the
+mocked route) and a real screenshot. This is strong, direct, empirical
+evidence the RENDERING CODE ITSELF was never the bug.
+
+**The real explanation, found by then deliberately reproducing a failed
+route request instead of a successful one**: `requestRouteTo()`'s own
+`if (!route) { console.warn(...); return; }` branch — and its sibling in
+`_rerouteFromCurrentPosition()` — had ZERO user-visible feedback. A
+route request can fail for entirely mundane reasons (ORS's free-tier
+rate limit, a dropped network request, a malformed response) with
+nothing about the failure being VCAS's own bug — but from the user's own
+point of view, picking a destination that way looked exactly like "the
+whole navigation-route feature doesn't exist," completely
+indistinguishable from the rendering bug this investigation set out to
+find. This fully explains the reported symptom: `activeRoute` simply
+never gets set, `document.body` never gains `route-active`, and nothing
+downstream (guidance card, route card, flight-plan line — none of which
+have any code path of their own that could partially succeed) ever has
+anything to show.
+
+**Fix: `#route-error-toast` (`index.html`, `VCAS.css`, `app.js`)** — a
+small, auto-dismissing (4.5s) toast, shown via a new
+`_showRouteErrorToast(message)` helper called from both failure
+branches ("Couldn't find a route — try again" / "Rerouting failed —
+retrying…" respectively). Positioned the same "flush below the real top
+bar, measured live at show-time" way `#dest-pick-banner`/`#calib-map-hint`
+already are (`toggleDestPickMode()`'s own established pattern, not a
+third independently-guessed offset) rather than centred over the map.
+Styled with an Okabe-Ito vermillion border (`#d55e00` — the same
+colourblind-safe palette this app's tier/highlight colours already draw
+from, not a plain CSS red) at `z-index: 45`, one above `#dest-pick-banner`'s
+40, though in practice the two never actually coexist — `onMapClicked()`/
+`_onDestSearchResultSelected()` both already hide the picker banner
+before calling `requestRouteTo()`. This doesn't fix the UNDERLYING cause
+of any given failure (a real rate limit, a real network drop — neither
+diagnosable from this sandbox, same standing caveat this file already
+carries for every ORS-dependent feature) — it fixes the actual reported
+symptom regardless of which underlying cause produced it, turning a
+totally silent, indistinguishable-from-a-missing-feature failure into a
+real, visible, actionable one.
+
+Verified two ways with the same real end-to-end harness used to find the
+bug: (1) the real success-path screenshot described above, confirming
+the fix doesn't touch the working case at all; (2) a second run with the
+mocked ORS request `route.abort()`'d instead of fulfilled — confirmed via
+real DOM state (`hidden` class removed, correct computed position/text)
+and a real screenshot that the toast now renders exactly where intended,
+legible, not overlapping the compass tape/rings/LOG button/range
+selector underneath it. Re-ran the full existing `tests/` suite
+afterward — still 249/249, unaffected (this change touches only
+`app.js`/`VCAS.css`/`index.html`, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own `requestRouteTo`/reroute
+equivalents in `MainActivity.kt` have the identical silent-failure gap,
+unaddressed here.

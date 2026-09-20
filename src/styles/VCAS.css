@@ -1194,6 +1194,44 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   box-shadow: var(--btn-shadow);
 }
 
+/* ---- Route-request-failed toast (2026-09-20) ----
+   requestRouteTo() previously failed completely silently on a null route
+   (rate limit, network hiccup, a malformed provider response) — a
+   console.warn only, nothing the user could ever see. Reported directly:
+   picking a destination in RAW appeared to make the entire navigation-
+   route feature (flight-plan line, turn label, merged nav-status card)
+   simply not exist — indistinguishable, from the user's own point of
+   view, from those features being unbuilt, when the real cause was a
+   silently-failed route request with zero feedback either way. Same
+   "flush below the real top bar, measured live" positioning
+   #dest-pick-banner/#calib-map-hint already establish, not dead-centred
+   over the map. */
+#route-error-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: 60px; /* fallback only — the real value is set at show-time */
+  z-index: 45; /* above #dest-pick-banner (40) — a failure toast should
+                  win if both would otherwise occupy the same spot */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid #d55e00; /* Okabe-Ito vermillion — same colourblind-
+                                 safe palette this app's tier/highlight
+                                 colours already draw from, not a plain
+                                 CSS red */
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+#route-error-toast.hidden { display: none; }
+
 #compass-permission-btn {
   flex-shrink: 0;
   padding: 5px 12px;

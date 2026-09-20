@@ -135,6 +135,9 @@
   const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
   let routeMode = "driving";
 
+  // #route-error-toast's own auto-hide timer — see _showRouteErrorToast().
+  let _routeErrorToastTimer = null;
+
   // First-launch onboarding — shown once, not on every open like the launch
   // screen (see index.html's #onboarding-screen). Versioned so a future
   // symbology/UI change that genuinely warrants re-showing it can bump this
@@ -3031,6 +3034,28 @@
     requestRouteTo(result.lat, result.lon, result.label);
   }
 
+  /**
+   * A route request failing used to be entirely silent — a console.warn
+   * only, nothing the user could ever see. From the user's own point of
+   * view, picking a destination just did nothing at all: no route line,
+   * no guidance card, no merged nav-status card — indistinguishable from
+   * those features not existing, when the real cause could be as mundane
+   * as a rate-limited routing API or a dropped network request. Shown
+   * flush below the real top bar (same measured-live positioning
+   * #dest-pick-banner/#calib-map-hint already use), auto-hiding itself
+   * after a few seconds rather than needing a dismiss tap.
+   */
+  function _showRouteErrorToast(message) {
+    const toast = document.getElementById("route-error-toast");
+    const topBar = document.getElementById("top-bar");
+    if (!toast) return;
+    if (topBar) toast.style.top = (topBar.offsetHeight + 8) + "px";
+    toast.textContent = "⚠ " + message;
+    toast.classList.remove("hidden");
+    clearTimeout(_routeErrorToastTimer);
+    _routeErrorToastTimer = setTimeout(() => toast.classList.add("hidden"), 4500);
+  }
+
   async function requestRouteTo(lat, lon, label) {
     if (!userLat) return;
     const myToken = ++_routeRequestToken;
@@ -3050,6 +3075,7 @@
 
     if (!route) {
       console.warn("Route request failed — check network or routing-provider availability/API key.");
+      _showRouteErrorToast("Couldn't find a route — try again");
       return;
     }
 
@@ -3239,6 +3265,11 @@
       // is this old.
       _offRouteSinceMs = Date.now();
       console.warn("Reroute request failed — will retry.");
+      // Same silent-failure gap as requestRouteTo() — the user driving off
+      // the original route deserves to know a reroute attempt didn't just
+      // succeed invisibly. Naturally rate-limited to at most once per dwell
+      // delay by this function's own retry cadence, not a separate cap.
+      _showRouteErrorToast("Rerouting failed — retrying…");
       return;
     }
 
