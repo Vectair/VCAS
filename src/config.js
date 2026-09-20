@@ -52,7 +52,7 @@ const CONFIG = {
   // key at https://developer.tomtom.com. Leave this blank to disable BOTH
   // integrations — each one already degrades safely (never a crash, never
   // a broken search/route) with no key set.
-  TOMTOM_API_KEY: "",
+  TOMTOM_API_KEY: "xuFwNRHtZnBDHxn1A6bWGk8ubVDyQ0uj",
 
   // ---- ADS-B data provider(s) ----
   // Settled decision (2026-08-14): adsb.fi only. DATA_PROVIDERS is still a
