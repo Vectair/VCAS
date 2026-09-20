@@ -1061,22 +1061,32 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   box-shadow: 0 1px 3px rgba(0,0,0,.5);
 }
 
-/* ---- Destination-pick hint ---- */
+/* ---- Destination-pick hint ----
+   Positioned flush below the real top bar (app.js's toggleDestPickMode(),
+   measuring the real DOM the same way onCalibChooseLandmark() already
+   does for #calib-map-hint — a near-identical "tap the map"/search
+   banner built later, and the exact pattern this older one is being
+   brought in line with) instead of dead-centred over the map, which
+   obscured most of the screen — reported directly with a real device
+   screenshot, 2026-09-20. Panel styling (--bg-panel/--border, not the
+   paler --bg-panel-alt this used before) and the mode-picker row below
+   are both brought in line with the rest of the app's chrome too — this
+   banner predates the round 9-11 cockpit-panel/black-white-cyan
+   unification (see --raw-chrome-bg's own :root comment) and had never
+   been touched by it. */
 #dest-pick-banner {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  left: 12px;
+  right: 12px;
+  top: 60px; /* fallback only — the real value is set at show-time */
   z-index: 40;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 10px;
-  width: min(320px, 86vw);
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 18px;
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
   box-shadow: var(--shadow);
 }
 
@@ -1086,7 +1096,6 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -1150,33 +1159,40 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
   color: var(--text-secondary);
 }
 
+/* Same black/white/cyan switch-cap language as .mode-toggle .mode-btn
+   (the RAW/AIR/HYBRID/3D row on the bottom bar) — these are the same
+   conceptual family, a mode picker, just for travel mode instead of
+   screen mode. Individually bordered boxes with a gap, not a merged
+   segmented pill with a solid-blue active fill — that generic look was
+   the single most visible mismatch against the rest of the app's chrome
+   (reported directly, 2026-09-20). */
 .dpb-modes {
   display: flex;
-  gap: 0;
+  gap: 5px;
   width: 100%;
-  background: var(--btn-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
   pointer-events: all;
-  box-shadow: var(--btn-shadow);
 }
 
 .dpb-mode-btn {
   flex: 1;
-  padding: 8px 16px;
-  border: none;
-  border-right: 1px solid var(--border);
-  background: transparent;
+  padding: 9px 12px;
+  border: 1px solid #fff;
+  border-radius: var(--radius-sm);
+  background: #000;
+  color: #fff;
   font-size: 16px;
   cursor: pointer;
+  box-shadow: var(--btn-shadow);
   transition: background .15s;
   -webkit-appearance: none;
 }
 
-.dpb-mode-btn:last-child   { border-right: none; }
-.dpb-mode-btn:active       { background: var(--btn-hover); }
-.dpb-mode-btn.active-mode  { background: var(--btn-active-bg); box-shadow: inset 0 1px 3px rgba(0,0,0,.3); }
+.dpb-mode-btn:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+.dpb-mode-btn.active-mode {
+  background: #000;
+  border-color: var(--raw-value-cyan);
+  box-shadow: var(--btn-shadow);
+}
 
 #compass-permission-btn {
   flex-shrink: 0;

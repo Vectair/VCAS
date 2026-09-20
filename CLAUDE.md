@@ -12909,3 +12909,68 @@ Auto port's own destination search (`OrsGeocoder.kt`, already ported —
 see the earlier native-port entries above) — same standing "synced in
 dedicated passes, not every change" note this file carries for every
 other PWA-only fix.
+
+## Destination-pick banner: repositioned off-centre, restyled to match app chrome (2026-09-20)
+
+Reported directly, with a real device screenshot: `#dest-pick-banner`
+(the "Search for a place or address…" + "or tap the map…" + driving/
+cycling/walking picker shown while a destination is being armed) sat
+dead-centred over the map (`position:fixed; top:50%; left:50%;
+transform:translate(-50%,-50%)`), obscuring most of the screen, and
+looked visually disconnected from the rest of the app's chrome — a
+pale `--bg-panel-alt` card with a generic filled-blue segmented pill
+for the travel-mode picker, neither ever touched by the round 9-11
+cockpit-panel/black-white-cyan chrome unification (see "Cockpit-panel
+chrome rebrand" and "RAW-mode redesign, round 11" above) because this
+element predates that work and nothing since had reason to revisit it.
+
+**Position, matching an established precedent rather than inventing a
+new one**: `#calib-map-hint` (the 2026-09-18 compass-calibration
+feature's own "tap the map" hint) already solves the identical problem
+— `onCalibChooseLandmark()` measures `#top-bar`'s real `offsetHeight`
+at show-time and sets the hint's `top` inline, rather than a guessed
+CSS constant (this app's own "measure the real DOM, don't guess"
+discipline, already established for `#route-card`/`_rawChromeInsets()`
+— the top bar's real height varies, e.g. the status-pill row shrinking/
+growing). `toggleDestPickMode()` (`app.js`) now does the exact same
+thing for `#dest-pick-banner`, and the CSS switched from a centred
+fixed-width card to `left:12px; right:12px` (matching `#calib-map-hint`'s
+own margins) — flush below the top bar, full width, out of the map's
+centre entirely.
+
+**Restyle**: background moved from `--bg-panel-alt` (the paler of the
+two panel tones) to `--bg-panel`, matching `#calib-map-hint`/
+`.calib-option-btn`/every other panel-family element. `.dpb-modes`/
+`.dpb-mode-btn` (the driving/cycling/walking picker) rebuilt to match
+`.mode-toggle .mode-btn`'s own black-background/white-border-when-
+inactive/cyan-border-when-active (`--raw-value-cyan`) look exactly —
+individually bordered boxes with a small gap, not a merged segmented
+pill with a solid-blue active fill. These are the same conceptual
+family (a mode picker) as the RAW/AIR/HYBRID/3D row, just for travel
+mode instead of screen mode, so reusing that exact visual language was
+the natural fix rather than a separately-invented one.
+
+Verified with a real Playwright/Chromium harness loading the real
+`index.html`'s `#top-bar`/`#dest-pick-banner` markup (extracted
+verbatim via depth-matched div extraction) against the real `VCAS.css`,
+with the real `toggleDestPickMode()` positioning logic copied verbatim
+from `app.js`: the banner is hidden before opening and visible after;
+its real measured top edge lands exactly at the top bar's real bottom
+edge + 8px; its left/right margins are exactly 12px each (no longer
+screen-centred); it never overlaps the top bar; the panel background
+resolves to the real `--bg-panel` value, not the old paler
+`--bg-panel-alt`; both the inactive (black bg, white border) and active
+(black bg, cyan border) mode-button states resolve to the exact
+`--raw-value-cyan`/white/black values `.mode-toggle .mode-btn` itself
+uses; and no horizontal overflow at this project's standard 360px
+check. Real screenshots at 412px and 360px confirm the banner now sits
+flush under the status-pill row, fully out of the map's centre, reading
+as the same instrument-panel material as the rest of the chrome. Also
+re-ran the full existing `tests/` suite — still 249/249, unaffected
+(this change touches only `app.js`/`VCAS.css`, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no equivalent destination-pick
+banner to begin with (its own destination search is a settings-screen-
+adjacent card, not a floating map overlay).

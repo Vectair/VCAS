@@ -2953,6 +2953,18 @@
   function toggleDestPickMode() {
     destPickActive = !destPickActive;
     EosMap.setPickingCursor(destPickActive);
+    if (destPickActive) {
+      // Flush below the real top bar rather than dead-centred over the
+      // map (reported directly, 2026-09-20 — it used to obscure most of
+      // the screen). Measures the real DOM at show-time rather than
+      // guessing an offset — the same approach onCalibChooseLandmark()
+      // already established for #calib-map-hint, a near-identical
+      // "tap the map"/search banner built later; #top-bar's real height
+      // isn't a fixed constant (status pills can wrap/shrink).
+      const banner = document.getElementById("dest-pick-banner");
+      const topBar = document.getElementById("top-bar");
+      if (banner && topBar) banner.style.top = (topBar.offsetHeight + 8) + "px";
+    }
     UI.setDestPickMode(destPickActive);
   }
 
