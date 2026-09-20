@@ -13108,3 +13108,114 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — its own `requestRouteTo`/reroute
 equivalents in `MainActivity.kt` have the identical silent-failure gap,
 unaddressed here.
+
+## RAW navigation route follow-up: two real, separate bugs behind "it still looks the same" (2026-09-20, same day)
+
+The `#route-error-toast` fix above turned out not to be what the user was
+actually hitting — direct follow-up, with a real device screenshot: "It
+still looks the same." The screenshot showed a genuinely ACTIVE route
+(real "12.1 km" distance, "SPD 0 MPH", NAVIGATION toggled ON) — not the
+total-failure case the toast targets — with `#route-card`'s own content
+(the SPD/distance row, the 💬 and ✕ buttons) clearly visible, but
+`#nav-guidance-card`'s content (turn maneuver icon, "IN X M TURN Y" text,
+"towards X" dest text) and RAW's own green flight-plan line/turn-junction
+label both completely absent. Two separate, previously-undiscovered bugs,
+found by re-reading the actual rendering code path rather than assuming
+the earlier fix's theory just needed another pass (per this file's own
+repeated lesson under "Rings and dots share one scale now" above).
+
+**Bug 1 — the route line silently vanishes if the single POINT NEAREST
+THE USER happens to fall outside RAW's ±75° FOV, even when the rest of
+the route sits comfortably within it.** `UI.renderRouteLine()`
+(`ui.js`) iterates the route's ahead-coordinates and calls a bare
+`break` the instant ANY point projects to `null` (outside the FOV) —
+originally written, correctly, to truncate the line once "the route has
+turned away from dead-ahead." But the very FIRST point in that loop is
+wherever `RouteGeometry.nearestOnLine()` snapped to along the route —
+not guaranteed to be exactly dead-ahead of `userHeading` — and while
+stationary (`SPD 0 MPH`, exactly what the screenshot showed), RAW's
+`userHeading` comes from the device compass rather than GPS course (see
+"Compass 'won't settle / settles wrong'" above — a real, repeatedly-
+revisited source of imprecision in this exact codebase). A single
+leading point a few degrees outside ±75° — entirely plausible from
+ordinary compass drift while parked, nothing wrong with the route
+itself — killed the ENTIRE line and turn label, even though every later
+point was well within the FOV.
+
+Fixed by distinguishing "haven't started drawing yet" from "already
+drawing": a leading out-of-FOV point is now skipped (the loop continues
+forward looking for the first in-FOV point to start from), while an
+out-of-FOV point encountered AFTER the line has already started still
+`break`s exactly as before — preserving the original "route curves
+away, stop rather than exact-clip" behaviour for the case it was
+actually built for.
+
+Verified with a real Playwright/Chromium harness loading the actual
+`geo.js`/`ui.js` (not stubs) and calling the real, shipped
+`renderRouteLine()` directly with `Geo.destinationPoint`-derived
+coordinates (real, physically consistent lat/lon, not hand-typed
+numbers): a route whose first point sits at a 100° relative bearing
+(outside ±75°) but whose remaining three points sit at 10°/5°/0° (well
+inside) now renders the full line AND the turn label correctly — this
+would have rendered nothing at all before the fix. A second scenario
+confirmed the pre-existing truncation behaviour is untouched: two
+in-FOV points followed by a genuine 100°-relative-bearing point (the
+route actually curving away) still stops the line at exactly that
+point, never drawing past it.
+
+**Bug 2 — `#nav-guidance-card` stays hidden, independent of Bug 1, purely
+because `guidanceTextEnabled` was `false`.** `_showGuidanceCard()`'s own
+guard (`if (mode !== "nav" || !activeRoute || !guidanceTextEnabled)
+return;`) is the ONLY code path that can leave `#nav-guidance-card`
+hidden while `activeRoute` is genuinely set and `mode === "nav"` — and
+`guidanceTextEnabled` only ever changes via `toggleGuidanceText()`,
+wired to the 💬 button already visible inside `#route-card` in the
+reported screenshot. Confirmed empirically, not just by reading the
+code: the same real end-to-end Playwright harness this file's own
+"silently-failed route request" investigation above built (real
+`app.js`/`ui.js`, a real successful mocked ORS route) was re-run with
+`localStorage.setItem("vcas-guidance-text-enabled", "0")` seeded before
+boot — this reproduces the EXACT reported symptom bit-for-bit:
+`#route-card` shows real distance/ETA/speed text, `#nav-guidance-card`
+stays hidden with `computedDisplay: "none"`, with a genuinely active
+route and (in this scenario's own in-FOV heading) the route line
+rendering correctly regardless — confirming the route line's own
+absence in Bug 1 above is NOT gated by this flag, the two are
+independent causes, not one. Simulating a tap on `#btn-toggle-guidance-
+text` in the same harness correctly restored the card's real content
+("IN 131 M TURN RIGHT", the dest text) and flipped the persisted value
+back to `"1"`.
+
+This isn't a bug in the toggle mechanism itself — it's a real, intended,
+reversible preference — but its OFF-state affordance (`.route-card-
+clear.guidance-text-off { opacity: .5; }`) was too subtle to reliably
+read as "this is deliberately hidden" rather than "the app is broken,"
+on a small button sharing a row with its own ✕ sibling. Strengthened:
+the OFF state now also gets a dashed border in the same Okabe-Ito
+vermillion (`#d55e00`) `#route-error-toast`'s own border already uses
+for "needs your attention" — a real, noticeable signal distinct from a
+merely-duller button, verified via a real computed-style Playwright
+check (`border-style: dashed`, `border-color: rgb(213, 94, 0)` on the
+OFF state; the ON state's own `solid`/theme border completely
+unaffected).
+
+Re-ran the full existing `tests/` suite afterward — still 249/249,
+unaffected (this fix touches only `ui.js`/`VCAS.css`, none of
+`src/logic/`).
+
+**Whether `guidanceTextEnabled` being `false` is actually what happened
+on the user's own device is still unconfirmed** — there's no way to
+inspect a real device's `localStorage` from here. Told the user directly
+to check whether the 💬 button (now visibly dashed/vermillion if it's
+in that state) is toggled off, and that tapping it again should restore
+the card. If it turns out NOT to be the cause, the next thing to check
+is whether `mode`/`activeRoute` are genuinely set the way this
+investigation assumed — but the toast/route-line/dashed-border fixes
+above are all real, verified improvements regardless of which
+explanation turns out to be the actual one on that specific device.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own `RawPlotView.kt` route-line
+rendering has no FOV-skip equivalent and no guidance-toggle-visibility
+concept at all.

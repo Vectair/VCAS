@@ -1070,13 +1070,34 @@ const UI = (() => {
 
     const points = [];
     let turnPoint = null;
+    let started = false;
     for (let i = 0; i < coords.length && points.length < ROUTE_LINE_MAX_POINTS; i++) {
       const [lon, lat] = coords[i];
       const bearing = Geo.calculateBearing(userLat, userLon, lat, lon);
       const relativeBearing = Geo.calculateRelativeBearing(bearing, userHeading);
       const rangeNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
       const pos = Geo.projectToPolarPosition(relativeBearing, rangeNm, plotWidth, plotHeight, bandsNm, anchorY, safeInset, fovHalfAngleDeg, plotLeft, plotTop);
-      if (!pos) break; // outside the FOV — the route has turned away from dead-ahead; stop rather than exact-clip
+      if (!pos) {
+        // Once the line has actually started, an out-of-FOV point means the
+        // route has genuinely turned away from dead-ahead — stop rather
+        // than exact-clip, same as before. But a LEADING point (before
+        // anything's been drawn) can land outside the FOV on its own, with
+        // nothing wrong with the route: the point nearest the user (i=0,
+        // wherever nearestOnLine() snapped to) isn't guaranteed to be
+        // exactly dead-ahead, and while stationary userHeading comes from
+        // the device compass, not GPS course — any real-world imprecision
+        // there (see compassHeading.js's own long history in CLAUDE.md) can
+        // easily put that one leading point a few degrees outside ±75°
+        // even though the rest of the route sits well within it. Skip
+        // forward past leading out-of-FOV points instead of discarding the
+        // whole line over the very first one — this was a real, previously
+        // undiscovered bug: it silently produced "nothing renders at all"
+        // for exactly the stationary/compass-imprecise case most likely to
+        // trip it (2026-09-20).
+        if (started) break;
+        continue;
+      }
+      started = true;
       points.push(pos);
       if (turnIndex != null && i === turnIndex) turnPoint = pos;
     }

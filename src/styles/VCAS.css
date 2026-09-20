@@ -1970,7 +1970,22 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 }
 
 .route-card-clear:active { background: var(--btn-hover); }
-.route-card-clear.guidance-text-off { opacity: .5; }
+/* A plain opacity dim alone (the original treatment) was too subtle on a
+   small, busy row to reliably read as "turn-by-turn text is currently
+   hidden" rather than just a generically muted button — a real device
+   report (2026-09-20) turned out to be exactly this: the guidance card's
+   content wasn't missing due to a bug, #btn-toggle-guidance-text had
+   simply been tapped off at some point and stayed persisted that way, but
+   nothing about its appearance made that state unmistakable. The dashed
+   vermillion border (the same Okabe-Ito colour #route-error-toast's own
+   border already uses for "needs your attention") makes the OFF state a
+   real, noticeable signal rather than a button that merely looks a bit
+   duller than its neighbours. */
+.route-card-clear.guidance-text-off {
+  opacity: .55;
+  border-style: dashed;
+  border-color: #d55e00;
+}
 
 /* ---- RAW: merge the guidance card + ETA card into one top nav-status
    panel (2026-09-06) ----
