@@ -254,6 +254,74 @@ grouping scheme actually shipped.
 - No native Android Auto port equivalent — same standing gap as every
   other PWA-only feature already tracked above.
 
+### Passive "spotting" collection / gamification (2026-09-21)
+
+Raised in the same conversation as the simplified-type work above, and
+explicitly framed by the project owner as a rough idea to capture, not a
+scoped feature: something that gamifies identification for a user who's
+out doing exercise (walking/cycling, not driving) — collecting/logging
+aircraft they pass near somewhat passively, rather than every sighting
+needing a deliberate LOG-panel tap. The project owner's own first
+instinct was that this might actually belong in a separate app rather
+than VCAS itself — a real, open question, not dismissed here, and worth
+weighing seriously before any of this gets built: VCAS's own established
+identity is two co-equal pillars, navigation and identification (see
+CLAUDE.md's "What VCAS is, and isn't"), and a collection/achievement
+layer is a different KIND of feature — an engagement mechanic, not a
+functional utility — closer in spirit to the "is this actually VCAS, or
+a Vectair-family sibling app" question that's already come up for the
+Android Auto native-app direction and for where the simplified-type
+mapping's own reference data should eventually live. Worth deciding
+deliberately, not by default, whether this is a VCAS setting/mode or a
+genuinely separate Vectair product built on the same aircraft-tracking
+core.
+
+**If it does end up living in VCAS, real design questions worth working
+through before building anything:**
+- **"Passively spotted" isn't the same thing as "confirmed sighting,"
+  and conflating them would be a real mistake.** ADS-B presence nearby
+  only means an aircraft was in range — nothing about whether the person
+  actually looked up and saw it, which is exactly the distinction the
+  existing ground-truth LOG panel's whole design protects (a real,
+  deliberate self-report, used to calibrate `Visibility.estimate()`
+  against reality). A passive "collection" stream should almost
+  certainly be a SEPARATE data path from the observation log, not merged
+  into it — diluting the log's own honest self-reported data with
+  "was merely nearby" entries would quietly damage the one thing it's
+  for. A defensible middle ground: only credit a "collection" entry when
+  `Visibility.estimate()` itself already says "Likely" or "Certainly
+  visible" for that sighting (real infrastructure already in place,
+  reused rather than duplicated) — closer to "was realistically
+  spottable" than "was definitely seen," but at least not "was
+  detected 40nm away in cloud."
+- **No persisted, user-facing identity to hang a "collection" off of.**
+  `InstallId` (`src/dev/installId.js`) exists, but is explicitly a
+  private, internal-analytics-only per-device identifier — never shown
+  to the user, never meant to be. A real collection a person can see,
+  be proud of, and watch grow needs actual user-facing persisted state
+  (which types/families they've "collected," by the new `SimplifiedType`
+  groups this conversation's own simplify-types feature just added — a
+  natural, already-built taxonomy to collect against rather than raw
+  ICAO codes). A `localStorage`-only version is buildable with zero new
+  infrastructure but doesn't survive a reinstall or sync across devices
+  — a real, current limitation worth naming rather than discovering
+  after committing to a design that assumes otherwise.
+- **True passive collection (app closed/backgrounded) needs background
+  execution VCAS doesn't have.** The PWA is screen-on-only today (a Wake
+  Lock, not a background service) — this is the exact same "Phase 4:
+  foreground Service" gap already flagged as not-yet-started for the
+  native Android Auto port. A lighter, no-new-infrastructure MVP is
+  real though: only count a "spot" while the app is actually open and
+  the user is moving on foot/bike (the same speed-band AIR mode and 3D
+  View already key off) — genuinely buildable now, just a narrower
+  version of "passive" than "collects things while your phone's in your
+  pocket and the app isn't running."
+- **Mechanic itself is undecided** — a checklist/album (collected vs.
+  not, by family), rarity tiers (a 737 is common, an A380 is rare),
+  streaks, or something else entirely. Not worked through at all yet;
+  flagged as the most fun part to get right and the easiest to
+  over-scope if it's picked up.
+
 ### User-submitted meteorological data (2026-09-17)
 
 A PIREP-style community input layer — explicitly lower-confidence than
