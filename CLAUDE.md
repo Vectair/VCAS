@@ -14196,3 +14196,178 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — see ROADMAP.md's own growing native-lag
 list, now four items longer.
+
+## "Simplify aircraft types" setting — a curated ICAO type designator to layperson-family lookup (2026-09-21, later the same day)
+
+Direct tester feedback, relayed by the project owner (who agrees): the
+raw ICAO type designator VCAS displays everywhere (indicator labels,
+popups, the aircraft list) is more precision than a casual spotter wants
+or can parse — `B738`/`B39M`/`B3XM`/`B736` are all, to a normal person,
+"a 737," and nobody's asking to distinguish a 737 NG from a 737 MAX by
+sight the way an enthusiast would. Framed as a toggle from the start, not
+a replacement — the exact designator stays the default, on request.
+
+### Design assessment, given directly per the project owner's own third
+ask ("give me your best assessment of how these groupings should occur")
+
+**The core tension, stated plainly rather than glossed over**: the
+tester's own two examples pull in different directions if applied
+uniformly. "Lump all 737s together as B737" — collapsing EVERY Boeing
+737 sub-variant (length AND engine generation) into one bucket — is a
+full family-level collapse. But the same message names "A321" as the
+CONTRASTING example ("if it's a 737 or an A321") — which, taken
+literally, means A321 has to stay distinct from A320/A319/A318, a
+finer-grained, per-series-number collapse. Applied uniformly, those two
+rules disagree: full-family collapse would also fold A318/319/320/321
+into one "A320" bucket, exactly the treatment 737 gets.
+
+**Resolved by asking what a casual person actually SAYS, not by picking
+one rule and forcing it everywhere.** The real distinction isn't
+Boeing-vs-Airbus, it's whether the sub-variant number is already part of
+common colloquial usage: nobody casually says "that's a 737-800" (they
+say "737," full stop, regardless of length or engine generation) — but
+people who can tell a longer narrowbody apart at all genuinely do say
+"that's an A321," specifically, not "that's an A320-family jet." The
+individual Airbus narrowbody names are already the colloquial names;
+the Boeing 737's length-variant digit never became one. Same reasoning
+extended consistently to every other family in the shipped table:
+747/757/767/787 collapse fully (nobody distinguishes a 787-8 from a
+787-9 by ear); A330/A340/A350/A380 and ATR 42/ATR 72 stay separate (each
+a genuinely different, individually-named aircraft, not "sub-variants of
+one thing" the way 737-600..900 are); CRJ and E-Jet collapse to family
+(casual spotters essentially never distinguish a CRJ700 from a CRJ900).
+
+**Explicitly flagged back to the project owner as the one place this
+reasoning is a real judgment call, not a solved problem**: whether A318/
+319/320/321 should really stay four distinct buckets, or whether the
+tester's "A321" was just loose phrasing for "the Airbus one" and full
+family collapse (matching 737's own treatment) is actually closer to
+what's wanted. Shipped with the four-distinct-buckets default (the more
+literal reading of the example given), one-line-per-entry to flip later
+in `src/logic/simplifiedType.js`'s own `GROUPS` table if that guess is
+wrong — see ROADMAP.md's own entry for this feature.
+
+**Deliberately scoped OUT of the lookup table entirely: GA/light
+aircraft, helicopters, business jets, military types.** Their ICAO codes
+(`C172`, `PA28`, `R44`, ...) are already about as simple as a casual
+reader needs — a spotter who sees "C172" isn't confused the way "B39M"
+confuses them. Curating hundreds of rarely-relevant entries for that
+category would be real, unnecessary complexity for close to zero
+readability gain; anything not in the table safely passes through
+unchanged (the module's own fallback), so this is a genuine "not yet
+needed" scope line, not a gap that breaks anything.
+
+**"This is where Vectair as a whole starts to come in"** — the project
+owner's own framing, acknowledged directly rather than worked around: a
+shared type-to-group reference belongs in whatever broader aircraft-type
+database Vectair maintains, not a hand-typed JS table living only in
+this repo. Not attempted this session (no access to that external
+database, and it's explicitly the project owner's own separate
+infrastructure) — but the implementation is deliberately isolated behind
+one pure function (`SimplifiedType.get(type)`) so that swap is clean
+later: every call site only ever asks this one function, none of them
+know or care whether the answer comes from a static table or a fetched/
+DB-backed one.
+
+### Implementation
+
+**`src/logic/simplifiedType.js`** (new) — pure lookup, `SimplifiedType.
+get(rawType)`, a `GROUPS` object mapping ~60 real ICAO type designators
+(the common mainline/regional/turboprop families outlined above) to
+their simplified label. Case-insensitive lookup (normalizes to
+uppercase before matching, matching how ADS-B actually reports types),
+but an UNMAPPED code's original casing is preserved on passthrough — no
+reason to alter a string this module doesn't actually recognize. Falsy
+input (`""`/`null`/`undefined` — no type reported at all) passes straight
+through unchanged, matching every call site's own existing `type ||
+fallback` handling downstream. The codes reflect general aviation-
+industry knowledge, not a fetch verified against a live ADS-B feed from
+this sandbox (same category of caveat every other reference-data table
+in this codebase already carries when it wasn't independently
+re-verified against a live source) — flagged honestly in the file's own
+header rather than presented as authoritative.
+
+**`src/simplifiedTypeMode.js`** (new) — the persisted toggle,
+byte-for-byte the same shape as `ColorblindMode` (`init`/`isEnabled`/
+`toggle`, one localStorage boolean).
+
+**Wired into every place a type is actually rendered**, found by
+grepping every `.type`/`actype`/`pop-type`/`rlr-meta` reference in
+`ui.js`/`map.js` rather than assumed complete from memory — five real
+call sites: `ui.js`'s `renderIndicators()` (RAW/Hybrid indicator label),
+`renderAircraftList()` (the RAW aircraft-list panel's meta line),
+`showPopup()` and `showAirPopup()` (both popups), and `map.js`'s
+`_airMarkerHtml()` (AIR's own map markers). Each file gained its own
+small `_displayType(rawType)` helper — `SimplifiedTypeMode.isEnabled() ?
+SimplifiedType.get(rawType) : rawType` — mirroring `_displayColor()`'s
+own established pattern (including map.js needing its own separate copy,
+same reasoning as `_displayColor`'s: different module, not a shared
+import). 3D View (`render3DView()`) shows no type text at all (callsign
++ distance only) and needed no change. Existing escaping is untouched at
+every site — `renderAircraftList()`'s pre-existing `_escapeHtml()` call
+now wraps the simplified label instead of the raw one, same guarantee
+either way since the simplified output is either a hardcoded safe string
+from the table or the original (already-subject-to-whatever-escaping-
+existed) raw type unchanged.
+
+**Settings**: new "Simplify aircraft types" row in Settings → Display &
+Accessibility (`index.html`), right after the colour-blind-safe palette
+toggle — same accessibility/comprehension framing. `app.js` gained
+`onSimplifyTypesToggleClick()`/`_updateSimplifyTypesToggleBtn()`,
+byte-for-byte mirroring `onColorblindToggleClick()`'s own shape
+(including its "re-render immediately rather than waiting for the next
+GPS tick" behavior, and its early-return when no GPS fix exists yet).
+
+**Deliberately NOT touched, and not implied by this pass**: Traffic
+Rules' `typeQuery` condition still matches only against the raw ICAO
+type — a rule for "737" today still needs the existing comma-separated
+OR syntax spelling out every real code. Extending rule matching to also
+consider the simplified group is a real, low-effort future win once the
+grouping table is more settled, not built this session (kept separate
+from the display-only change actually asked for — see ROADMAP.md). No
+change to the native Android Auto port either (same standing "synced in
+dedicated passes, not every change" note this file carries for every
+other PWA-only feature).
+
+### Verified with real execution throughout, this project's own established discipline
+
+- **65 real Node checks** (`tests/logic/simplifiedType.test.js`, added to
+  the committed suite) against the actual shipped `simplifiedType.js`:
+  every real Boeing 737/747/757/767/787 code collapsing correctly;
+  A318/319/320/321 confirmed to stay genuinely distinct from each other
+  (an explicit `!==` check, not just individual value checks, so a
+  future accidental collapse would fail loudly); the neo/ceo fold;
+  Airbus widebody and ATR 42/72 distinctness; CRJ/E-Jet family collapse;
+  Dash 8 vs. the re-engined Q400 staying separate; unmapped GA/
+  helicopter/placeholder codes passing through completely unchanged;
+  and case-insensitive lookup with casing preserved on an unmapped
+  passthrough. All 65 pass. Full suite re-run afterward: **8 files, 314
+  checks, all passing** (the pre-existing 249 plus this file's 65).
+- **8 real Playwright/Chromium checks** (a `file://`-origin harness so
+  `localStorage` actually works, this project's own established fix for
+  `setContent()`'s opaque-origin default) loading the real, unmodified
+  `geo.js`/`simplifiedType.js`/`simplifiedTypeMode.js`/`colorblindMode.js`/
+  `aircraftSymbol.js`/`ui.js` together: the setting starts off on a fresh
+  install; `renderIndicators()` shows the raw type with the setting off
+  and the simplified label with it on; `showPopup()`, `renderAircraftList()`,
+  and `showAirPopup()` all independently reflect the same toggle;
+  toggling back off reverts every readout; and an aircraft with no type
+  at all still falls back to "Unknown" regardless of the setting. All 8
+  pass against the real, shipped code.
+- **7 real Playwright checks** against the actual app.js settings-toggle
+  wiring, extracted verbatim (brace-matched, not retyped) — confirmed a
+  click with no GPS fix yet still toggles the button's label/state but
+  correctly skips the re-render (matching the colourblind toggle's own
+  established behaviour); with a real fix present, a click in NAV mode
+  calls `refreshIndicators()` exactly once and a click in AIR mode calls
+  `refreshAirMode()` exactly once; and the underlying `SimplifiedTypeMode`
+  state stays in sync with the button's own final label. **One real
+  harness bug caught and fixed before trusting the result**: the first
+  draft of this test never actually wired the extracted click handler to
+  the button's `click` event, so every check technically "passed" only
+  because nothing was happening at all — caught by the first assertion
+  failing outright rather than silently reading as a false positive,
+  fixed by adding the missing `addEventListener` call, not a change to
+  the real app code.
+
+`node --check` clean on every edited `.js` file.

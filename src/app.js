@@ -317,6 +317,8 @@
     _applyThemeToDom(initialTheme);
     ColorblindMode.init();
     _updateColorblindToggleBtn();
+    SimplifiedTypeMode.init();
+    _updateSimplifyTypesToggleBtn();
     AirRangeRingsOption.init();
     _updateAirRingsToggleBtn();
     ModeButtonOrder.init();
@@ -1382,6 +1384,15 @@
       });
     }
 
+    // 9b. Simplify aircraft types toggle (2026-09-21)
+    const btnSimplifyTypes = document.getElementById("btn-simplify-types-toggle");
+    if (btnSimplifyTypes) {
+      btnSimplifyTypes.addEventListener("click", (e) => {
+        e.preventDefault();
+        onSimplifyTypesToggleClick();
+      });
+    }
+
     // 10. Range rings in Air view toggle
     const btnAirRings = document.getElementById("btn-air-rings-toggle");
     if (btnAirRings) {
@@ -1497,6 +1508,28 @@
     // status-pill dot colours) for what currently reads this.
     document.body.classList.toggle("colorblind-safe", on);
     const btn = document.getElementById("btn-colorblind-toggle");
+    if (!btn) return;
+    btn.textContent = on ? "On" : "Off";
+    btn.classList.toggle("active", on);
+  }
+
+  // ---- Simplify aircraft types (2026-09-21) ----
+
+  function onSimplifyTypesToggleClick() {
+    SimplifiedTypeMode.toggle();
+    _updateSimplifyTypesToggleBtn();
+    // Same "don't make them wait for the next tick" re-render pattern as
+    // the colourblind toggle just above — 3D View shows no type text at
+    // all (see ui.js's render3DView(), callsign+distance only), so it
+    // needs no equivalent refresh here.
+    if (userLat === null) return;
+    if (mode === "nav") refreshIndicators();
+    else refreshAirMode();
+  }
+
+  function _updateSimplifyTypesToggleBtn() {
+    const on = SimplifiedTypeMode.isEnabled();
+    const btn = document.getElementById("btn-simplify-types-toggle");
     if (!btn) return;
     btn.textContent = on ? "On" : "Off";
     btn.classList.toggle("active", on);

@@ -345,6 +345,20 @@ const UI = (() => {
     return vis.colorRaw || vis.color;
   }
 
+  /**
+   * "Simplify aircraft types" (2026-09-21) — see src/simplifiedTypeMode.js/
+   * src/logic/simplifiedType.js. Same shape/placement as _displayColor()
+   * just above: one small helper every text-rendering call site reads
+   * instead of the raw `.type` field directly, so the setting can't be
+   * half-applied across the app the way a hand-copied check at each site
+   * risks. Falsy input (no type reported at all) passes straight through
+   * unchanged — SimplifiedType.get() already does this, matching every
+   * call site's own existing "type || fallback" handling downstream.
+   */
+  function _displayType(rawType) {
+    return SimplifiedTypeMode.isEnabled() ? SimplifiedType.get(rawType) : rawType;
+  }
+
   /** Since every style now uses the same colours _displayColor() returns
    * (2026-09-19, see its own doc comment above), and .indicator-label's own
    * box is unconditionally dark in every style now too (see VCAS.css), the
@@ -379,7 +393,7 @@ const UI = (() => {
       const hex = ind.aircraft.hex;
       seenHexes.add(hex);
 
-      const type     = ind.aircraft.type || "";
+      const type     = _displayType(ind.aircraft.type) || "";
       const displayColor = _displayColor(ind.vis);
       const shapeSvg = AircraftSymbol.svg(ind.vis.shape, displayColor, 20, ind.vis.fillOpacity, {
         predicted: ind.relevance.reason === "predicted-entry",
@@ -1329,7 +1343,7 @@ const UI = (() => {
       : items.map(ind => {
           const a = ind.aircraft;
           const callsign = _escapeHtml(a.callsign || a.hex);
-          const type = a.type ? _escapeHtml(a.type) : "—";
+          const type = a.type ? _escapeHtml(_displayType(a.type)) : "—";
           const altLabel = a.altitudeFt != null ? `${Math.round(a.altitudeFt).toLocaleString()}ft` : "—";
           const rangeLabel = `${ind.distanceNm.toFixed(1)}nm`;
           const color = _displayColor(ind.vis);
@@ -1549,7 +1563,7 @@ const UI = (() => {
 
     const a = ind.aircraft;
     const callsign = a.callsign || a.hex;
-    const type     = a.type  || "Unknown";
+    const type     = _displayType(a.type) || "Unknown";
     const distStr  = ind.distanceNm != null ? ind.distanceNm.toFixed(1) + " NM" : "—";
     const altStr   = a.altitudeFt != null ? a.altitudeFt.toLocaleString() + " ft" : "Unknown";
     const bearingLabel = _bearingLabel(ind.relativeBearing, ind.vis.isOverhead);
@@ -1607,7 +1621,7 @@ const UI = (() => {
     if (!el) return;
 
     const callsign = aircraft.callsign || aircraft.hex;
-    const type     = aircraft.type  || "Unknown";
+    const type     = _displayType(aircraft.type) || "Unknown";
     const altStr   = aircraft.altitudeFt != null ? aircraft.altitudeFt.toLocaleString() + " ft" : "Unknown";
     const spdStr   = aircraft.groundSpeedKt != null ? aircraft.groundSpeedKt.toFixed(0) + " kt" : "—";
 

@@ -191,6 +191,69 @@ scoping efforts rather than one screen built in one pass:
     en route, destination conditions. A natural follow-up once the
     non-route version works, not a prerequisite for it.
 
+### Simplified/grouped aircraft type display (2026-09-21)
+
+Direct tester feedback, relayed by the project owner, who agrees: showing
+the raw ICAO type designator (`B738`, `B39M`, `B3XM`, `B736`, ... — all
+real-world "737" sightings) is more precision than a casual spotter
+wants or can parse. Framed as a toggle, not a replacement — testers who
+DO want the exact designator (the current default) keep it; a "Simplify"
+setting swaps every on-screen type readout for a coarser family/model
+label instead ("737" rather than "B39M").
+
+**Status: a real, working first version shipped 2026-09-21** —
+`src/logic/simplifiedType.js` (pure lookup, `SimplifiedType.get(icaoType)`,
+with a curated starter table covering common mainline/regional/turboprop
+families) + `src/simplifiedTypeMode.js` (persisted toggle, mirrors
+`ColorblindMode`'s exact shape) + a Settings → Display & Accessibility
+row. Wired into every place a type is rendered: RAW/Hybrid indicator
+labels, the RAW aircraft-list panel, both popups (RAW and AIR/Hybrid),
+and AIR's own map markers. See CLAUDE.md's own dated entry for the full
+implementation writeup, the verification, and the reasoning behind the
+grouping scheme actually shipped.
+
+**What's still genuinely open, not resolved by shipping v1:**
+- **Grouping granularity is a real judgment call the project owner should
+  weigh in on, not a solved problem.** The table currently collapses
+  Boeing 737/747/757/767/787 fully to their headline model number
+  (matching the tester's own literal example) but keeps Airbus A318/319/
+  320/321 as four DISTINCT buckets (only folding the neo/ceo engine-
+  generation suffix together) — a real, debatable asymmetry, explained
+  in CLAUDE.md, not an oversight. Worth revisiting once real usage/
+  feedback comes in on whether that reads as inconsistent.
+  - **Coverage is intentionally partial, not exhaustive.** ICAO type
+  designators number in the thousands (every GA single/twin, glider,
+  helicopter, military type, etc.); the shipped table only covers
+  commercial/regional/turboprop families likely to actually appear in
+  typical VCAS use. Anything not in the table safely falls back to the
+  raw designator unchanged — never worse than today, but real coverage
+  gaps will surface from field use. The ground-truth observation log
+  already records `aircraft.type` on every logged sighting, which is a
+  natural, already-existing signal for "what's showing up unmapped that's
+  worth adding" — worth checking periodically, no new instrumentation
+  needed.
+- **"This is where Vectair as a whole starts to come in"** — the project
+  owner's own framing: a shared type→group reference (a new column in
+  whatever aircraft-type database Vectair maintains more broadly) is the
+  real, durable home for this mapping, not a hand-maintained JS table
+  living only in VCAS. The shipped module is deliberately isolated behind
+  one pure function specifically so that swap is clean later — every call
+  site asks `SimplifiedType.get(type)`, none of them know or care whether
+  the answer comes from a static table or a fetched/DB-backed one. Not
+  attempted this session — no access to that external database, and it's
+  explicitly the project owner's own separate infrastructure, not
+  something to build blind from here.
+- **Traffic Rules' `typeQuery` condition still matches against the raw
+  ICAO type only**, unchanged — a rule for "737" today has to spell out
+  every real code via the existing comma-separated OR syntax
+  (`B736,B737,B738,B739,B37M,B38M,B39M,B3XM`). Once a real grouping table
+  exists, matching a rule's query against the simplified group too (so
+  "737" alone matches the whole family) would be a genuinely nice,
+  low-effort follow-up — not built this session, kept separate from the
+  display-only change actually asked for.
+- No native Android Auto port equivalent — same standing gap as every
+  other PWA-only feature already tracked above.
+
 ### User-submitted meteorological data (2026-09-17)
 
 A PIREP-style community input layer — explicitly lower-confidence than

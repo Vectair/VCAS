@@ -590,6 +590,13 @@ const EosMap = (() => {
     return vis.colorRaw || vis.color;
   }
 
+  /** "Simplify aircraft types" — mirrors ui.js's own _displayType() copy
+   * exactly (same reasoning as _displayColor() just above having its own
+   * separate copy here: this is a different module, not a shared import). */
+  function _displayType(rawType) {
+    return SimplifiedTypeMode.isEnabled() ? SimplifiedType.get(rawType) : rawType;
+  }
+
   /** Small chevron pointing "up" before rotation — mirrors ui.js's own copy. */
   function _directionArrowSvg(color) {
     return `<svg width="9" height="12" viewBox="0 0 10 14" aria-hidden="true"><path d="M5 0 L10 9 L5 6.5 L0 9 Z" fill="${color}"/></svg>`;
@@ -597,7 +604,7 @@ const EosMap = (() => {
 
   function _airMarkerHtml(aircraft, vis) {
     const callsign = aircraft.callsign || aircraft.hex;
-    const type     = aircraft.type || "";
+    const type     = _displayType(aircraft.type) || "";
     const displayColor = _displayColor(vis);
     // AIR mode shows every aircraft unconditionally (no relevance computed),
     // so there's no predicted/overhead modifier here — just the tier's own

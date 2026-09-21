@@ -37,7 +37,11 @@ function loadLogic() {
   const AircraftExtrapolation = require(path.join(ROOT, "aircraftExtrapolation.js"));
   const Indicators = require(path.join(ROOT, "indicators.js"));
   const TrafficRulesLogic = require(path.join(ROOT, "trafficRules.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic };
+  // SimplifiedType — standalone, same as TrafficRulesLogic (no Geo/
+  // Visibility/etc dependency, nothing else references it as a free
+  // global), added 2026-09-21 for the "Simplify aircraft types" setting.
+  const SimplifiedType = require(path.join(ROOT, "simplifiedType.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType };
 }
 
 module.exports = { loadLogic };

@@ -787,6 +787,19 @@
               <span class="settings-label">Colour-blind-safe palette</span>
               <button type="button" class="settings-toggle-btn" id="btn-colorblind-toggle">Off</button>
             </div>
+            <!-- 2026-09-21: direct tester feedback — the raw ICAO type
+                 designator (B738/B39M/B3XM/B736, all "a 737") is more
+                 precision than a casual spotter wants. On: every type
+                 readout (indicator labels, the aircraft-list panel, both
+                 popups, AIR markers) shows a coarser family/model label
+                 instead (src/logic/simplifiedType.js). Off (default):
+                 unchanged, the exact designator. See CLAUDE.md/
+                 ROADMAP.md for the grouping scheme and its open
+                 questions. -->
+            <div class="settings-row">
+              <span class="settings-label">Simplify aircraft types</span>
+              <button type="button" class="settings-toggle-btn" id="btn-simplify-types-toggle">Off</button>
+            </div>
             <div class="settings-row">
               <span class="settings-label">Range rings in Air view</span>
               <button type="button" class="settings-toggle-btn" id="btn-air-rings-toggle">Off</button>
@@ -1040,9 +1053,11 @@
   <script src="src/logic/indicators.js?v=__BUILD_ID__"></script>
   <script src="src/logic/view3dLogic.js?v=__BUILD_ID__"></script>
   <script src="src/logic/trafficRules.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/simplifiedType.js?v=__BUILD_ID__"></script>
   <script src="src/map/navStyle.js?v=__BUILD_ID__"></script>
   <script src="src/map/themeManager.js?v=__BUILD_ID__"></script>
   <script src="src/colorblindMode.js?v=__BUILD_ID__"></script>
+  <script src="src/simplifiedTypeMode.js?v=__BUILD_ID__"></script>
   <script src="src/modeButtonOrder.js?v=__BUILD_ID__"></script>
   <script src="src/view3dClouds.js?v=__BUILD_ID__"></script>
   <script src="src/airRangeRingsOption.js?v=__BUILD_ID__"></script>
