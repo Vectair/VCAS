@@ -77,11 +77,18 @@ const TomTomGeocoder = (() => {
   const CONFINE_RADIUS_KM = 200;
 
   /**
+   * 2026-09-21, same day: same real gap OrsGeocoder.search() fixed, for
+   * the same reason — `radius` genuinely excludes, so a destination beyond
+   * CONFINE_RADIUS_KM would have returned zero TomTom results too, with
+   * nothing left to recover it once ORS's own identical exclusion also
+   * came back empty. Retries WITHOUT `radius` (lat/lon bias only) the
+   * moment a confined search returns nothing.
+   *
    * @param {string} text  Free-text place/address/business-name query.
    * @param {{lat: number, lon: number}} [focus]  Both ranks results by
-   *   proximity to this point AND confines them to within
-   *   CONFINE_RADIUS_KM of it (via the `radius` param, see above) — same
-   *   semantics as OrsGeocoder.search()'s own `focus` parameter.
+   *   proximity to this point AND, on the first attempt, confines them to
+   *   within CONFINE_RADIUS_KM of it — same semantics as
+   *   OrsGeocoder.search()'s own `focus` parameter.
    * @param {number} [limit=6]
    * @returns {Promise<Array<{label: string, lat: number, lon: number}>>}
    */
@@ -98,6 +105,15 @@ const TomTomGeocoder = (() => {
       return [];
     }
 
+    if (focus) {
+      const confined = await _fetch(query, apiKey, focus, true, limit);
+      if (confined.length > 0) return confined;
+      return _fetch(query, apiKey, focus, false, limit);
+    }
+    return _fetch(query, apiKey, null, false, limit);
+  }
+
+  async function _fetch(query, apiKey, focus, confine, limit) {
     const params = new URLSearchParams({
       apiVersion: String(API_VERSION),
       key: apiKey,
@@ -106,7 +122,9 @@ const TomTomGeocoder = (() => {
     if (focus) {
       params.set("lat", focus.lat);
       params.set("lon", focus.lon);
-      params.set("radius", String(Math.round(CONFINE_RADIUS_KM * 1000)));
+      if (confine) {
+        params.set("radius", String(Math.round(CONFINE_RADIUS_KM * 1000)));
+      }
     }
 
     const url = `${BASE_URL}/${encodeURIComponent(query)}.json?${params.toString()}`;

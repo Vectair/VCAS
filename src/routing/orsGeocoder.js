@@ -32,14 +32,19 @@ const OrsGeocoder = (() => {
   const CONFINE_RADIUS_KM = 200;
 
   /**
-   * @param {string} text  Free-text place/address query.
-   * @param {{lat: number, lon: number}} [focus]  Both ranks results by
-   *   proximity to this point AND confines them to within
-   *   CONFINE_RADIUS_KM of it (via boundary.circle.*, see above) — pass
-   *   the user's own position so a same-named place on the other side of
-   *   the world can't outrank, or even appear alongside, a real local
-   *   match.
-   * @returns {Promise<Array<{label: string, lat: number, lon: number}>>}
+   * 2026-09-21, same day: `boundary.circle` genuinely EXCLUDES anything
+   * outside CONFINE_RADIUS_KM, not just deprioritises it — a real, direct
+   * consequence of the fix above, reported immediately: "what happens if
+   * I'm navigating somewhere further than 200nm away?" A destination
+   * beyond ~108nm/200km would have silently returned zero results from
+   * this confined query, with nothing upstream (ActiveGeocoder, TomTom's
+   * own identical-radius confinement) able to recover it. Fixed by
+   * retrying WITHOUT boundary.circle (focus.point bias only, the original
+   * pre-fix behaviour) the moment a confined search comes back empty —
+   * confined-first still solves the reported "wrong country" bug for any
+   * search that has a real nearby match, and only falls back to the wider,
+   * less-safe unconfined search for the genuinely rarer case where nothing
+   * local exists at all, so a long-distance destination still resolves.
    */
   async function search(text, focus) {
     const query = (text || "").trim();
@@ -51,6 +56,15 @@ const OrsGeocoder = (() => {
       return [];
     }
 
+    if (focus) {
+      const confined = await _fetch(query, apiKey, focus, true);
+      if (confined.length > 0) return confined;
+      return _fetch(query, apiKey, focus, false);
+    }
+    return _fetch(query, apiKey, null, false);
+  }
+
+  async function _fetch(query, apiKey, focus, confine) {
     const params = new URLSearchParams({
       api_key: apiKey,
       text: query,
@@ -59,9 +73,11 @@ const OrsGeocoder = (() => {
     if (focus) {
       params.set("focus.point.lon", focus.lon);
       params.set("focus.point.lat", focus.lat);
-      params.set("boundary.circle.lon", focus.lon);
-      params.set("boundary.circle.lat", focus.lat);
-      params.set("boundary.circle.radius", String(CONFINE_RADIUS_KM));
+      if (confine) {
+        params.set("boundary.circle.lon", focus.lon);
+        params.set("boundary.circle.lat", focus.lat);
+        params.set("boundary.circle.radius", String(CONFINE_RADIUS_KM));
+      }
     }
 
     const controller = new AbortController();

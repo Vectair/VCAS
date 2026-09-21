@@ -402,10 +402,15 @@ polling) are done and confirmed building. Not started:
 - `CONFINE_RADIUS_KM` (200km, both `orsGeocoder.js` and
   `tomtomGeocoder.js`, 2026-09-21 — see CLAUDE.md) is a reasonable
   starting guess for a driving-nav app's day-trip range, not tuned
-  against real usage. If real searches start missing a legitimately
-  distant destination (a city genuinely >200km away), or still return
-  too many same-named matches from just outside the radius, this is the
-  first number to revisit.
+  against real usage. A destination beyond it now falls back to an
+  unconfined retry (same day, see CLAUDE.md's "confined-first fallback"
+  follow-up) rather than silently returning zero results, so the
+  original "misses a genuinely distant destination" risk is closed —
+  what's still untuned is the radius itself, and specifically whether
+  200km draws the confined/unconfined line in the right place for real
+  searches (too many same-named matches slipping through the fallback
+  from just outside the radius, or the fallback triggering more often
+  than intended for searches that should have stayed confined).
 - `activeGeocoder.js`'s `MERGE_THRESHOLD` (3 — ORS results below this
   count trigger a supplementary TomTom query) is a plain count
   heuristic, not a relevance check — flagged during the 2026-09-21

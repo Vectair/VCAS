@@ -14027,3 +14027,69 @@ on-device confirmation of either TomTom integration exists yet — same
 standing caveat this file already carries for every TomTom fetch call,
 now doubly relevant since `TOMTOM_API_KEY` being filled in means a real
 device test is actually possible for the first time.
+
+## Destination search follow-up: confined-first, then unconfined fallback — a genuinely distant destination was silently returning zero results (2026-09-21, later the same day)
+
+Direct question, immediately after the confinement fix above shipped:
+**"What happens if I'm planning on navigating to somewhere further than
+200nm away?"** A real, previously-unconsidered consequence of that same-
+day fix, not a hypothetical — `boundary.circle` (ORS/Pelias) and
+`radius` (TomTom) genuinely EXCLUDE results outside the given radius,
+they don't just deprioritise them (the whole point of the fix, per
+Pelias's own docs quoted in that entry above). Since 200km (~108nm) is
+narrower than the 200nm the question named, a destination that far away
+would have fallen outside BOTH geocoders' own identical confinement —
+`ActiveGeocoder`'s TomTom-supplements-ORS logic couldn't recover it
+either, since TomTom carried the same 200km cap. Net effect: searching
+by name for a real, distant destination would have silently returned
+nothing, the exact "search feels minimal" symptom the confinement fix
+itself was built to cure, just relocated to long-distance searches
+instead of nearby-name-collision ones.
+
+**Fix, in both `src/routing/orsGeocoder.js` and `src/routing/
+tomtomGeocoder.js`**: `search()` now tries the confined (200km) query
+first — preserving the fix that shipped earlier the same day, so a
+nearby-name-collision search (the Formby daycare case) still resolves
+correctly on the very first request — and, only if that comes back with
+zero results, retries the SAME query with confinement removed
+(`focus.point`/`lat`+`lon` bias kept, `boundary.circle`/`radius`
+dropped) — the exact pre-fix request shape, now used only as a genuine
+fallback rather than the default. A confined hit never triggers a second
+request at all, so the common case (a real local match exists) costs
+nothing extra. `_fetch(query, apiKey, focus, confine)` is a small shared
+helper both geocoders' `search()` now call twice at most, factored out
+of what was previously one inline fetch, so the confined/unconfined
+request-building logic isn't duplicated within either file.
+
+**A deliberate, named trade-off, not a silent regression back to the
+original bug**: the unconfined fallback CAN reopen the "wrong country"
+risk the original fix closed, but only for queries where the confined
+search already found nothing local — a genuinely distant, uniquely-named
+destination ("Edinburgh Castle" from Formby) is exactly the case this
+trade-off is for, and is far less likely to collide with an identically-
+named place somewhere else than a generic chain business name is (the
+original reported case). Flagged in ROADMAP.md as the thing to watch:
+if real searches start falling back to unconfined more often than
+expected, or the fallback itself resurfaces cross-country confusion,
+`CONFINE_RADIUS_KM` or the fallback's own scope (e.g. capping how many
+unconfined results are shown) is the next thing to revisit.
+
+Verified with a real Node script (`vm.createContext`/`vm.runInContext`
+against the actual, unmodified shipped files, mocked `fetch` returning
+empty for a confined request and a real distant result for an
+unconfined one) — 13 checks, all passing against the real, shipped
+code: both geocoders make exactly 2 requests when the confined query
+misses (confined first, unconfined second, the second still carrying
+the original bias params), correctly return the real distant result to
+the caller; both make exactly 1 request when the confined query already
+hits (no wasted fallback call); and the no-`focus`-at-all case
+(`OrsGeocoder`) still makes exactly 1 unconfined request, unchanged.
+Re-ran the full existing `tests/` suite afterward — still 249/249,
+unaffected (this fix touches only `src/routing/`, none of
+`src/logic/`). The original same-day confinement-only verification
+script's own checks now correctly fail against the new code (it
+asserts the confined request's own params against whichever request
+happened to run LAST, which is now the unconfined fallback once its
+mock's always-empty response triggers it) — a superseded test premise,
+not a regression; the new fallback-specific script above is what
+actually verifies this behaviour going forward.
