@@ -13380,3 +13380,85 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — it has no RAW flight-plan-line rendering
 at all yet.
+
+## RAW navigation route follow-up #4: the merged nav-status card showed a destination-address row the design draft never had — `.ngc-dest` hidden outright in RAW (2026-09-21)
+
+Direct follow-up, a real design-mockup comparison (an original reference
+image, the same image with the top nav-status card region circled, and a
+real current-device screenshot of RAW with an active route): "Please
+review this original reference image. Please pay close attention to the
+circled area in the second image and now how that is different from the
+current situation (image 3). We need to make things like image 2." The
+mockup's circled region shows exactly two tight rows directly below the
+status pills — "IN {dist} TURN {direction} … ETA {time}" and "MPH
+{speed} … {distance} KM" — with no destination-address text anywhere in
+that card. The real device instead showed a THIRD line, "towards 🚗
+Tesco, Formby, England, L37 …" (the `MODE_ICONS` travel-mode emoji —
+`app.js`'s `routeDestName = \`${MODE_ICONS[routeMode]} ${label}\`` —
+prefixed onto the real destination label, confirmed by grepping for the
+🚗 glyph directly rather than guessed), between the turn instruction and
+the SPD/distance row.
+
+**Root cause, confirmed with a real Playwright harness reproducing the
+actual, unmodified `index.html` markup + `VCAS.css` (this project's
+established discipline) before touching anything, not assumed from
+reading the CSS alone**: `.ngc-dest` (`#ngc-dest-text`, "towards
+{destName}") has always been a real, written-every-tick element inside
+`.ngc-body` — `_showGuidanceCard()` populates it unconditionally, and
+RAW's own CSS override (added 2026-09-06 when this card was first
+merged) only ever *recoloured/resized* it, never hid it. With
+`.ngc-dest` visible, `.ngc-body` (containing both `.ngc-action` and
+`.ngc-dest`, stacked as block divs) grows to two lines, and `.ngc-eta`
+— a flex SIBLING of `.ngc-body`, `align-self:center` — ends up
+vertically centred against that whole two-line block rather than
+aligned with `.ngc-action`'s own single line, landing in the visual gap
+between the turn instruction and the address line instead of flush on
+the same row the design draft shows it on. A first Playwright repro
+(realistic RAW+active-route inputs, matching the reported "73 M TURN
+LEFT" / "SPD 0 MPH" / "12.1 km" figures) confirmed `#ngc-eta-text` was
+technically still rendering (real green text, on-screen, within the
+card's bounds) — so this was never a case of ETA being literally
+absent from the DOM, only mis-positioned relative to the row it's
+supposed to share, exactly the kind of subtle layout displacement a
+compressed device screenshot can read as "missing" at a glance.
+
+**Fix**: `body[data-mode="nav"][data-nav-style="raw"] .ngc-dest`
+changed from a colour/font-size override to `display: none` —
+`VCAS.css`. Deliberately scoped to the exact same RAW-only selector the
+rest of this card's overrides already use, so Hybrid's own
+`#nav-guidance-card` (which genuinely needs the destination line — it
+has no separate merged ND-style card, just the one Google-Maps-style
+banner) is completely untouched. No `app.js` change was needed:
+`_showGuidanceCard()` still writes `.ngc-dest-text`'s content
+unconditionally (matching this app's own long-established "write to
+all DOM targets, let CSS decide visibility" pattern already used
+throughout `#route-card`'s own Hybrid/RAW row split), and
+`_rawChromeInsets()`'s `chromeTopInset`/`#route-card`'s own `top`
+positioning already derive from `#nav-guidance-card`'s real, live
+`offsetHeight` — hiding `.ngc-dest` shrinks that measured height
+automatically, with nothing to keep in sync by hand.
+
+Verified with a real Playwright/Chromium harness loading the actual,
+unmodified `index.html` guidance-card/route-card/top-bar markup and the
+real `VCAS.css` (not retyped), across three scenarios: RAW with an
+active route — `.ngc-dest` now resolves to `display:none`,
+`.ngc-eta`/`.ngc-action` land within 2px of the same Y position (same
+row), `#nav-guidance-card`'s real height dropped from 56px to 42px
+(single-line), and the ETA text content is still genuinely present
+(`"18:47"`, not blanked by the fix); Hybrid with the same active route
+— `.ngc-dest` is completely unaffected, still `display:block` with its
+real destination text; and a 360px-width regression check (this
+project's own standard worst-case) confirming no horizontal overflow.
+All 7 checks pass. A real screenshot of the fixed RAW card now reads
+"IN 73 M TURN LEFT" / "18:47" on one tight row and "SPD 0 MPH / 12.1
+km" on the next — matching the mockup's circled region directly; a
+second screenshot confirms Hybrid's own card (full-sentence instruction,
+the address line, the bottom-pinned "18 min / 18:47" ETA card) is
+bit-for-bit unchanged. Re-ran the full existing `tests/` suite
+afterward — still 249/249, unaffected (this fix touches only
+`VCAS.css`, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card at all yet.

@@ -2034,10 +2034,19 @@ body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-action {
   font-size: 16px;
   line-height: 1.3;
 }
+/* Hidden outright in RAW (2026-09-21), not just recoloured — the design
+   draft's own compact "IN {dist} TURN {direction} ... ETA {time}" card has
+   no destination-address row at all, and leaving .ngc-dest visible (as
+   this rule used to, pre-2026-09-21) meant .ngc-body grew to two lines
+   the instant a route was active, pushing .ngc-eta (a flex sibling,
+   align-self:center) to straddle the gap between the two lines instead of
+   sitting flush on the same row as the turn instruction — a real, direct
+   contradiction of the draft's own single-row layout, not merely a colour
+   mismatch. Hybrid's own #nav-guidance-card is completely untouched — this
+   selector only ever matches [data-nav-style="raw"]. */
 body[data-mode="nav"][data-nav-style="raw"] .ngc-dest,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dest {
-  color: rgba(240,240,240,.75);
-  font-size: 12px;
+  display: none;
 }
 
 /* .ngc-eta — the arrival clock, RAW-only (2026-09-08). Hidden by default

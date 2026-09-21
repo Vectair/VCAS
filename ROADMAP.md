@@ -312,16 +312,19 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Four real route-display bug fixes from 2026-09-20 (RAW's flight-plan
-  line no longer vanishing when only the leading route point falls
-  outside the FOV; the guidance-text-off toggle's stronger dashed-border
-  affordance; the raw-vertex-count truncation fix so the line spans the
-  whole route instead of squashing inside the first ring; the line no
-  longer tracing the plot's outer edge for its entire beyond-selected-
-  range remainder) — `RawPlotView.kt`'s own route-line rendering has none
-  of these fixes (no FOV-skip, no even-sampling decimation, no
-  range-boundary cutoff), and there's no native concept of a
-  guidance-text visibility toggle at all yet.
+- Five real route-display/nav-card bug fixes from 2026-09-20/09-21
+  (RAW's flight-plan line no longer vanishing when only the leading
+  route point falls outside the FOV; the guidance-text-off toggle's
+  stronger dashed-border affordance; the raw-vertex-count truncation fix
+  so the line spans the whole route instead of squashing inside the
+  first ring; the line no longer tracing the plot's outer edge for its
+  entire beyond-selected-range remainder; the merged nav-status card's
+  destination-address row now hidden in RAW so ETA sits flush on the
+  turn-instruction row, matching the design draft) — `RawPlotView.kt`'s
+  own route-line rendering has none of the route-line fixes (no
+  FOV-skip, no even-sampling decimation, no range-boundary cutoff), and
+  there's no native merged nav-status card, guidance-text visibility
+  toggle, or destination-row equivalent at all yet.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
