@@ -896,7 +896,19 @@ const UI = (() => {
         const label = String(wrapped / 10);
         const labelR = outerR + 12;
         const lx = cx + labelR * sinT, ly = cy - labelR * cosT;
+        // Tilted to follow the arc's own tangent (2026-09-21, matched
+        // literally against the reference design mockup — its tick
+        // numbers lean progressively further from upright the closer
+        // they sit to the dial's own left/right edge, not flat/horizontal
+        // the way this tape always rendered them before). relDeg IS that
+        // tangent angle — the same value already used to place the label
+        // around the arc in the first place — so rotating the <text>
+        // about its own anchor point by relDeg degrees costs nothing
+        // extra to compute and can't drift out of sync with the label's
+        // own position. relDeg=0 (dead ahead) stays upright, matching the
+        // mockup's own "10" at the top of the arc.
         ticks += `<text x="${lx}" y="${ly}" text-anchor="middle"
+                    transform="rotate(${relDeg} ${lx} ${ly})"
                     style="fill:#f0f0f0; font-size:12px" opacity="0.85">${label}</text>`;
       }
     }

@@ -358,6 +358,17 @@ equivalent yet, accumulated across many passes without a full sync:
   its own compass tape (if any) still needs a check for whether it
   carries an equivalent digital-heading readout worth removing too, once
   a native sync pass actually happens.
+- A follow-up mockup-matching pass (2026-09-21, later the same day): the
+  status pills reordered to Open-Meteo/MapTiler/adsb.fi (was adsb.fi/
+  MapTiler/Open-Meteo); the merged nav-status card's content matched
+  literally against the reference design mockup — an "ETA " label added
+  to the arrival clock, the "SPD " label dropped from the speed readout
+  (now unit-first, "MPH {n}"), and the remaining-distance unit uppercased
+  to "KM"/"M" (was lowercase, the one distance readout on the card that
+  still wasn't); and the curved compass tape's tick-number labels now
+  rotate to follow the arc's own tangent (mockup style) instead of
+  staying flat/horizontal regardless of position. None of these four
+  have a native equivalent either.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather

@@ -478,18 +478,29 @@
                    weather-status indicator and a genuine citation link
                    for a real CC BY 4.0 attribution obligation (also
                    added to the launch-screen credit line the same day). -->
+              <!-- 2026-09-21 (later the same day): reordered to match the
+                   reference design mockup's own left-to-right pill order
+                   (Open-Meteo, MapTiler, adsb.fi) — a pure position change,
+                   no ids/behaviour touched, so setAdsbStatus/
+                   setMaptilerStatus/setUpperAirStatus (ui.js) and every
+                   other #adsb-status/#maptiler-status/#upper-air-status
+                   lookup keep working unchanged. adsb.fi's own citation
+                   link still renders every session regardless of where in
+                   the row it sits — its ongoing attribution obligation is
+                   about visibility, not position (see the Pre-V1 checklist
+                   in CLAUDE.md). -->
               <div id="status-pill-row">
-                <div id="adsb-status" class="status-pill error">
+                <div id="upper-air-status" class="status-pill stale">
                   <div class="dot"></div>
-                  <a class="label status-pill-link" href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
+                  <a class="label status-pill-link" href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
                 </div>
                 <div id="maptiler-status" class="status-pill stale">
                   <div class="dot"></div>
                   <span class="label">MapTiler</span>
                 </div>
-                <div id="upper-air-status" class="status-pill stale">
+                <div id="adsb-status" class="status-pill error">
                   <div class="dot"></div>
-                  <a class="label status-pill-link" href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
+                  <a class="label status-pill-link" href="https://adsb.fi" target="_blank" rel="noopener">adsb.fi</a>
                 </div>
               </div>
             </div>

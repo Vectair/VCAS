@@ -3223,12 +3223,23 @@
     // comment in index.html). #ngc-eta-text lives inside #nav-guidance-
     // card, not #route-card, but is populated here too since it's the
     // exact same arrival-clock value, not a second calculation.
+    //
+    // 2026-09-21 (later the same day): content matched literally against
+    // the reference design mockup ("ETA 14:20" / "MPH 60" / "27 KM") —
+    // three real wording/casing differences from what was shipping:
+    // an "ETA " label the mockup has and this card didn't, an "SPD "
+    // label this card had and the mockup doesn't (dropped, not just
+    // reworded — the mockup's second row is unit-first: "MPH {n}", no
+    // speed label at all), and the remaining-distance unit uppercased to
+    // match the mockup's "KM"/the turn-distance readout's own existing
+    // .toUpperCase() (see the isRaw branch just above) — this was the
+    // one distance readout on the card still rendering a lowercase unit.
     const ngcEtaEl = document.getElementById("ngc-eta-text");
-    if (ngcEtaEl) ngcEtaEl.textContent = arrivalClock;
+    if (ngcEtaEl) ngcEtaEl.textContent = "ETA " + arrivalClock;
     const rawDistEl = document.getElementById("route-dist-text-raw");
-    if (rawDistEl) rawDistEl.textContent = _fmtDistance(remainingDistanceMeters);
+    if (rawDistEl) rawDistEl.textContent = _fmtDistance(remainingDistanceMeters).toUpperCase();
     const rawSpeedEl = document.getElementById("route-eta-speed");
-    if (rawSpeedEl) rawSpeedEl.textContent = "SPD " + Math.round(userSpeedMph) + " MPH";
+    if (rawSpeedEl) rawSpeedEl.textContent = "MPH " + Math.round(userSpeedMph);
   }
 
   /**

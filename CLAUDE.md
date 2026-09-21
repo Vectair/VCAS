@@ -14093,3 +14093,106 @@ happened to run LAST, which is now the unconfined fallback once its
 mock's always-empty response triggers it) — a superseded test premise,
 not a regression; the new fallback-specific script above is what
 actually verifies this behaviour going forward.
+
+## RAW navigation route follow-up #10: four more literal content/style/position matches against the reference mockup (2026-09-21, later the same day)
+
+Direct instruction, after a "how does it look in use" real-device review
+surfaced a few open questions: "Again refer back to the mockup image and
+match the actual display with that. Content, style and position." Re-read
+the actual reference design mockup image (the same clean design reference
+follow-ups #4-9 above have all been matched against — distinct from every
+"real device screenshot" in this thread) pixel-by-pixel against the
+current shipped markup/CSS/JS, rather than working from memory of earlier
+comparisons. Four real, previously-unaddressed gaps found and fixed —
+each individually small, but all genuine literal mismatches between what
+the mockup actually shows and what the app actually renders:
+
+**1. Status pill order.** Mockup reads left-to-right: Open-Meteo,
+MapTiler, adsb.fi. The shipped app had adsb.fi first, Open-Meteo last —
+`index.html`'s `#status-pill-row` reordered to match. Pure DOM reorder,
+no id/behaviour change — `UI.setAdsbStatus()`/`setMaptilerStatus()`/
+`setUpperAirStatus()` all still look their targets up by id, and adsb.fi's
+own real citation link (a genuine ongoing attribution obligation, see the
+Pre-V1 checklist above) is unaffected by which position in the row it
+sits at, only by whether it's present and visible — which it still is,
+every session, regardless of order.
+
+**2. Merged nav-status card content — three literal wording/casing
+mismatches, not a position issue.** Re-reading the mockup's own text
+(`"ETA 14:20"` / `"MPH 60"` / `"27 KM"`) against what `_updateRouteCard()`
+(`app.js`) actually writes:
+- The arrival clock (`#ngc-eta-text`) rendered bare `"14:20"` — the mockup
+  prefixes it `"ETA "`. Added.
+- The speed readout (`#route-eta-speed`) rendered `"SPD 0 MPH"` — the
+  mockup has no `"SPD"` label at all, and is unit-first: `"MPH {n}"`.
+  Changed to match literally (`"MPH " + Math.round(userSpeedMph)`), not
+  just reworded — the label is gone, not relocated.
+- The remaining-distance readout (`#route-dist-text-raw`) rendered
+  lowercase (`"12.1 km"`) — the mockup's `"27 KM"` is uppercase, matching
+  the turn-instruction row's OWN distance figure, which was already
+  `.toUpperCase()`'d (see the `isRaw` branch a few lines above this one in
+  `_updateGuidanceCard()`) — this was the one distance readout on the
+  card that had never gotten the same treatment. `.toUpperCase()` added.
+
+Verified via `_displayColor`-adjacent CSS check before editing (not
+assumed): both `.route-eta-speed`/`#route-dist-text-raw` and `.ngc-eta`
+colour the WHOLE span one colour each (green/cyan/green respectively,
+per the round-4 colour-coding pass) — none of these three are built from
+multiple independently-coloured `<span>`s, so a plain `textContent`
+rewrite couldn't break any existing colour-coding; confirmed directly
+rather than assumed.
+
+**3. Compass tick-label rotation.** The mockup's tick numbers visibly tilt
+to follow the dial's own curve — near-upright at dead-ahead, leaning
+further the closer to the arc's own left/right edge. `renderCompassRing()`
+(`src/ui.js`) always rendered every tick label perfectly upright/
+horizontal regardless of its position around the arc — a real, previously
+unaddressed style gap (every earlier round's own compass-tape work
+touched radius/clearance/shorthand-digits, never label rotation). Fixed
+with `transform="rotate(${relDeg} ${lx} ${ly})"` on each major tick's
+`<text>` element — `relDeg` is the SAME angle already used to position
+that label around the arc in the first place (`sinT`/`cosT` derive from
+it two lines above), so the rotation can't drift out of sync with the
+label's own placement the way a second, independently-computed angle
+could. `relDeg=0` (dead ahead) rotates by exactly 0°, matching the
+mockup's own upright dead-ahead digit.
+
+**Verified with a real Playwright/Chromium harness** (this project's
+established convention) loading the actual, unmodified `index.html`'s
+`#status-pill-row` markup (depth-matched div extraction, not retyped),
+the real `ui.js` via a real `<script>` tag, and the real `VCAS.css` — 10
+checks, all passing against the real, shipped code: pill DOM order and
+visible text order both match the mockup; both citation links (adsb.fi,
+Open-Meteo) survive the reorder with correct real `href`s; a dead-ahead
+major tick's label rotates by exactly 0°; off-centre tick labels are
+genuinely, non-trivially rotated (4 of 5 in the test scenario); the
+arrival clock carries the `"ETA "` prefix; the speed readout is
+unit-first with no `"SPD"` text; the remaining-distance readout is
+uppercase. A real screenshot (assembling the same real markup/CSS/JS
+together, populated with the mockup's own example values) confirms the
+combined visual result — reordered pills, rotated tick digits leaning
+progressively away from dead-ahead, and `"IN 2 KM TURN RIGHT ... ETA
+14:20"` / `"MPH 60 ... 27.0 KM"` reading exactly as the mockup shows —
+matches the mockup's look directly, not just per-check assertions.
+`node --check` clean on both edited `.js` files.
+
+**Deliberately not touched, and not implied by this pass**: the mockup's
+own aircraft-list row style (two lines per row, a plain monochrome
+chevron) was NOT reverted to — the current single-line, per-aircraft-
+coloured-chevron layout was a direct, explicit 2026-09-15 instruction
+(see "Three small tweaks: RAW list single-line rows" above), not an
+oversight, and re-litigating it wasn't part of this ask. The mockup's own
+pill text casing (`"ADSB.FI"`/`"MAPTiler"` vs. its own `"Open-Meteo"`
+staying mixed-case) is internally inconsistent in the mockup itself —
+left the real pill text/casing alone rather than force-uppercasing via
+CSS on an ambiguous reading of a design sketch's own inconsistency, since
+that risked introducing a NEW mismatch in the other direction with no
+clear "correct" target to match. The 4th top-bar icon (🧭, manual compass
+calibration) has no equivalent in the mockup at all — it postdates the
+mockup by ten days (added 2026-09-18), a real, deliberately-added feature
+beyond the mockup's own scope, not something to remove to match it.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — see ROADMAP.md's own growing native-lag
+list, now four items longer.
