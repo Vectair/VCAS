@@ -312,7 +312,7 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Eight real route-display/nav-card bug fixes from 2026-09-20/09-21
+- Nine real route-display/nav-card bug fixes from 2026-09-20/09-21
   (RAW's flight-plan line no longer vanishing when only the leading
   route point falls outside the FOV; the guidance-text-off toggle's
   stronger dashed-border affordance; the raw-vertex-count truncation fix
@@ -331,17 +331,21 @@ equivalent yet, accumulated across many passes without a full sync:
   separate `tapeRadius` the overlay rework never touched, now also
   retreat by the merged card's real height while a route is active, so
   the tape's own decorative geometry no longer visually collides with
-  the now-transparent overlay text; and — the follow-up that finally
-  pixel-measured the card's own TEXT against the reference mockup rather
-  than just its position — every RAW-scoped font-size in the card
-  (`.ngc-maneuver`/`.ngc-action`/`.ngc-eta`/`.route-eta-row-raw`) and
-  both cards' padding brought down to match the mockup's own measured
-  proportions, a real ~40-50% oversize fixed to within a few percent of
-  the reference) — `RawPlotView.kt`'s own route-line rendering has none
-  of the route-line fixes (no FOV-skip, no even-sampling decimation, no
-  range-boundary cutoff), and there's no native merged nav-status card,
-  guidance-text visibility toggle, destination-row, overlay-vs-floating-
-  panel, tape-clearance, or pixel-measured-scale equivalent at all yet.
+  the now-transparent overlay text; a follow-up that pixel-measured the
+  card's own TEXT against the reference mockup rather than just its
+  position, bringing every RAW-scoped font-size and both cards' padding
+  down to within a few percent of the mockup's own measured
+  proportions; and a final correction once that mockup-measured fix was
+  STILL reported too large — every readout in the card now matches, to
+  the exact pixel, the font-size the app already uses for its own
+  passive "SPD ... MPH" tape readout (`src/ui.js`'s `renderCompassRing()`,
+  13px), a single internally-verifiable target superseding the mockup-
+  approximated one) — `RawPlotView.kt`'s own route-line rendering has
+  none of the route-line fixes (no FOV-skip, no even-sampling
+  decimation, no range-boundary cutoff), and there's no native merged
+  nav-status card, guidance-text visibility toggle, destination-row,
+  overlay-vs-floating-panel, tape-clearance, or matched-to-the-passive-
+  readout font-size equivalent at all yet.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather

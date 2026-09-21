@@ -13739,3 +13739,73 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card at all yet.
+
+## RAW navigation route follow-up #8: matched to the app's OWN passive SPD text size, not a second mockup measurement (2026-09-21, same day)
+
+Direct correction to follow-up #7 immediately above. After that fix
+shipped (verified against the real device's own 412×915 CSS viewport,
+landing within a few percent of the reference mockup's own measured
+proportions), the project owner replied: **"It's still not the same
+though. At the very least match the navigation font size to the font
+size used by the default SPD indication when navigation is off."**
+
+**A materially different, more direct instruction than "get closer to
+the mockup" — an internally-verifiable target, not an externally-
+measured one.** Follow-up #7's own methodology (pixel-scanning a
+reference image and a device screenshot for glyph-height ratios) is
+inherently approximate — JPEG compression, screenshot scaling, and the
+mockup's own unknown original canvas size all introduce real
+measurement noise no amount of careful scanning fully removes. The
+project owner instead pointed at something this codebase can check
+exactly: RAW's own passive "SPD {mph} MPH" readout, rendered by
+`UI.renderCompassRing()` (`src/ui.js`) as an inline SVG `<text>` element
+with its own real, literal style string —
+`style="fill:#f0f0f0; font-size:13px; font-weight:600;
+letter-spacing:0.5px"` — found by grepping for `SPD` directly, not
+estimated from an image. Since that same tape is shown whenever RAW has
+no active route, and the merged nav-status card only appears once one
+does, the two were never actually rendered side-by-side before — no
+prior fix had reason to compare them, which is exactly why the
+mismatch (15/14/14/16px vs. the tape's real 13px) went unnoticed by
+follow-up #7's own mockup-only methodology.
+
+**Fix**: every text element in the merged card — `.ngc-maneuver`
+(turn-direction icon), `.ngc-action` ("IN {dist} TURN {direction}"),
+`.ngc-eta` (arrival clock), `.route-eta-row-raw` (SPD/distance row) —
+changed from follow-up #7's individually-mockup-measured values to a
+single, uniform `font-size: 13px`, matching the tape's own real value
+exactly rather than approximating it. This also flattens follow-up #7's
+own deliberate "SPD/distance row is a genuine size step up from the
+turn-instruction row" choice (16px vs 14px, based on the mockup's own
+apparent proportions) — the project owner's new instruction gives one
+concrete target for the whole card, superseding that distinction rather
+than layering on top of it. `.ngc-maneuver`'s `min-width` was trimmed
+from 18px to 16px to track the smaller glyph, `#nav-guidance-card`'s own
+comment (and the two other affected rules') rewritten to point at this
+exact value and its real source (`src/ui.js`) rather than the mockup
+measurement follow-up #7 left there.
+
+**Verified two ways, both against real execution, not the image-
+comparison technique follow-up #7 used** (that technique remains a real,
+valid tool for this project — see the calibration/local-obstruction
+history — just not the right one for THIS specific instruction, which
+gave an exact, checkable in-app value instead of an image to
+approximate): (1) a real Playwright/Chromium harness rendering the
+actual, unmodified `#nav-guidance-card`/`#route-card` markup and the
+real `VCAS.css`, alongside a real SVG `<text>` element carrying the
+EXACT inline style string grepped from `renderCompassRing()`'s own
+source — `getComputedStyle().fontSize` read back for both sides and
+confirmed identical: `13px` for the tape text and all four card
+elements alike, not just individually close; (2) a real screenshot at
+the same 412×915 CSS / 2.625 DPR viewport this project's whole
+follow-up #6/#7 investigation already established as matching the real
+reported device, confirming the card now reads as a genuinely compact,
+consistent-scale instrument readout rather than a still-oversized
+banner. Re-ran the full existing `tests/` suite afterward — still
+249/249, unaffected (this fix touches only `VCAS.css`, none of
+`src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card at all yet.
