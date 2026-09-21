@@ -13462,3 +13462,121 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card at all yet.
+
+## RAW navigation route follow-up #5: the merged nav-status card was a floating opaque panel, not an overlay integrated into the radar's own black space (2026-09-21, same day)
+
+Direct correction to follow-up #4 above, with two new images (the same
+circled mockup, and a real device screenshot showing the `.ngc-dest`
+fix already live): **"The styling is correct but it's not in the
+correct place. Right now you are making it act like a floating
+expansion over the raw screen. Look at the reference again, the
+information is integrated into the screen itself using the black space
+that is not used by the arcs."** Follow-up #4 fixed the CONTENT (no
+destination-address row) but left the CARD ITSELF architecturally
+unchanged: a solid `rgba(14,17,23,.85)` panel that PUSHED the square/
+compass-tape/rings further down the screen by its own real height
+(`_rawChromeInsets()` added both `guidanceCard.offsetHeight` and
+`routeCard.offsetHeight` to `chromeTopInset`) — reading as a separate
+floating bar sitting above a shrunken radar, exactly the "floating
+expansion" the user named, not text drawn onto the radar's own existing
+black area (the top band/corners the curved compass tape and circular
+range rings never reach — see "RAW is a field-of-view-restricted
+circular display" and "RAW-mode redesign, round 9/10" above for why
+that space is genuinely unused).
+
+**Fix, `_rawChromeInsets()` (`app.js`): neither card's height feeds
+`chromeTopInset` any more.** `chromeTopInset` is now derived from
+`#top-bar`'s real height alone (plus `RAW_COMPASS_RESERVED_PX`, as
+always) — the square/compass-tape/range-rings now start at the exact
+same Y whether or not a route is active, matching the mockup's own
+layout directly. Both cards are still explicitly positioned (`#nav-
+guidance-card` gained real `style.position="fixed"`/`style.top` here,
+previously left to normal document flow; `#route-card` keeps stacking
+directly under `#nav-guidance-card`'s own real height, unchanged in
+shape from before 2026-09-21) — but purely to place the overlay text
+visually, not to reserve space for it.
+
+**Fix, `VCAS.css`: both cards' solid backgrounds are gone.**
+`background: rgba(14,17,23,.85)` → `background: none` on both
+`#nav-guidance-card` and `#route-card` (RAW-scoped rules only — Hybrid's
+own bottom-pinned ETA card and Google-Maps-style guidance banner are
+completely untouched). Every text element inside both cards
+(`.ngc-maneuver`/`.ngc-action`/`.ngc-eta`/`.route-eta-row-raw`) picked
+up a `text-shadow: 0 1px 3px rgba(0,0,0,.9)` — needed now that the card
+has no solid backdrop of its own and a real ring/dot/label could
+genuinely render directly behind the text, unlike the reference
+mockup's own clean black corner.
+
+**Both cards are also `pointer-events: none`** — since they no longer
+occupy dedicated screen space, a tap anywhere on their own (now
+transparent) area has to reach the plot/aircraft dots underneath
+instead of being silently swallowed by an invisible full-width strip.
+`#route-card` still has two real, functional buttons though (💬/✕,
+`.route-card-clear`) — those get `pointer-events: auto` back explicitly,
+the standard "disable on the container, re-enable on the specific
+interactive children" pattern.
+
+**A real, load-bearing subtlety found and confirmed correct, not
+assumed**: `#nav-guidance-card` is a DESCENDANT of `#overlay`
+(`position:fixed`, `z-index:10`) in the real DOM, while `#nav-compass-
+ring`/`#indicators-layer`/`#route-card` are its SIBLINGS at the same
+level, each independently `position:fixed` with their own z-index (10,
+9, and — set by this fix — 22 respectively). `#nav-guidance-card`'s own
+`z-index:22` is therefore scoped INSIDE `#overlay`'s stacking context
+and has no direct bearing on whether its text paints above or below the
+compass tape — what actually decides that is `#overlay`'s own z-index
+(10) against `#nav-compass-ring`'s (10, an exact tie, resolved by DOM
+order: `#overlay` comes later in the markup and wins). Verified this
+resolves correctly with the REAL elements assembled together (not a
+simplified stand-in) via a Playwright harness slicing the real DOM from
+`#nav-range-rings-overlay` through `#route-card`'s own closing tag
+verbatim, populated with synthetic tick marks/labels standing in for a
+real `renderCompassRing()` call and a dashed ring standing in for
+`renderRangeRingsOverlay()` — a real screenshot confirmed the guidance-
+card text renders crisply on top of the compass ticks (visible in the
+corners around/behind the text, not obscuring it), the dashed range
+ring is unaffected below, and the bottom bar's mode buttons are
+unaffected.
+
+Verified with two further Playwright harnesses beyond the stacking
+check above: (1) the core architectural guarantee — `chromeTopInset`/
+`squareContentTop` computed by the real `_rawChromeInsets()` are now
+bit-for-bit IDENTICAL whether a route is active or not (48/79 in both
+cases in the test scenario, where the pre-fix version would have
+differed by however tall the two cards are); `#nav-guidance-card`/
+`#route-card` are both confirmed `position:fixed` with a real computed
+`background: rgba(0, 0, 0, 0)` (fully transparent, not just visually
+dark); both sit at their correct, measured positions (`#nav-guidance-
+card`'s top exactly matches `#top-bar`'s real bottom edge; `#route-
+card`'s top exactly matches `#nav-guidance-card`'s real bottom edge);
+(2) real hit-testing via `document.elementFromPoint()` against a
+synthetic plot element underneath — a tap on the guidance card's own
+empty area and a tap on the route card's SPD/DIST text both correctly
+land on the plot beneath them (`.closest()`-checked against the SVG
+plot's own child elements, not a bare `.id` check, since
+`elementFromPoint` returns the innermost hit element), while a tap on
+the real `#btn-clear-route` (✕) button still correctly hits the button
+itself, confirming the `pointer-events:none`/`auto` split works exactly
+as intended. Re-ran the full existing `tests/` suite afterward — still
+249/249, unaffected (this fix touches only `app.js`/`VCAS.css`, none of
+`src/logic/`).
+
+**A note on the compass tape's own tick-clearance math, checked but
+deliberately left untouched**: `RAW_COMPASS_RESERVED_PX`/
+`TICK_CLEARANCE_PX` (the fixed worst-case clearance the tape's tallest
+tick needs above `chromeTopInset`, i.e. above the top bar) are
+completely unaffected by this fix — `chromeTopInset` itself is still
+derived the same way (top-bar height only) it always was in the
+PASSIVE, no-route case; this fix only stopped ALSO adding the two
+cards' heights on top of that in the active-route case. The tape's own
+topmost tick/label can sit close to, or slightly within, the guidance
+card's own text row in the active-route case — confirmed via the real
+screenshot above to read as ticks visible in the corners around the
+text, not a legibility-breaking collision, and matching the mockup's
+own description of "compass tick labels... visible right around/below"
+the info text rather than something to keep strictly separate.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card at all yet.

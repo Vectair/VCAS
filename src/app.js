@@ -2242,13 +2242,21 @@
   function _rawChromeInsets() {
     const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
 
-    // RAW (2026-09-06) moves #route-card from its usual bottom-pinned spot
-    // to directly under #nav-guidance-card at the top, so the two read as
-    // one merged nav-status panel matching the ND reference's own layout
-    // (see VCAS.css's RAW override for the actual repositioning) — the
-    // insets below have to agree with wherever it actually is, or the
-    // square plot/compass tape would either overlap it or leave a gap
-    // where it used to be.
+    // RAW (2026-09-06, reworked 2026-09-21): #nav-guidance-card/#route-card
+    // no longer PUSH the square/compass tape down by their own height —
+    // per direct design feedback comparing against the reference mockup,
+    // stacking them as a solid opaque bar ABOVE the radar read as "a
+    // floating expansion over the RAW screen," not "information integrated
+    // into the screen itself using the black space the arcs don't use."
+    // Both cards are instead OVERLAID on top of the square's own top band
+    // (transparent background, see VCAS.css's RAW override) — the square
+    // starts at exactly the same Y whether or not a route is active, and
+    // the merged nav-status text simply draws over the radar's own already-
+    // black corners/top edge, the same "arcs curve away near the top, that
+    // space is free" property the reference mockup relies on. Neither
+    // card's height is added to chromeTopInset any more for this reason —
+    // see the routeCardAtTop branch below, which still positions them
+    // (now purely visually, not to reserve space).
     const routeCard = document.getElementById("route-card");
     const routeCardAtTop = NavDisplayStyle.isRaw();
 
@@ -2265,28 +2273,41 @@
     }
     if (bottomInset === 0) bottomInset = 60;
 
-    // Real top-bar (+ guidance card, when a route is active) height — the
-    // square's own contentTop adds RAW_COMPASS_RESERVED_PX on top of this
-    // so the square also clears the compass tape (see that constant's own
-    // comment for why it's a fixed worst-case number, not measured).
+    // Real top-bar height only — the square's own contentTop adds
+    // RAW_COMPASS_RESERVED_PX on top of this so the square also clears the
+    // compass tape (see that constant's own comment for why it's a fixed
+    // worst-case number, not measured). The guidance/route card's own
+    // height is deliberately NOT added here any more (see this function's
+    // own header comment) — they overlay the square instead of displacing
+    // it, so the square starts at the same Y with or without an active
+    // route, matching the reference mockup's own layout.
     let chromeTopInset = 0;
     const topBar = document.getElementById("top-bar");
     if (topBar) chromeTopInset += topBar.offsetHeight;
     const guidanceCard = document.getElementById("nav-guidance-card");
-    if (guidanceCard && !guidanceCard.classList.contains("hidden")) {
-      chromeTopInset += guidanceCard.offsetHeight;
-    }
 
-    // #route-card is position:fixed (normally bottom:0, see VCAS.css) — CSS
-    // alone can't attach it directly under #nav-guidance-card, since the
-    // guidance card's own real height depends on #top-bar's real height,
-    // both of which vary by content/viewport. Positioned here, right where
-    // both real heights are already measured for the insets calc below, so
-    // there's one source for "where does RAW's merged nav-status panel
-    // actually start" rather than a second guess living in CSS.
+    // #nav-guidance-card/#route-card are position:fixed (route-card's CSS
+    // default is bottom:0) — CSS alone can't attach either directly under
+    // #top-bar, since the top bar's own real height varies by content/
+    // viewport. Positioned here, right where that height is already
+    // measured for the insets calc, so there's one source for "where does
+    // RAW's merged nav-status overlay actually start" rather than a second
+    // guess living in CSS. #nav-guidance-card sits directly under the top
+    // bar; #route-card still stacks directly under #nav-guidance-card's own
+    // real height (unchanged from before 2026-09-21) — the two rows still
+    // read as one continuous overlay band, they just no longer displace
+    // the square/compass tape underneath them (see the header comment
+    // above).
+    if (guidanceCard && routeCardAtTop) {
+      guidanceCard.style.position = "fixed";
+      guidanceCard.style.top = (topBar ? topBar.offsetHeight : 0) + "px";
+    } else if (guidanceCard) {
+      guidanceCard.style.position = "";
+      guidanceCard.style.top = "";
+    }
     if (routeCard) {
       if (routeCardAtTop) {
-        routeCard.style.top = (topBar ? topBar.offsetHeight : 0) + (guidanceCard ? guidanceCard.offsetHeight : 0) + "px";
+        routeCard.style.top = (topBar ? topBar.offsetHeight : 0) + (guidanceCard && !guidanceCard.classList.contains("hidden") ? guidanceCard.offsetHeight : 0) + "px";
         routeCard.style.bottom = "auto";
       } else {
         routeCard.style.top = "";
@@ -2312,9 +2333,9 @@
           : "";
       }
     }
-    if (routeCardAtTop && routeCard && !routeCard.classList.contains("hidden")) {
-      chromeTopInset += routeCard.offsetHeight;
-    }
+    // routeCard/guidanceCard heights are deliberately NOT added to
+    // chromeTopInset any more (see this function's own header comment) —
+    // the square starts at the same Y with or without an active route.
 
     const squareContentTop = chromeTopInset + RAW_COMPASS_RESERVED_PX;
     return {
