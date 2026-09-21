@@ -312,10 +312,9 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Nine real route-display/nav-card bug fixes from 2026-09-20/09-21
+- Ten real route-display/nav-card bug fixes from 2026-09-20/09-21
   (RAW's flight-plan line no longer vanishing when only the leading
-  route point falls outside the FOV; the guidance-text-off toggle's
-  stronger dashed-border affordance; the raw-vertex-count truncation fix
+  route point falls outside the FOV; the raw-vertex-count truncation fix
   so the line spans the whole route instead of squashing inside the
   first ring; the line no longer tracing the plot's outer edge for its
   entire beyond-selected-range remainder; the merged nav-status card's
@@ -335,17 +334,30 @@ equivalent yet, accumulated across many passes without a full sync:
   card's own TEXT against the reference mockup rather than just its
   position, bringing every RAW-scoped font-size and both cards' padding
   down to within a few percent of the mockup's own measured
-  proportions; and a final correction once that mockup-measured fix was
+  proportions; a further correction once that mockup-measured fix was
   STILL reported too large — every readout in the card now matches, to
   the exact pixel, the font-size the app already uses for its own
   passive "SPD ... MPH" tape readout (`src/ui.js`'s `renderCompassRing()`,
   13px), a single internally-verifiable target superseding the mockup-
-  approximated one) — `RawPlotView.kt`'s own route-line rendering has
-  none of the route-line fixes (no FOV-skip, no even-sampling
-  decimation, no range-boundary cutoff), and there's no native merged
-  nav-status card, guidance-text visibility toggle, destination-row,
-  overlay-vs-floating-panel, tape-clearance, or matched-to-the-passive-
-  readout font-size equivalent at all yet.
+  approximated one; and finally a cleanup pass, once the card's own
+  sizing was confirmed correct, that REMOVED two controls rather than
+  restyling them — the 💬 guidance-text-hide toggle (turn-by-turn text
+  is now hardwired always-on whenever navigating, "unobtrusive by being
+  compact," not by being hideable) and the standalone ✕ cancel-route
+  button (cancelling a route is now done via the existing bottom-bar
+  NAVIGATION button, which now branches on whether a route is active
+  rather than always arming destination-pick mode) — plus deleted the
+  compass tape's own digital 3-digit heading readout outright, since it
+  was overlapping the merged card's text and the tape's own rotation
+  against the fixed lubber line already conveys heading) —
+  `RawPlotView.kt`'s own route-line rendering has none of the route-line
+  fixes (no FOV-skip, no even-sampling decimation, no range-boundary
+  cutoff), and there's no native merged nav-status card, destination-row,
+  overlay-vs-floating-panel, tape-clearance, matched-to-the-passive-
+  readout font-size, or NAV-button-cancels-route equivalent at all yet —
+  its own compass tape (if any) still needs a check for whether it
+  carries an equivalent digital-heading readout worth removing too, once
+  a native sync pass actually happens.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather

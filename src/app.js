@@ -126,10 +126,6 @@
   let _trEditingId = null;
   let _trPendingNewRuleId = null;
 
-  // Turn-by-turn text visibility — persisted, so "route line only" sticks across reloads.
-  const GUIDANCE_TEXT_KEY = "vcas-guidance-text-enabled";
-  let guidanceTextEnabled = true;
-
   // Transport mode for routing — persisted so it defaults to whatever you used last.
   const ROUTE_MODE_KEY = "vcas-route-mode";
   const MODE_ICONS = { driving: "🚗", cycling: "🚲", walking: "🚶" };
@@ -155,7 +151,7 @@
   // instruction with an annotated screenshot: "the top of the radar should
   // be almost flush with the menu/status bar, essentially where the top of
   // the speed indication is." The compass tape itself (ticks/labels/
-  // lubber/digital heading, drawn by UI.renderCompassRing — its dead-ahead
+  // lubber line, drawn by UI.renderCompassRing — its dead-ahead
   // tick derived from insets.chromeTopInset, entirely UNCHANGED by this
   // value — see that call site) still starts at the same absolute Y it
   // always has; only the
@@ -351,10 +347,6 @@
     _initCalibrateScreen();
     _initDevModeUnlock();
     _initOnboarding();
-
-    const storedGuidance = localStorage.getItem(GUIDANCE_TEXT_KEY);
-    if (storedGuidance !== null) guidanceTextEnabled = storedGuidance !== "0";
-    _updateGuidanceToggleBtn();
 
     const storedMode = localStorage.getItem(ROUTE_MODE_KEY);
     if (storedMode && MODE_ICONS[storedMode]) routeMode = storedMode;
@@ -1311,34 +1303,22 @@
       });
     }
 
-    // 3. Destination-pick arm/disarm — next map tap after arming supplies the target.
+    // 3. Destination-pick arm/disarm, and cancel-while-navigating — one
+    // button, per direct instruction (2026-09-21): with a route active,
+    // tapping it cancels the route (the OFF/ON readout's own "ON" state
+    // going to "OFF"); otherwise it arms/disarms destination-pick mode,
+    // same as before. Supersedes the old separate ✕ (#btn-clear-route)
+    // button, which duplicated this exact action.
     const btnTestRoute = document.getElementById("btn-test-route");
     if (btnTestRoute) {
       btnTestRoute.addEventListener("click", (e) => {
         e.preventDefault();
-        toggleDestPickMode();
+        if (activeRoute) clearActiveRoute();
+        else toggleDestPickMode();
       });
     }
 
-    // 4. Flush / Evacuate Active Routing Coordinates Hookup
-    const btnClearRoute = document.getElementById("btn-clear-route");
-    if (btnClearRoute) {
-      btnClearRoute.addEventListener("click", (e) => {
-        e.preventDefault();
-        clearActiveRoute();
-      });
-    }
-
-    // 5. Turn-by-turn text on/off (route line stays either way)
-    const btnToggleGuidanceText = document.getElementById("btn-toggle-guidance-text");
-    if (btnToggleGuidanceText) {
-      btnToggleGuidanceText.addEventListener("click", (e) => {
-        e.preventDefault();
-        toggleGuidanceText();
-      });
-    }
-
-    // 6. Transport mode selector (shown while picking a destination)
+    // 4. Transport mode selector (shown while picking a destination)
     document.querySelectorAll(".dpb-mode-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         e.preventDefault();
@@ -1347,7 +1327,7 @@
       });
     });
 
-    // 6a. Destination search-by-name — debounced as-you-type; Enter forces
+    // 5. Destination search-by-name — debounced as-you-type; Enter forces
     // an immediate lookup rather than waiting out the debounce.
     const destSearchInput = document.getElementById("dpb-search-input");
     if (destSearchInput) {
@@ -3339,8 +3319,13 @@
     _hideGuidanceCard();
   }
 
+  // Always shown while navigating (2026-09-21) — the toggle that used to
+  // hide this text (#btn-toggle-guidance-text) was removed per direct
+  // instruction: hardwired on screen, unobtrusive by virtue of being a
+  // compact RAW-scoped overlay (see the round-5/7/8 CLAUDE.md entries),
+  // not by being hideable.
   function _showGuidanceCard() {
-    if (mode !== "nav" || !activeRoute || !guidanceTextEnabled) return;
+    if (mode !== "nav" || !activeRoute) return;
     const dest = routeDestName || "destination";
     document.getElementById("ngc-dest-text").textContent = "towards " + dest;
     document.getElementById("nav-guidance-card").classList.remove("hidden");
@@ -3348,26 +3333,6 @@
 
   function _hideGuidanceCard() {
     document.getElementById("nav-guidance-card")?.classList.add("hidden");
-  }
-
-  function toggleGuidanceText() {
-    guidanceTextEnabled = !guidanceTextEnabled;
-    localStorage.setItem(GUIDANCE_TEXT_KEY, guidanceTextEnabled ? "1" : "0");
-    _updateGuidanceToggleBtn();
-
-    if (guidanceTextEnabled) _showGuidanceCard();
-    else _hideGuidanceCard();
-
-    // Card presence changes the map's top obstruction — recalc padding once
-    // the show/hide has taken effect.
-    setTimeout(updateMapViewportPadding, 50);
-  }
-
-  function _updateGuidanceToggleBtn() {
-    const btn = document.getElementById("btn-toggle-guidance-text");
-    if (!btn) return;
-    btn.classList.toggle("guidance-text-off", !guidanceTextEnabled);
-    btn.title = guidanceTextEnabled ? "Hide turn-by-turn text" : "Show turn-by-turn text";
   }
 
   // ORS maneuver type code -> guidance-card icon. See maneuverTracker.js's

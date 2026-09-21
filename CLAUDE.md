@@ -13809,3 +13809,106 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card at all yet.
+
+## RAW navigation route follow-up #9: guidance-text toggle and cancel-route button removed, digital heading readout deleted (2026-09-21, later the same day)
+
+Direct follow-up once follow-up #8 shipped, three separate small requests
+in one message, confirming the merged nav-status card's own text sizing
+("Much better") before asking for these:
+
+1. **"Remove the function and button for reducing the text. The point is
+   that it's hardwired onto the screen but is unobtrusive whilst
+   present."** — the 💬 button (`#btn-toggle-guidance-text`,
+   `toggleGuidanceText()`) let a tester hide `#nav-guidance-card`'s own
+   turn-instruction text, persisted via `vcas-guidance-text-enabled` in
+   localStorage. This is exactly the mechanism follow-up #6 already
+   found causing real confusion once ("the guidance card's content
+   wasn't missing due to a bug... nothing about its appearance made that
+   state unmistakable" — the dashed-vermillion-border fix). Rather than
+   improve the affordance further, the whole toggle is gone: the button,
+   `toggleGuidanceText()`, `_updateGuidanceToggleBtn()`, the
+   `GUIDANCE_TEXT_KEY`/`guidanceTextEnabled` state, and the
+   `!guidanceTextEnabled` gate in `_showGuidanceCard()` (now just
+   `if (mode !== "nav" || !activeRoute) return;`). The card's own
+   compact, transparent-overlay styling (rounds 5-8, above) is what
+   makes it "unobtrusive whilst present" — no longer something a control
+   needs to additionally hide.
+2. **"You can remove the button which cancels navigation as that should
+   be achieved by pressing the navigation button in the bottom
+   banner."** — the ✕ button (`#btn-clear-route`) duplicated exactly
+   what the bottom-bar NAVIGATION button (`#btn-test-route`, the
+   diamond-icon OFF/ON control from round 4) should do instead.
+   `#btn-clear-route` removed outright; `#btn-test-route`'s own click
+   handler now branches on whether a route is active — `if (activeRoute)
+   clearActiveRoute(); else toggleDestPickMode();` — so the same button
+   both arms destination-picking (OFF state) and cancels an active route
+   (ON state), matching its own OFF/ON readout exactly rather than the
+   readout describing a state only a separate button could change.
+3. **"You can also remove the heading number read out, it's surplus and
+   is just covering actual data."** — `UI.renderCompassRing()`'s
+   3-digit digital heading text (`hdgRounded`, drawn just above the
+   lubber line at `topY - 22`) predates the merged nav-status card
+   (round 2, 2026-09-06) and the tape's own curved rework (round 9) —
+   once the card started rendering as a transparent RAW overlay directly
+   onto the radar's own black space (round 5), this readout's fixed
+   position put it right where the card's own turn-instruction/ETA text
+   now sits, visible in the reported screenshot as "346" overlapping the
+   nearby aircraft label. Real heading is still fully conveyed by the
+   tape's own rotation against the fixed lubber line — the same way a
+   real ND's heading tape works — so this wasn't replaced with anything,
+   just deleted (the `digital` variable and its concatenation into
+   `svg.innerHTML`).
+
+**Every dead reference cleaned up alongside the code, not left as stale
+comments pointing at removed elements** — matching this project's own
+"delete unused code, don't leave a disabled shell" convention:
+`.route-card-clear`/`.route-card-clear:active`/
+`.route-card-clear.guidance-text-off` (VCAS.css, now genuinely
+zero-caller once both buttons that used it were removed — confirmed via
+grep before deleting) and the RAW-scoped `#route-card .route-card-clear
+{ pointer-events: auto; }` re-enable rule (no longer needed — with no
+interactive children left at all, `#route-card`'s own blanket
+`pointer-events: none` needs nothing re-enabled inside it). Several
+comments that described the old two-button state (`#nav-guidance-card`'s
+own "unlike #route-card just below" comparison, the `#nav-compass-ring
+text` font-rule comment listing "the digital heading box" as one of the
+things it catches) were reworded to describe the new, current state
+rather than left contradicting the code beneath them.
+
+**Verified with real execution, this project's own established
+discipline, across two harnesses**: (1) a real Playwright/Chromium
+harness driving the actual extracted `clearActiveRoute()` function body
+(brace-matched from the real, shipped `app.js`, not retyped) wired to a
+synthetic `#btn-test-route` reproducing the new click handler exactly —
+confirmed tapping it with `activeRoute` set calls the real
+`clearActiveRoute()` (removes `route-active` from `document.body`)
+WITHOUT calling `toggleDestPickMode()`, and tapping it with no active
+route calls `toggleDestPickMode()` instead, confirming the branch
+genuinely discriminates on route state rather than always doing one
+thing; (2) a real Playwright/Chromium harness loading the actual,
+unmodified `ui.js` as a real `<script>` (not extracted) and calling the
+real, shipped `UI.renderCompassRing(206, 700, 300, 346, 75, {speedMph:
+0, leftX: 20})` — the literal reported heading (346°) — confirmed the
+real rendered SVG output contains no 3-digit heading text anywhere while
+the lubber line and SPD info strip both still render correctly. Both
+`#btn-toggle-guidance-text` and `#btn-clear-route` confirmed absent from
+the real, unmodified `index.html`/`#route-card` markup. A real
+screenshot at the real device's own 412×915 CSS / 2.625 DPR viewport
+(matching this whole follow-up thread's own established comparison
+viewport) confirms the merged card now reads with no button row at all
+and no heading digits crowding the lubber line. Re-ran the full existing
+`tests/` suite afterward — still 249/249, unaffected (this fix touches
+only `app.js`/`ui.js`/`VCAS.css`/`index.html`, none of `src/logic/`).
+A minor ~3px `#top-bar` scroll-overflow was observed in the verification
+harness — confirmed via `git diff` to be untouched by any of this
+session's edits (zero changed lines anywhere near `#top-bar`/status-pill
+rules) and consistent with this project's own documented harness
+artifact category (no real Google Fonts loaded in an isolated
+Playwright page, so B612's fallback-font metrics run a few px wider than
+on a real device) — not a regression from this change.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card, guidance-text toggle, or digital heading readout at
+all yet, so there's nothing there to remove.

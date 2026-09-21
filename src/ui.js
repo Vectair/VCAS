@@ -858,8 +858,14 @@ const UI = (() => {
     const endDeg = heading + halfSpanDeg;
 
     // Topmost point of the arc (relative bearing 0, i.e. dead ahead) —
-    // where the lubber line/digital heading readout anchor, matching the
-    // old flat tape's "everything fixed above tickTopY, centred" layout.
+    // where the lubber line anchors, matching the old flat tape's
+    // "everything fixed above tickTopY, centred" layout. The digital
+    // 3-digit heading readout that used to sit just above this point was
+    // removed outright (2026-09-21, direct instruction: "surplus... just
+    // covering actual data" — it was overlapping the merged nav-status
+    // card's own text once that card shipped) rather than repositioned;
+    // the real heading is still fully conveyed by the tape's own rotation
+    // and the lubber line's position against it.
     const topX = cx, topY = cy - tapeRadius;
 
     // Only ever rendered while Raw is active (see app.js's call site) and
@@ -899,10 +905,6 @@ const UI = (() => {
     // always centred (heading-up, so dead-ahead never moves).
     const pointer = `<path d="M ${topX - 7} ${topY - 16} L ${topX + 7} ${topY - 16} L ${topX} ${topY - 2} Z"
                 fill="#ffff00" opacity="0.9"/>`;
-
-    const hdgRounded = Math.round(heading) % 360;
-    const digital = `<text x="${topX}" y="${topY - 22}" text-anchor="middle"
-                style="fill:#f0f0f0; font-size:14px; font-weight:600">${String(hdgRounded).padStart(3, "0")}</text>`;
 
     let infoStrip = "";
     if (vehicleInfo) {
@@ -944,7 +946,7 @@ const UI = (() => {
       infoStrip = bg + text;
     }
 
-    svg.innerHTML = ticks + pointer + digital + infoStrip;
+    svg.innerHTML = ticks + pointer + infoStrip;
     svg.classList.remove("hidden");
   }
 

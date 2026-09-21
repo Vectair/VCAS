@@ -1419,8 +1419,10 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
 
 /* RAW's ND-style compass tape (#nav-compass-ring, ui.js's renderCompassRing)
    is built as raw SVG <text> elements via innerHTML, not CSS classes — this
-   catches all of them (heading tick labels, the digital heading box, the
-   speed/route info strip) with one rule rather than threading a
+   catches all of them (heading tick labels, the speed/route info strip —
+   the digital 3-digit heading box that used to be a third one here was
+   removed outright 2026-09-21, see renderCompassRing's own comment) with
+   one rule rather than threading a
    font-family into every inline `style="..."` string in ui.js. B612 Mono
    here specifically because this whole tape is VCAS's own equivalent of a
    real ND's heading/data tape, rendered in the same monospace face on the
@@ -1951,42 +1953,6 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
 
 .route-sep { color: var(--text-muted); }
 
-.route-card-clear {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border);
-  background: var(--btn-bg);
-  color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-appearance: none;
-  transition: background .15s;
-}
-
-.route-card-clear:active { background: var(--btn-hover); }
-/* A plain opacity dim alone (the original treatment) was too subtle on a
-   small, busy row to reliably read as "turn-by-turn text is currently
-   hidden" rather than just a generically muted button — a real device
-   report (2026-09-20) turned out to be exactly this: the guidance card's
-   content wasn't missing due to a bug, #btn-toggle-guidance-text had
-   simply been tapped off at some point and stayed persisted that way, but
-   nothing about its appearance made that state unmistakable. The dashed
-   vermillion border (the same Okabe-Ito colour #route-error-toast's own
-   border already uses for "needs your attention") makes the OFF state a
-   real, noticeable signal rather than a button that merely looks a bit
-   duller than its neighbours. */
-.route-card-clear.guidance-text-off {
-  opacity: .55;
-  border-style: dashed;
-  border-color: #d55e00;
-}
-
 /* ---- RAW: merge the guidance card + ETA card into one top nav-status
    panel (2026-09-06) ----
    Direct instruction, from a hand-drawn design draft compared against a
@@ -2030,7 +1996,9 @@ body.route-active[data-mode="nav"] .ngc-dest { color: rgba(255,255,255,.80); }
    sets the actual `top` since it depends on #top-bar's real height) and
    `pointer-events:none` so a tap on the now-transparent card area still
    reaches the plot/aircraft dots underneath it — this card has no
-   interactive children of its own, unlike #route-card just below. */
+   interactive children of its own (neither does #route-card just below,
+   since 2026-09-21, later the same day, once its own 💬/✕ buttons were
+   removed). */
 body[data-mode="nav"][data-nav-style="raw"] #nav-guidance-card,
 body[data-mode="nav"][data-nav-style="raw"].route-active #nav-guidance-card {
   position: fixed;
@@ -2123,13 +2091,16 @@ body[data-mode="nav"][data-nav-style="raw"] .ngc-eta {
 
 /* #route-card, RAW only (reworked 2026-09-21 alongside #nav-guidance-card
    above — same "transparent overlay, not a floating panel" fix, same
-   reasoning). Unlike the guidance card, this one HAS real interactive
-   children (.route-card-clear — the 💬/✕ buttons), so `pointer-events`
-   can't simply be turned off on the whole card the way it is above:
-   the card itself goes to `none` (a tap on the now-transparent SPD/DIST
-   text area passes through to the plot/aircraft dots underneath it,
-   same as #nav-guidance-card), then the buttons get `pointer-events:auto`
-   back explicitly so they stay genuinely tappable. */
+   reasoning). Since the 💬/✕ buttons that used to live in this card were
+   removed outright (2026-09-21, later the same day — cancelling a route
+   now happens via the bottom-bar NAVIGATION button instead, and the
+   turn-by-turn text is always shown, no toggle), this card has no
+   interactive children left at all — `pointer-events:none` is safe to
+   apply to the whole thing with nothing needing a `pointer-events:auto`
+   re-enable, unlike #nav-guidance-card's own comment above (written when
+   this card still had buttons) might suggest. A tap on the now-
+   transparent SPD/DIST text area passes straight through to the plot/
+   aircraft dots underneath it. */
 body[data-mode="nav"][data-nav-style="raw"] #route-card {
   border-top: none;
   background: none;
@@ -2145,9 +2116,6 @@ body[data-mode="nav"][data-nav-style="raw"] #route-card {
      compact readout does (see #nav-guidance-card's own comment above for
      the pixel-measurement this whole pass is based on). */
   padding: 2px 14px 6px;
-}
-body[data-mode="nav"][data-nav-style="raw"] #route-card .route-card-clear {
-  pointer-events: auto;
 }
 
 /* RAW's own one-row speed+distance readout (2026-09-08), replacing
