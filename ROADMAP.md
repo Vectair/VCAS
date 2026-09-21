@@ -392,12 +392,34 @@ polling) are done and confirmed building. Not started:
   first, not another schema guess.
 - No real live end-to-end TomTom request has been confirmed from the
   deployed app (sandbox can't reach `api.tomtom.com`) — worth
-  confirming on a real device once flipped on. Same caveat applies to
-  the newer TomTom geocoding fallback (`tomtomGeocoder.js`/
+  confirming on a real device now that `TOMTOM_API_KEY` is actually
+  filled in (`config.js`, since ~2026-09-20). Same caveat applies to
+  the TomTom geocoding fallback (`tomtomGeocoder.js`/
   `activeGeocoder.js`, 2026-09-19) — its request/response shape and
   CORS support were confirmed from TomTom's own official npm-published
   SDK source, not a live device response; worth a real on-device search
-  once `TOMTOM_API_KEY` is filled in, same as the routing provider.
+  once this is next tested.
+- `CONFINE_RADIUS_KM` (200km, both `orsGeocoder.js` and
+  `tomtomGeocoder.js`, 2026-09-21 — see CLAUDE.md) is a reasonable
+  starting guess for a driving-nav app's day-trip range, not tuned
+  against real usage. If real searches start missing a legitimately
+  distant destination (a city genuinely >200km away), or still return
+  too many same-named matches from just outside the radius, this is the
+  first number to revisit.
+- `activeGeocoder.js`'s `MERGE_THRESHOLD` (3 — ORS results below this
+  count trigger a supplementary TomTom query) is a plain count
+  heuristic, not a relevance check — flagged during the 2026-09-21
+  TomTom investigation as a possible secondary contributor to "search
+  feels minimal," not yet changed or tuned. The confinement-radius fix
+  may have already improved this in practice (ORS's own result count
+  should better reflect genuine local coverage once it's no longer
+  diluted by globally-scattered same-name matches), but that hasn't
+  been separately verified.
+- `ActiveRoutingProvider` (TomTom-vs-ORS routing) is still switched off
+  by default, hidden behind a 7-tap DevMode unlock in Settings — this
+  is deliberate (Orbis Routing is still "public preview," per its own
+  docs), not a bug, but worth revisiting once real on-device traffic-
+  aware ETAs have been confirmed working.
 - METAR-based QNH correction for aircraft reporting only barometric
   altitude (no `alt_geom`) — `metarProvider.js`'s nearest-station fetch
   already does the hard part; this would mostly be parsing one more

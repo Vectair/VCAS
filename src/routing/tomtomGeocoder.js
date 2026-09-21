@@ -61,10 +61,26 @@ const TomTomGeocoder = (() => {
   const API_VERSION  = 1;
   const DEFAULT_LIMIT = 6;
 
+  // 2026-09-21: `lat`/`lon` ALONE only biases ranking, it never excludes a
+  // far-away match — confirmed directly from TomTom's own official,
+  // npm-published `@tomtom-org/maps-sdk` source (the real request-builder
+  // for this exact endpoint): a geo-bias point only confines results once
+  // paired with a `radius` (metres) — "without radiusMeters the point
+  // biases the ranking without restricting results; with it, results are
+  // confined to that circle." Reported directly: searching a real, nearby
+  // named business (a chain daycare centre in the user's own home town)
+  // surfaced results in South Africa and Sheffield instead. Same fix and
+  // same reasoning as OrsGeocoder.search()'s own CONFINE_RADIUS_KM — kept
+  // as the identical value (in km there, metres here, per each API's own
+  // units) so the two geocoders' actual search areas can't silently drift
+  // apart from each other.
+  const CONFINE_RADIUS_KM = 200;
+
   /**
    * @param {string} text  Free-text place/address/business-name query.
-   * @param {{lat: number, lon: number}} [focus]  Biases ranking toward this
-   *   point (does NOT filter results to a radius around it) — same
+   * @param {{lat: number, lon: number}} [focus]  Both ranks results by
+   *   proximity to this point AND confines them to within
+   *   CONFINE_RADIUS_KM of it (via the `radius` param, see above) — same
    *   semantics as OrsGeocoder.search()'s own `focus` parameter.
    * @param {number} [limit=6]
    * @returns {Promise<Array<{label: string, lat: number, lon: number}>>}
@@ -90,6 +106,7 @@ const TomTomGeocoder = (() => {
     if (focus) {
       params.set("lat", focus.lat);
       params.set("lon", focus.lon);
+      params.set("radius", String(Math.round(CONFINE_RADIUS_KM * 1000)));
     }
 
     const url = `${BASE_URL}/${encodeURIComponent(query)}.json?${params.toString()}`;

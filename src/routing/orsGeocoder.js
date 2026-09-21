@@ -12,12 +12,33 @@ const OrsGeocoder = (() => {
   const TIMEOUT_MS = 8000;
   const MIN_CHARS  = 3; // shorter queries are mostly noise/wasted quota
 
+  // 2026-09-21: `focus.point` ALONE only biases ranking, it never excludes a
+  // far-away match — confirmed directly from Pelias's own real docs (ORS's
+  // geocode/search endpoint is a hosted Pelias instance, same param names,
+  // confirmed against GIScience/openrouteservice-py's own official client
+  // source): "unlike a boundary.circle query, important results far from
+  // the given coordinate may still be returned... a query for 'Paris' with
+  // a focus.point in Texas [can] return both Paris, TX and Paris, France."
+  // Reported directly: searching a real, nearby named business (a chain
+  // daycare centre in the user's own home town) surfaced results in
+  // completely different countries. Pelias's own docs recommend combining
+  // focus.point with boundary.circle.* for exactly this "nearest X within
+  // N km" case — CONFINE_RADIUS_KM is a reasonable starting guess for a
+  // driving-nav app's realistic day-trip range (generous enough not to
+  // exclude a legitimately-searched-for city a few hours away), not tuned
+  // against real field data yet, same honest provenance this codebase
+  // already carries for its other tuned constants (e.g. visibility.js's
+  // CONTRAIL_* thresholds).
+  const CONFINE_RADIUS_KM = 200;
+
   /**
    * @param {string} text  Free-text place/address query.
-   * @param {{lat: number, lon: number}} [focus]  Biases ranking toward this
-   *   point (does NOT filter results to a radius around it) — pass the
-   *   user's own position so "the Anchor" near them outranks a same-named
-   *   place on the other side of the country.
+   * @param {{lat: number, lon: number}} [focus]  Both ranks results by
+   *   proximity to this point AND confines them to within
+   *   CONFINE_RADIUS_KM of it (via boundary.circle.*, see above) — pass
+   *   the user's own position so a same-named place on the other side of
+   *   the world can't outrank, or even appear alongside, a real local
+   *   match.
    * @returns {Promise<Array<{label: string, lat: number, lon: number}>>}
    */
   async function search(text, focus) {
@@ -38,6 +59,9 @@ const OrsGeocoder = (() => {
     if (focus) {
       params.set("focus.point.lon", focus.lon);
       params.set("focus.point.lat", focus.lat);
+      params.set("boundary.circle.lon", focus.lon);
+      params.set("boundary.circle.lat", focus.lat);
+      params.set("boundary.circle.radius", String(CONFINE_RADIUS_KM));
     }
 
     const controller = new AbortController();

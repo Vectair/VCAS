@@ -13912,3 +13912,118 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card, guidance-text toggle, or digital heading readout at
 all yet, so there's nothing there to remove.
+
+## Destination search returning wrong-country results — both geocoders were biasing, not confining (2026-09-21, later the same day)
+
+Direct request to investigate the whole TomTom integration first
+("the navigation search still feels minimal, is anything hidden or not
+switched on?"), then a much more specific follow-up once that
+investigation was reported back: **"The problem with the search
+function is that it turns many incorrect results with many wildly
+irrelevant, either only partially matching the search or returning a
+relatively correct result in a completely different country. With the
+childcare example it returns ones in South Africa and Sheffield but not
+the one in the town I'm looking for."**
+
+**First-turn investigation findings, for the record**: `CONFIG.
+TOMTOM_API_KEY` was confirmed already filled in (not blank, as an
+earlier CLAUDE.md entry's "still blank as of this entry" note had
+claimed — a real, previously-unflagged documentation gap; there is no
+dedicated CLAUDE.md entry for whatever commit filled it in). Both
+integrations (`ActiveRoutingProvider`/`TomTomProvider` for routing,
+`ActiveGeocoder`/`TomTomGeocoder` for destination search) were traced
+end-to-end and found architecturally correct and already wired up as
+designed: routing stays off by default behind a 7-tap DevMode unlock
+(Orbis Routing is still real "public preview" per its own docs, a
+deliberate choice, not a bug); geocoding is always-on, dispatching to
+TomTom only when ORS returns fewer than `MERGE_THRESHOLD` (3) results.
+No hidden/disabled switch was found — "is anything not switched on"
+was answered no, prompting the deeper look that found the actual bug
+below.
+
+**Root cause, confirmed against three independent real primary
+sources, not guessed**: both `OrsGeocoder.search()` and
+`TomTomGeocoder.search()` sent the user's current position purely as a
+RANKING-BIAS hint (`focus.point.*` for ORS/Pelias, `lat`/`lon` for
+TomTom) with no confining radius at all — meaning a fuzzy text match
+for a real, correctly-named business anywhere in the world could still
+be returned, just nudged lower/higher in the result order, never
+excluded. This is precisely why "Tops Day Nursery" (a real national UK
+chain, the childcare example) surfaced branches in South Africa and
+Sheffield instead of the one in the user's own town — all were
+legitimate fuzzy matches on the name, and with no confinement, Pelias/
+TomTom's own text-relevance scoring had no reason to prefer a
+geographically-near one over a textually-cleaner-matching far one.
+
+- **Pelias's own official docs** (`pelias/documentation`, `search.md`,
+  fetched directly via `raw.githubusercontent.com` since
+  `docs.pelias.io`-equivalent domains aren't reachable from this
+  sandbox), quoted directly: "unlike a `boundary.circle` query,
+  important results far from the given coordinate may still be
+  returned... a query for 'Paris' with a `focus.point` in Texas [can]
+  return both Paris, TX and Paris, France" — and recommends combining
+  `focus.point` with `boundary.circle.*` for exactly this "nearest X
+  within N km" case. ORS's own `/geocode/search` endpoint is a direct
+  hosted-Pelias proxy using identical param names — confirmed by
+  cloning `GIScience/openrouteservice-py` (ORS's own official Python
+  client) and reading its real geocode module source, not assumed from
+  the shared "Pelias-based" framing alone.
+- **TomTom's own official, npm-published `@tomtom-org/maps-sdk`
+  package** (downloaded the real tarball from `registry.npmjs.org`,
+  since `developer.tomtom.com`/`docs.tomtom.com` are both blocked from
+  this sandbox — this project's own established "verify against a real
+  primary source" discipline, applied here to a client-library tarball
+  rather than a live device curl since the tarball's own source
+  answered both the request shape AND the confinement question at
+  once): a geo-bias `position` only confines results once paired with a
+  `radiusMeters` param (→ `radius` in the actual request) — without it,
+  the point biases ranking without restricting results at all, read
+  directly from the SDK's real (unminified-in-structure) request-
+  building logic, not the `.d.ts` type declarations alone.
+
+**Fix, in both `src/routing/orsGeocoder.js` and `src/routing/
+tomtomGeocoder.js`**: a new `CONFINE_RADIUS_KM = 200` constant,
+deliberately kept as the identical value in both files (km for ORS's
+`boundary.circle.radius`, converted to metres for TomTom's own `radius`
+param) with a comment cross-referencing the other file, so the two
+geocoders' real search areas can't silently drift apart from each
+other — the same "one shared source, not two independently-guessed
+values" discipline this file already documents at length elsewhere
+(the rings-vs-dots mismatch, the camera-anchor-math history). Applied
+only when a `focus` position is actually available — the existing
+degrade-to-no-confinement behaviour when it isn't (e.g. no GPS fix yet)
+is unchanged. 200km is a reasonable starting guess for a driving-nav
+app's realistic day-trip range — generous enough not to exclude a
+legitimately-searched-for city a few hours away — not tuned against
+real field data yet, same honest provenance this codebase already
+carries for its other tuned constants (`CONTRAIL_MAX_RANGE_NM`,
+`MERGE_THRESHOLD`, etc.); flagged in ROADMAP.md as the first number to
+revisit if a real search either misses a genuinely distant destination
+or still returns too many far-but-just-outside-the-radius matches.
+
+Verified with a real Node script (`vm.createContext`/`vm.runInContext`
+against the actual, unmodified shipped files, mocked `fetch`) confirming
+the real request URLs both parties actually build: with a `focus`
+position, ORS's request now carries `boundary.circle.lon`/`.lat`/
+`.radius=200` alongside its existing `focus.point.*`, and TomTom's
+carries `radius=200000` (metres) alongside its existing `lat`/`lon`;
+without a `focus`, neither request carries any confinement or bias
+params at all, confirming the degrade path is untouched. 12/12 checks
+passed against the real, shipped code. Re-ran the full existing
+`tests/` suite afterward — still 249/249, unaffected (this fix touches
+only `src/routing/`, none of `src/logic/`).
+
+**Not addressed in this pass, flagged in ROADMAP.md instead**:
+`activeGeocoder.js`'s own `MERGE_THRESHOLD` (a plain result-count
+heuristic, not a relevance check) may have been a secondary contributor
+to "search feels minimal" — not changed here, and this fix's own effect
+on it (ORS's result count should now better reflect genuine local
+coverage once it's no longer diluted by globally-scattered same-name
+matches) hasn't been separately verified. TomTom routing itself
+(traffic-aware ETAs) remains off by default behind its DevMode toggle,
+unchanged by this investigation — a deliberate, pre-existing choice,
+not something this session's findings argued for changing. No real
+on-device confirmation of either TomTom integration exists yet — same
+standing caveat this file already carries for every TomTom fetch call,
+now doubly relevant since `TOMTOM_API_KEY` being filled in means a real
+device test is actually possible for the first time.
