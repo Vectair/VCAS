@@ -13647,3 +13647,95 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card or compass-tape-clearance concept at all yet.
+
+## RAW navigation route follow-up #7: the merged nav-status card's own text was pixel-measured against the reference — a real ~40-50% oversize, not a placement issue (2026-09-21, same day)
+
+Direct follow-up to follow-up #6 above, with a real device screenshot:
+**"Yes the text is still far too big. It's covering a substantial amount
+of the radar... The font size in navigation is much larger than when
+navigation is turned off... Please pay very close attention to the
+reference image specifically about this content. It is positioned and
+scaled exactly how I want it to be."** Follow-ups #5/#6 had fixed WHERE
+the card sits (an overlay, not a floating panel) and WHETHER it collides
+with the compass tape — but never actually checked the text's own SIZE
+against the reference mockup, which this project's own established
+"pixel-sample the real image, don't eyeball the chat thumbnail"
+discipline exists precisely to catch.
+
+**Measured, not eyeballed — a real bright-pixel row-height scan (Python/
+PIL) against BOTH the reference mockup and a real device screenshot,
+using the same technique for both.** Since both images are full-width
+screenshots of a phone-shaped screen (confirmed: the reference mockup's
+top bar spans its own full pixel width edge-to-edge, same as the real
+device screenshot's status-bar/top-bar), text-height ÷ screen-width is a
+valid, DPR-independent comparison between them regardless of either
+image's own resolution or the mockup's unknown original canvas size.
+Reference mockup (672px wide): "IN 2 KM TURN RIGHT" text height ≈20px
+(ratio 0.0298), "ETA 14:20" ≈20px (0.0298), "MPH 60...27 KM" ≈24px
+(0.0357) — genuinely TWO different sizes in the mockup itself, not a
+uniform scale: the SPD/distance row runs about 20% larger than the turn-
+instruction/ETA row. Real device screenshot (1080px wide, the actual
+follow-up #6 output): "IN 68 M TURN LEFT" ≈37px (0.0343), "08:09" clock
+≈47px (0.0435), "SPD 0 MPH"/"12.1 km" ≈48px (0.0444) — a consistent
+40-50% oversize across every element in the card, confirming this
+wasn't one bad line, it was the whole card's own scale.
+
+**Fix — every RAW-scoped font-size in the merged card, tuned directly
+from these measurements, not a blanket "make it smaller":**
+- `.ngc-maneuver` (the turn-direction icon): 22px → 15px, min-width
+  26px → 18px.
+- `.ngc-action` (the "IN {dist} TURN {direction}" text): 16px → 14px.
+- `.ngc-eta` (the arrival-clock digits, RAW-only — the base rule was
+  edited directly rather than adding a RAW-scoped duplicate, since
+  Hybrid never renders this element at all): 20px → 14px, matching the
+  mockup's own "ETA" text sharing the turn-instruction row's size
+  exactly.
+- `.route-eta-row-raw` (SPD/distance): 20px → 16px — deliberately NOT
+  matched to the other three's 14px; the mockup itself uses a visibly
+  bigger font for this row, so 16px preserves that real, intentional
+  size step rather than flattening every readout to one uniform scale.
+
+**The padding was an equally real, separately-measured contributor, not
+just the font sizes.** `#nav-guidance-card`'s RAW-scoped padding
+(`10px 14px 8px`, sized back when this was still a solid Hybrid-style
+banner) and `#route-card`'s base padding (`16px 20px 24px` — the
+generous BOTTOM padding specifically was sized for a bottom-pinned,
+safe-area-adjacent Hybrid ETA card, with no purpose once this card sits
+at the TOP as a transparent RAW overlay per follow-up #5) were both
+tightened: `#nav-guidance-card` to `6px 14px 4px` (gap 10px→8px),
+`#route-card` gained its first-ever RAW-scoped padding override,
+`2px 14px 6px`. Both cards' real measured `offsetHeight` already feeds
+follow-up #6's `navCardClearancePx` (the tape's own clearance formula)
+directly — shrinking the cards automatically pulls the compass tape back
+up too, with no separate app.js change needed this round.
+
+**Verified with a real Playwright/Chromium render at the real device's
+own CSS viewport — not an arbitrary size.** Determined the real device's
+CSS viewport from the screenshot's own physical resolution: 1080×2400
+physical ÷ 2.625 (a common real Android DPR) = 412×915 CSS — matching
+this project's own already-established standard test viewport exactly
+(`412×915`, used throughout this file's history), confirming that's very
+likely the real device's actual reported size. Rendered the real, un-
+modified `#nav-guidance-card`/`#route-card`/top-bar markup and the real,
+now-edited `VCAS.css` at exactly `{width:412, height:915}` with
+`deviceScaleFactor:2.625`, populated with the literal reported content
+("IN 68 M TURN LEFT" / "08:09" / "SPD 0 MPH" / "12.1 km") — the
+resulting screenshot came out 1082×2402, within 2px of the real device's
+own 1080×2400, confirming the viewport guess was correct. Re-ran the
+identical bright-pixel row-height scan against this new render: action
+text 26px (ratio 0.0240), ETA clock 28px (0.0259), SPD text 31px
+(0.0287), distance text 32px (0.0296) — every ratio now sits AT or
+slightly BELOW the reference mockup's own 0.0298-0.0357 range, down from
+40-50% over it. Total reserved gap (top-bar bottom to the route card's
+own bottom edge) came out to 68.5 CSS px / 915 = 7.5%, against the
+mockup's own measured 6.9% — closely matched, down from the pre-fix
+16.5% (redone in the same units). A real screenshot of the fixed render
+(delivered this session) confirms the card now reads as a compact,
+ND-instrument-scale readout with substantial black space left for the
+radar underneath it, matching the reference mockup's own proportions
+directly rather than by eye.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card at all yet.

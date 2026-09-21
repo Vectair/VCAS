@@ -2040,15 +2040,26 @@ body[data-mode="nav"][data-nav-style="raw"].route-active #nav-guidance-card {
   background: none;
   border-bottom: none;
   box-shadow: none;
-  padding: 10px 14px 8px;
-  gap: 10px;
+  /* 2026-09-21 (follow-up #7): pixel-measured against the real reference
+     mockup — text-height/screen-width in the mockup is ~3-3.6%, this card
+     was rendering at ~4.3-4.7% (confirmed via a row-by-row bright-pixel
+     scan of a real device screenshot vs. the mockup at the same technique,
+     both being full-width phone screenshots so the ratio comparison holds
+     regardless of either image's own DPR/resolution) — a real ~40-50%
+     oversize on every readout in this card PLUS #route-card below it,
+     covering far more of the radar than the mockup's own "text sits in the
+     black corners the arcs don't reach" design calls for. Padding tightened
+     to match the now-smaller text (this card no longer needs Hybrid's
+     banner-scale padding once it's a compact ND-style instrument row). */
+  padding: 6px 14px 4px;
+  gap: 8px;
   pointer-events: none;
 }
 body[data-mode="nav"][data-nav-style="raw"] .ngc-maneuver,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-maneuver {
   color: #f0f0f0;
-  font-size: 22px;
-  min-width: 26px;
+  font-size: 15px;
+  min-width: 18px;
   /* Legibility against whatever's actually behind this text now that the
      card's own solid background is gone (2026-09-21) — a rendered ring/
      dot/label could genuinely sit right behind it, unlike the reference
@@ -2058,7 +2069,7 @@ body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-maneuver {
 body[data-mode="nav"][data-nav-style="raw"] .ngc-action,
 body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-action {
   color: #f0f0f0;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.3;
   text-shadow: 0 1px 3px rgba(0,0,0,.9);
 }
@@ -2086,7 +2097,13 @@ body[data-mode="nav"][data-nav-style="raw"].route-active .ngc-dest {
   display: none;
   flex-shrink: 0;
   font-family: 'B612 Mono', monospace;
-  font-size: 20px;
+  /* Pixel-measured against the reference mockup's own "ETA 14:20" text,
+     which renders at the exact same size as the turn-instruction text
+     beside it — see .ngc-action's own RAW-scoped size (2026-09-21,
+     follow-up #7). Only ever shown in RAW (the display:block override
+     just below), so no separate RAW-scoped duplicate of this value is
+     needed — Hybrid never renders this element at all. */
+  font-size: 14px;
   font-weight: 800;
   align-self: center;
 }
@@ -2111,6 +2128,15 @@ body[data-mode="nav"][data-nav-style="raw"] #route-card {
   box-shadow: none;
   animation: none; /* the slide-up-from-bottom entrance makes no sense once this lives at the top */
   pointer-events: none;
+  /* 2026-09-21 (follow-up #7): this card's base padding (16px 20px 24px)
+     was sized for Hybrid's bottom-pinned, safe-area-adjacent ETA card —
+     the generous bottom padding in particular has no purpose once this
+     card sits at the TOP as a transparent overlay in RAW. Left un-scoped
+     before this fix, it was a real, measured contributor to the merged
+     card covering far more of the radar than the reference mockup's own
+     compact readout does (see #nav-guidance-card's own comment above for
+     the pixel-measurement this whole pass is based on). */
+  padding: 2px 14px 6px;
 }
 body[data-mode="nav"][data-nav-style="raw"] #route-card .route-card-clear {
   pointer-events: auto;
@@ -2135,7 +2161,11 @@ body[data-mode="nav"][data-nav-style="raw"] .route-eta-row-raw {
   justify-content: space-between;
   gap: 12px;
   font-family: 'B612 Mono', monospace;
-  font-size: 20px;
+  /* Pixel-measured against the reference mockup's own "MPH 60 ... 27 KM"
+     row (2026-09-21, follow-up #7) — genuinely a size step up from
+     .ngc-action/.ngc-eta's 14px in the mockup itself, not a mismatch to
+     reconcile away; this is the row's own real target, not a leftover. */
+  font-size: 16px;
   font-weight: 800;
   text-shadow: 0 1px 3px rgba(0,0,0,.9);
 }
