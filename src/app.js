@@ -2652,7 +2652,39 @@
       const TICK_CLEARANCE_PX = UI.COMPASS_MAJOR_TICK_H + 4;
       const tapeCx = square.plotLeft + square.plotWidth * 0.5;
       const tapeCy = square.plotTop + square.plotHeight * square.anchorY;
-      const tapeRadius = Math.max(0, tapeCy - insets.chromeTopInset - TICK_CLEARANCE_PX);
+      // Follow-up #5's own overlay rework (2026-09-21) deliberately keeps
+      // chromeTopInset/squareContentTop free of the merged nav-status
+      // card's own height, so the RINGS/DOTS (square.plotTop) start flush
+      // under the top bar whether or not a route is active — real device
+      // feedback confirmed that part works. But this tape's own decorative
+      // ticks/digital-heading/lubber line are a SEPARATE, purely cosmetic
+      // radius from the rings' own plot geometry (see the comment above on
+      // why tapeRadius is derived independently) — and with the card now
+      // rendering transparently right where the dead-ahead tick/lubber
+      // used to have the whole top band to itself, the two visually
+      // collided (a real device screenshot showed the "10" tick label and
+      // the lubber triangle sitting directly behind the turn-instruction
+      // text). Fixed the same way round 10 already fixed a sibling
+      // tick-clearance bug — adjust only the TAPE's own radius, not the
+      // square/rings/squareContentTop — by also retreating the tape's
+      // effective top clearance by the merged card's own real height
+      // (both rows, matching _rawChromeInsets()' own routeCardAtTop sum)
+      // whenever it's actually showing, so the tape's ticks/lubber tuck in
+      // below the text instead of reaching up into it. Falls back to 0
+      // extra clearance (today's already-correct passive-view behaviour)
+      // the moment no route is active.
+      let navCardClearancePx = 0;
+      if (activeRoute) {
+        const guidanceCardEl = document.getElementById("nav-guidance-card");
+        const routeCardEl = document.getElementById("route-card");
+        if (guidanceCardEl && !guidanceCardEl.classList.contains("hidden")) {
+          navCardClearancePx += guidanceCardEl.offsetHeight;
+        }
+        if (routeCardEl && !routeCardEl.classList.contains("hidden")) {
+          navCardClearancePx += routeCardEl.offsetHeight;
+        }
+      }
+      const tapeRadius = Math.max(0, tapeCy - insets.chromeTopInset - navCardClearancePx - TICK_CLEARANCE_PX);
       UI.renderCompassRing(tapeCx, tapeCy, tapeRadius, userHeading, Indicators.FOV_HALF_ANGLE_DEG, activeRoute ? null : { speedMph: userSpeedMph, leftX: square.plotLeft + 8 });
     } else {
       UI.clearCompassRing();

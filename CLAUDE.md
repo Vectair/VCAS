@@ -13580,3 +13580,70 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — its own RAW screen has no merged
 nav-status card at all yet.
+
+## RAW navigation route follow-up #6: the compass tape's own ticks/lubber-line still collided with the merged nav-status card (2026-09-21, same day)
+
+Direct follow-up to follow-up #5 above, with a new real device
+screenshot: **"The text is still not sitting in its designated areas as
+down in the reference."** The screenshot showed the merged card's text
+("IN 75 M TURN LEFT" / "04:38" on one row, "SPD 0 MPH" / "12.1 km" on
+the next) with the compass tape's own "10" tick label visible directly
+behind "TURN LEFT," and the yellow lubber-line triangle partially
+visible poking up behind "IN 75 M."
+
+**Root cause: follow-up #5 correctly decoupled the RINGS/DOTS geometry
+from the merged card's own height, but never touched the compass
+TAPE's own, separately-derived radius.** `tapeRadius` (the curved
+compass tape's own decorative geometry — ticks, digital heading, the
+lubber-line triangle, drawn via `UI.renderCompassRing()`) has always
+been computed independently of `squareContentTop`/`square.plotTop` (the
+rings/dots/aircraft-list geometry) — a deliberate separation this file
+already documents (round 10's own tick-clearance fix derives it purely
+from `insets.chromeTopInset` plus a fixed tick-height clearance, with
+no reference to the square's own layout at all). Follow-up #5's rework
+correctly stopped feeding the merged card's height into
+`chromeTopInset` (so the square/rings start at the same Y whether or
+not a route is active, exactly as intended and confirmed working) — but
+`tapeRadius` was still derived from that SAME unchanged
+`insets.chromeTopInset`, with no awareness that the merged card now
+renders transparently right where the tape's own dead-ahead ticks/
+lubber used to have the whole top band to themselves. The two systems
+were correctly decoupled for one purpose (radar starts in the same
+place) and left coupled for another (the tape's own reach) — exactly
+the kind of drift this file's own "one shared source, not two
+independently-guessed numbers" discipline exists to prevent, just this
+time the two numbers were never meant to be the same value in the first
+place, only each needed its own awareness of the card.
+
+**Fix**: adjust only the TAPE's own radius, not the square/rings/
+`squareContentTop` at all — a new `navCardClearancePx`, summing
+`#nav-guidance-card`'s and `#route-card`'s own real, live
+`offsetHeight` (each only counted if visible — not hidden), subtracted
+from `tapeRadius`'s existing derivation whenever `activeRoute` is set.
+Falls back to 0 extra clearance (today's already-correct passive-view
+behaviour, unchanged) the moment no route is active — the tape's radius
+in the passive case is bit-for-bit identical to before this fix.
+
+Verified three ways, this project's own established discipline: (1) a
+real Node/Playwright check confirming `squareContentTop` (and
+`chromeTopInset`) stay IDENTICAL active-vs-passive — follow-up #5's own
+guarantee is untouched by this fix; (2) a real check confirming
+`tapeRadius` genuinely shrinks once the merged card is showing (342.12
+passive → 226.12 active in the test scenario); (3) a real check
+confirming the tape's new topmost point (`tapeCy - tapeRadius`) sits at
+or below the route card's own real measured bottom edge — genuinely
+clear of the text, not just less overlapping. Finally, a real, full-DOM
+visual screenshot — the same real, verbatim-extracted markup/CSS
+technique this project's own history already establishes, populated
+with the exact reported content ("IN 75 M TURN LEFT" / "04:38" / "SPD 0
+MPH" / "12.1 km") and drawing real ticks/lubber/digital-heading/range-
+ring using the same formulas `renderCompassRing()`/
+`renderRangeRingsOverlay()` themselves use — confirmed the fix visually:
+the text now renders with a clean gap above the tape's own "6"/"12"
+tick labels, the lubber triangle/digital heading, and the dashed range
+ring further below, with no overlap anywhere.
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own RAW screen has no merged
+nav-status card or compass-tape-clearance concept at all yet.

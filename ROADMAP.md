@@ -312,7 +312,7 @@ equivalent yet, accumulated across many passes without a full sync:
   landmark to find true North, 2026-09-18) — no native equivalent at
   all; the native port still only has whatever `CompassHeading.kt`
   parity existed before this.
-- Six real route-display/nav-card bug fixes from 2026-09-20/09-21
+- Seven real route-display/nav-card bug fixes from 2026-09-20/09-21
   (RAW's flight-plan line no longer vanishing when only the leading
   route point falls outside the FOV; the guidance-text-off toggle's
   stronger dashed-border affordance; the raw-vertex-count truncation fix
@@ -320,17 +320,23 @@ equivalent yet, accumulated across many passes without a full sync:
   first ring; the line no longer tracing the plot's outer edge for its
   entire beyond-selected-range remainder; the merged nav-status card's
   destination-address row now hidden in RAW so ETA sits flush on the
-  turn-instruction row; and — the largest of the six — the card itself
-  reworked from a solid opaque panel that pushed the square/compass-tape
-  down by its own height into a transparent, `pointer-events:none`
-  overlay drawn directly onto the radar's own unused black space, so the
-  square starts at the same Y whether or not a route is active, matching
-  the design draft's own "integrated into the screen, not a floating
-  expansion" layout) — `RawPlotView.kt`'s own route-line rendering has
-  none of the route-line fixes (no FOV-skip, no even-sampling
-  decimation, no range-boundary cutoff), and there's no native merged
-  nav-status card, guidance-text visibility toggle, destination-row, or
-  overlay-vs-floating-panel equivalent at all yet.
+  turn-instruction row; the card itself reworked from a solid opaque
+  panel that pushed the square/compass-tape down by its own height into
+  a transparent, `pointer-events:none` overlay drawn directly onto the
+  radar's own unused black space, so the square starts at the same Y
+  whether or not a route is active, matching the design draft's own
+  "integrated into the screen, not a floating expansion" layout; and —
+  the follow-up that closed the overlay rework's own remaining gap —
+  the compass tape's own ticks/digital-heading/lubber-line, derived from
+  a separate `tapeRadius` the overlay rework never touched, now also
+  retreat by the merged card's real height while a route is active, so
+  the tape's own decorative geometry no longer visually collides with
+  the now-transparent overlay text) — `RawPlotView.kt`'s own route-line
+  rendering has none of the route-line fixes (no FOV-skip, no even-
+  sampling decimation, no range-boundary cutoff), and there's no native
+  merged nav-status card, guidance-text visibility toggle, destination-
+  row, overlay-vs-floating-panel, or tape-clearance equivalent at all
+  yet.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
