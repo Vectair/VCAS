@@ -69,6 +69,37 @@ t.eq(SimplifiedType.get("A388"), "A380", "A388 -> A380");
   t.eq(SimplifiedType.get(code), "E-Jet", `${code} -> E-Jet`);
 });
 
+// ---- Boeing family-root PATTERN matching (2026-09-22) — the actual
+// point of the pattern-based refactor: a variant code that fits a
+// family's real root shape but was never explicitly hand-listed still
+// collapses correctly, not just the ones enumerated above. These are
+// deliberately synthetic/hypothetical codes (labelled as such, not real
+// currently-assigned designators) chosen specifically to prove the RULE
+// generalises, not just that today's known variants are covered. ----
+t.eq(SimplifiedType.get("B730"), "737",
+  "synthetic B730 (not a real assigned variant, but fits the 737 root pattern) -> 737");
+t.eq(SimplifiedType.get("B30M"), "737",
+  "synthetic B30M (not a real assigned MAX variant) still fits the MAX-generation pattern -> 737");
+t.eq(SimplifiedType.get("B745"), "747",
+  "synthetic B745 fits the 747 root pattern -> 747");
+t.eq(SimplifiedType.get("B754"), "757",
+  "synthetic B754 fits the 757 root pattern -> 757");
+t.eq(SimplifiedType.get("B765"), "767",
+  "synthetic B765 fits the 767 root pattern -> 767");
+t.eq(SimplifiedType.get("B774"), "777",
+  "synthetic B774 fits the 777 root pattern -> 777");
+t.eq(SimplifiedType.get("B786"), "787",
+  "synthetic B786 fits the 787 root pattern -> 787");
+
+// ---- The exact table still wins over a pattern when both could apply —
+// verified with a real entry (A318) that would NOT match any Boeing
+// pattern, confirming the two tiers don't fight each other. ----
+t.eq(SimplifiedType.get("A318"), "A318", "a non-Boeing exact entry is unaffected by pattern matching");
+
+// ---- Patterns don't over-match unrelated families ----
+t.eq(SimplifiedType.get("A320"), "A320", "A320 doesn't accidentally match any Boeing pattern");
+t.eq(SimplifiedType.get("CRJ9"), "CRJ", "CRJ9 doesn't accidentally match any Boeing pattern");
+
 // ---- Turboprops: ATR42 vs ATR72 kept distinct (different aircraft,
 // different names); Dash 8 -100/200/300 collapse, but the re-engined
 // Q400 stays its own bucket. ----

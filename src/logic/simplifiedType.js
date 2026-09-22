@@ -14,41 +14,37 @@
  * now reads `SimplifiedTypeMode.isEnabled() ? SimplifiedType.get(type) :
  * type` instead of the raw type directly).
  *
- * GROUPING PRINCIPLE, stated explicitly so a future edit doesn't have to
- * reverse-engineer it from the table alone — and because this is a real
- * judgment call, not a solved problem (see ROADMAP.md's own entry for
- * this feature, which flags it as worth the project owner's own
- * confirmation): collapse a family down to whatever name a knowledgeable-
- * but-casual person would actually say out loud, which in practice means
- * always dropping the ENGINE-GENERATION suffix (NG vs MAX, ceo vs neo —
- * visually distinguishable to an expert, not what a casual spotter is
- * asking about), and ADDITIONALLY dropping the LENGTH/SERIES digit only
- * for families where that digit isn't part of common colloquial usage.
- * Concretely:
- *   - Boeing 737/747/757/767/787: casual usage never distinguishes the
- *     length variant ("that's a 737", never "that's a 737-800") — these
- *     collapse fully to the bare model number, matching the tester's own
- *     literal example (B738/B39M/B3XM/B736 -> "737").
- *   - Airbus A318/A319/A320/A321: kept as FOUR DISTINCT buckets, only
- *     folding the neo/ceo engine suffix together (A20N -> "A320", same
+ * GROUPING PRINCIPLE, restated 2026-09-22 per direct project-owner
+ * confirmation of the rule of thumb: align a variant with its ROOT,
+ * regardless of whatever comes after — e.g. every real B737- variant
+ * collapses to "737" no matter what follows the dash. The one thing
+ * worth being explicit about (still a real judgment call, not a solved
+ * problem — see ROADMAP.md's own entry for this feature) is that "root"
+ * means something different depending on the family:
+ *   - Boeing 737/747/757/767/787: the ROOT IS the bare model number —
+ *     casual usage never distinguishes the length or engine-generation
+ *     variant ("that's a 737", never "that's a 737-800" or "that's a
+ *     737 MAX"), so EVERYTHING after the model number collapses,
+ *     matching the tester's own literal example.
+ *   - Airbus A318/A319/A320/A321: the ROOT IS the specific series
+ *     number — each is kept as its OWN distinct bucket, only folding the
+ *     neo/ceo engine-generation suffix together (A20N -> "A320", same
  *     bucket as A320). This is a genuine asymmetry with the Boeing
- *     narrowbody treatment above, not an inconsistency slipped in by
- *     accident: unlike a 737-800 vs -900, people who can tell an A320
- *     from an A321 apart generally DO use those specific names in
- *     conversation ("that's an A321", not "that's an A320-family jet") —
- *     the family's own individual member names are already the
- *     colloquial names, where 737's sub-variant numbers aren't. Worth
- *     revisiting directly with the project owner if real usage suggests
- *     otherwise — see ROADMAP.md.
+ *     narrowbody treatment above, not an inconsistency: unlike a
+ *     737-800 vs -900, people who can tell an A320 from an A321 apart
+ *     generally DO use those specific names in conversation ("that's an
+ *     A321", not "that's an A320-family jet") — the family's own
+ *     individual member numbers are already the colloquial names, where
+ *     737's length-variant digit never became one.
  *   - Airbus widebodies (A330/A340/A350/A380) and turboprops with a
- *     genuinely distinct common name per size (ATR 42 vs ATR 72) are
- *     each kept as their own real name, same reasoning as the A320-
- *     family case — these aren't "sub-variants of one thing" the way
+ *     genuinely distinct common name per size (ATR 42 vs ATR 72) follow
+ *     the same "root = the specific model number" rule as Airbus
+ *     narrowbody — these aren't "sub-variants of one thing" the way
  *     737-600..900 are, they're different aircraft with different names
  *     people actually use.
- *   - Regional jets (CRJ, E-Jet) collapse to family — casual spotters
- *     essentially never distinguish a CRJ700 from a CRJ900, or an E170
- *     from an E190, by sight.
+ *   - Regional jets (CRJ, E-Jet) collapse to bare family — casual
+ *     spotters essentially never distinguish a CRJ700 from a CRJ900, or
+ *     an E170 from an E190, by sight.
  *   - GA/light aircraft, helicopters, business jets, and military types
  *     are DELIBERATELY NOT covered here — their ICAO codes (C172, PA28,
  *     R44, ...) are already about as simple as a casual reader needs;
@@ -57,23 +53,49 @@
  *     gain. They pass through unchanged via the fallback below, same as
  *     any other unmapped code.
  *
- * COVERAGE, stated honestly rather than implied complete: this is a
- * starter set covering common mainline/regional/turboprop families
- * likely to actually appear in typical VCAS use, not an exhaustive
- * ICAO type-designator reference (there are thousands of real codes).
- * Anything not in this table falls back to the RAW designator unchanged
- * — never worse than today, just not simplified for that one type. The
+ * TWO-TIER LOOKUP, added 2026-09-22 to actually implement "regardless of
+ * what comes after the -" literally rather than by exhaustively listing
+ * every currently-known variant code by hand (the original 2026-09-21
+ * version's real limitation — a genuine, not-yet-seen 737 variant code
+ * simply wouldn't have matched, silently falling back to the raw
+ * designator instead of "737"):
+ *   1. FAMILY_ROOT_PATTERNS — a small set of regexes for exactly the
+ *      families where the whole point is "collapse regardless of
+ *      suffix" (737/747/757/767/777/787). A NEW Boeing 737/747/757/767/
+ *      777/787 variant code ICAO hasn't assigned yet will still collapse
+ *      correctly the moment it starts appearing in real ADS-B data, with
+ *      no table edit needed — this is the actual "root, not an
+ *      enumerated list" behaviour.
+ *   2. EXACT_GROUPS — a flat table for every other family, where "root"
+ *      means "the specific model number" rather than "the family name
+ *      alone" (Airbus narrowbody/widebody, regional jets, turboprops) —
+ *      pattern-matching doesn't help here since the whole point is
+ *      keeping specific numbers apart, not collapsing across them, and
+ *      Airbus's actual type-code space is small and closed enough that
+ *      hand-enumerating it carries little of the same risk.
+ * Checked in that order — an exact match always wins over a pattern, so
+ * a future one-off exception (an oddball code that happens to fit a
+ * Boeing pattern's shape but genuinely isn't that family) has a clean
+ * override point without touching the pattern itself.
+ *
+ * COVERAGE, stated honestly rather than implied complete: EXACT_GROUPS
+ * is a starter set covering common regional/turboprop/widebody families
+ * likely to actually appear in typical VCAS use, not an exhaustive ICAO
+ * type-designator reference (there are thousands of real codes across
+ * GA/military/etc that this deliberately doesn't attempt). Anything not
+ * matched by either tier falls back to the RAW designator unchanged —
+ * never worse than today, just not simplified for that one type. The
  * ground-truth observation log (src/dev/observationLogger.js) already
  * records every sighting's real `aircraft.type`, which is a natural,
  * already-existing signal for what's showing up unmapped and worth
  * adding — no new instrumentation needed to find real gaps over time.
  *
- * The actual codes below reflect general aviation-industry knowledge,
- * not a fetch/lookup verified against a live ADS-B feed from this
- * sandbox (this sandbox has no network path to adsb.fi directly — see
- * CLAUDE.md's own "Sandbox environment notes") — flagged the same way
- * every other reference-data table in this codebase is when it wasn't
- * independently re-verified against a live source.
+ * The actual codes/patterns below reflect general aviation-industry
+ * knowledge, not a fetch/lookup verified against a live ADS-B feed from
+ * this sandbox (this sandbox has no network path to adsb.fi directly —
+ * see CLAUDE.md's own "Sandbox environment notes") — flagged the same
+ * way every other reference-data table in this codebase is when it
+ * wasn't independently re-verified against a live source.
  *
  * LONGER TERM, per the project owner's own framing: "this is where
  * Vectair as a whole starts to come in" — a shared type-to-group mapping
@@ -81,37 +103,39 @@
  * maintains, not hand-typed JS living only in this repo. Deliberately
  * isolated behind this one function so that swap is clean later: every
  * call site only ever calls SimplifiedType.get(type) and has no idea
- * whether the answer came from this static table or a fetched/DB-backed
- * one — see ROADMAP.md's own entry for this feature.
+ * whether the answer came from this static table/pattern set or a
+ * fetched/DB-backed one — see ROADMAP.md's own entry for this feature.
  */
 const SimplifiedType = (() => {
-  const GROUPS = {
-    // Boeing narrowbody — collapses fully, including every length/engine
-    // variant (see the grouping-principle comment above for why).
-    B731: "737", B732: "737", B733: "737", B734: "737", B735: "737",
-    B736: "737", B737: "737", B738: "737", B739: "737",
-    B37M: "737", B38M: "737", B39M: "737", B3XM: "737",
+  // Boeing families where the whole model line collapses regardless of
+  // length/engine-generation suffix — "root, regardless of what comes
+  // after" applied literally as a pattern, not an enumerated list.
+  const FAMILY_ROOT_PATTERNS = [
+    // 737: Classic/NG length variants (B731..B739) plus the MAX
+    // generation, which uses a DIFFERENT suffix shape (B3_M, not B73_) —
+    // both patterns are needed to actually cover "737 regardless of
+    // suffix," a single prefix rule can't express this family alone.
+    { pattern: /^B73[0-9]$/, group: "737" },
+    { pattern: /^B3[0-9X]M$/, group: "737" },
+    // 747: every length/generation variant (740-749) plus the SP.
+    { pattern: /^B74[0-9]$/, group: "747" },
+    { pattern: /^B74S$/, group: "747" },
+    // 757.
+    { pattern: /^B75[0-9]$/, group: "757" },
+    // 767.
+    { pattern: /^B76[0-9]$/, group: "767" },
+    // 777, including the -200LR/-300ER letter-suffix codes and 777X
+    // (778/779, already covered by the digit pattern).
+    { pattern: /^B77[0-9]$/, group: "777" },
+    { pattern: /^B77[LW]$/, group: "777" },
+    // 787 Dreamliner, including the -10's letter-suffix code.
+    { pattern: /^B78[0-9X]$/, group: "787" },
+  ];
 
-    // Boeing 747 — every generation/length variant.
-    B741: "747", B742: "747", B743: "747", B744: "747", B748: "747",
-    B74S: "747",
-
-    // Boeing 757.
-    B752: "757", B753: "757",
-
-    // Boeing 767.
-    B762: "767", B763: "767", B764: "767",
-
-    // Boeing 777 (including 777X — not yet common in real feeds, added
-    // for completeness once it is).
-    B772: "777", B773: "777", B77L: "777", B77W: "777",
-    B778: "777", B779: "777",
-
-    // Boeing 787 Dreamliner.
-    B788: "787", B789: "787", B78X: "787",
-
-    // Airbus narrowbody — kept distinct by series number; only the
-    // engine-generation (neo) suffix folds into its ceo equivalent.
+  const EXACT_GROUPS = {
+    // Airbus narrowbody — kept distinct by series number (the ROOT here
+    // IS the specific number); only the engine-generation (neo) suffix
+    // folds into its ceo equivalent.
     A318: "A318",
     A319: "A319", A19N: "A319",
     A320: "A320", A20N: "A320",
@@ -149,14 +173,17 @@ const SimplifiedType = (() => {
    * @param {string} rawType  The raw ICAO type designator as ADS-B
    *   reports it (e.g. aircraft.type from normaliseAircraft.js).
    * @returns {string} The simplified group label if one exists for this
-   *   code, otherwise rawType UNCHANGED (falsy input — "", null,
-   *   undefined — also passes straight through, matching every call
-   *   site's own existing "type || fallback" handling).
+   *   code (exact table first, then family-root pattern), otherwise
+   *   rawType UNCHANGED (falsy input — "", null, undefined — also passes
+   *   straight through, matching every call site's own existing
+   *   "type || fallback" handling).
    */
   function get(rawType) {
     if (!rawType) return rawType;
     const key = String(rawType).trim().toUpperCase();
-    return GROUPS[key] || rawType;
+    if (EXACT_GROUPS[key]) return EXACT_GROUPS[key];
+    const matched = FAMILY_ROOT_PATTERNS.find(({ pattern }) => pattern.test(key));
+    return matched ? matched.group : rawType;
   }
 
   return { get };

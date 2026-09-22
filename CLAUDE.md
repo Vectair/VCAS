@@ -14371,3 +14371,88 @@ other PWA-only feature).
   the real app code.
 
 `node --check` clean on every edited `.js` file.
+
+## Simplify-types follow-up: "root, regardless of what comes after" made literal, not just approximated (2026-09-22)
+
+Direct follow-up, the day after the simplify-types feature shipped:
+"I think a good rule of thumb is essentially aligning the variants with
+their root. So you've correctly bucketed all 737s and the Airbus narrow
+body family. So all B737- become B737 regardless of what comes after
+the -." Confirmation of both design calls shipped the day before (the
+Boeing full-family collapse and the Airbus keep-distinct-by-series-
+number asymmetry) — see the previous entry's own "flagged back to the
+project owner as the one place this reasoning is a real judgment call"
+note; that's now resolved, not open anymore.
+
+**But the literal "regardless of what comes after the -" phrasing
+exposed a real gap in how v1 actually worked, not just confirmed it.**
+The original table enumerated every currently-known Boeing variant code
+by hand (`B731`through `B3XM`, `B741`-`B748`, etc.) — which correctly
+covers every variant that exists TODAY, but isn't actually "root
+regardless of suffix" as a rule; it's "every suffix I happened to think
+of." A genuinely new 737/747/757/767/777/787 variant code ICAO hasn't
+assigned yet would have silently fallen through to the raw-designator
+fallback instead of collapsing to its family, the exact "coverage gap"
+already flagged as a known limitation in the original ship — just a
+sharper, more specific version of it than "some family isn't covered at
+all."
+
+**Fix: reworked `src/logic/simplifiedType.js` into a two-tier lookup**
+instead of one flat table:
+- **`FAMILY_ROOT_PATTERNS`** — a small regex set for exactly the
+  families where the whole point is "collapse regardless of suffix":
+  `/^B73[0-9]$/` + `/^B3[0-9X]M$/` for 737 (needed as two separate
+  patterns, not one — the MAX generation's suffix shape, `B3_M`, isn't a
+  simple continuation of the Classic/NG `B73_` prefix, so a single rule
+  can't express the whole family), `/^B74[0-9]$/` + `/^B74S$/` for 747,
+  `/^B75[0-9]$/` for 757, `/^B76[0-9]$/` for 767, `/^B77[0-9]$/` +
+  `/^B77[LW]$/` for 777, `/^B78[0-9X]$/` for 787. A real 737 variant
+  code assigned after today now collapses correctly the moment it
+  appears in real ADS-B data — no table edit needed — which is the
+  actual, literal behaviour "root regardless of suffix" describes.
+- **`EXACT_GROUPS`** — the same flat table as before, but now ONLY for
+  the families where "root" means "the specific model number" rather
+  than "the bare family name" (Airbus narrowbody/widebody, regional
+  jets, turboprops) — pattern-matching doesn't help there, since the
+  whole point for those is keeping specific numbers apart, not
+  collapsing across them, and Airbus's actual type-code space is small
+  and closed enough that hand-enumerating it carries little of the same
+  risk the Boeing table did.
+- Checked in that order in `get()` — exact match wins over a pattern
+  match, so a future one-off exception has a clean override point
+  without needing to touch a pattern itself.
+
+**Verified with real execution, extending the existing suite rather than
+trusting the refactor by inspection**: re-ran the original 65 checks
+against the reworked module first — all 65 still pass unchanged, since
+`get()`'s public behaviour for every previously-tested code is identical
+(the internal storage changed, the outputs didn't). Then added 10 new
+checks specifically proving the NEW capability this refactor exists for:
+synthetic, deliberately-labelled-as-hypothetical codes (`B730`, `B30M`,
+`B745`, `B754`, `B765`, `B774`, `B786` — none of these are real currently-
+assigned ICAO designators, and the test comments say so explicitly) that
+fit each family's real root SHAPE but were never in the original hand-
+list, confirming they now correctly collapse to their family — the exact
+property "root, regardless of what comes after" claims and the flat
+table from the day before couldn't actually deliver. Also confirmed the
+two tiers don't fight each other (`A318`, a real exact-table entry,
+stays `A318`, unaffected by any Boeing pattern; `A320`/`CRJ9` don't
+accidentally match a Boeing pattern they have no business matching).
+**75/75 in the file; full suite 8 files, 324 checks, all passing.**
+Re-ran the existing real Playwright/Chromium end-to-end harness from the
+day before (loading the actual `ui.js` and exercising `renderIndicators`/
+`showPopup`/`renderAircraftList`/`showAirPopup` with the setting toggled
+on/off) against the refactored module too — all 8 checks still pass,
+confirming the real DOM call sites are unaffected by the internal
+restructuring, only its forward-compatibility.
+
+ROADMAP.md's own entry for this feature updated: the granularity
+question is now marked CONFIRMED rather than open, and the coverage
+caveat now distinguishes "Boeing families, structurally future-proof as
+of this fix" from "everything else, still a hand-enumerated closed set,
+still a real gap."
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no simplify-types equivalent at
+all yet.

@@ -212,26 +212,36 @@ and AIR's own map markers. See CLAUDE.md's own dated entry for the full
 implementation writeup, the verification, and the reasoning behind the
 grouping scheme actually shipped.
 
-**What's still genuinely open, not resolved by shipping v1:**
-- **Grouping granularity is a real judgment call the project owner should
-  weigh in on, not a solved problem.** The table currently collapses
-  Boeing 737/747/757/767/787 fully to their headline model number
-  (matching the tester's own literal example) but keeps Airbus A318/319/
-  320/321 as four DISTINCT buckets (only folding the neo/ceo engine-
-  generation suffix together) — a real, debatable asymmetry, explained
-  in CLAUDE.md, not an oversight. Worth revisiting once real usage/
-  feedback comes in on whether that reads as inconsistent.
-  - **Coverage is intentionally partial, not exhaustive.** ICAO type
-  designators number in the thousands (every GA single/twin, glider,
-  helicopter, military type, etc.); the shipped table only covers
-  commercial/regional/turboprop families likely to actually appear in
-  typical VCAS use. Anything not in the table safely falls back to the
-  raw designator unchanged — never worse than today, but real coverage
-  gaps will surface from field use. The ground-truth observation log
-  already records `aircraft.type` on every logged sighting, which is a
-  natural, already-existing signal for "what's showing up unmapped that's
-  worth adding" — worth checking periodically, no new instrumentation
-  needed.
+**Grouping granularity — CONFIRMED 2026-09-22, not just a guess anymore.**
+Direct project-owner confirmation of the rule of thumb: "align the
+variants with their root" — Boeing 737/747/757/767/787 collapsing fully
+to the headline model number, and Airbus A318/319/320/321 staying four
+distinct buckets, are both correct as shipped (the "root" just means
+something different per family — the bare model name for Boeing, the
+specific series number for Airbus — see `simplifiedType.js`'s own header
+comment for the full reasoning). Not an open question anymore.
+
+**Coverage — partly closed 2026-09-22 for the Boeing families
+specifically, via a real structural fix, not just more entries.** The
+original v1 table enumerated every KNOWN 737/747/757/767/777/787 variant
+code by hand — meaning "regardless of what comes after the -" wasn't
+actually true yet; a genuinely new variant code ICAO hadn't assigned at
+shipping time simply wouldn't have matched. Reworked into a two-tier
+lookup: a small set of regex patterns for exactly the families where the
+whole point is "collapse regardless of suffix" (Boeing 737/747/757/767/
+777/787 — a new variant of any of these now collapses correctly the
+moment it starts appearing in real ADS-B data, no table edit needed) plus
+an exact table for everything else (Airbus/regional/turboprop, where
+"root" means keeping specific numbers apart, so pattern-matching doesn't
+help). **Still genuinely partial, not exhaustive** — the exact-table half
+(Airbus/regional/turboprop) is still a hand-enumerated closed set, and
+GA/helicopter/military types remain entirely uncovered by design (see
+`simplifiedType.js`'s own header for why). Anything not matched by either
+tier safely falls back to the raw designator unchanged — never worse
+than today. The ground-truth observation log already records
+`aircraft.type` on every logged sighting, a natural, already-existing
+signal for what's showing up unmapped and worth adding to the exact
+table — worth checking periodically, no new instrumentation needed.
 - **"This is where Vectair as a whole starts to come in"** — the project
   owner's own framing: a shared type→group reference (a new column in
   whatever aircraft-type database Vectair maintains more broadly) is the
