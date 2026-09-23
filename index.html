@@ -593,16 +593,18 @@
             <div class="mode-row-divider"></div>
             <div class="mode-row-group">
               <div class="mode-row-label">Navigation</div>
+              <!-- Real project-owner-supplied artwork (2026-09-23) — a
+                   complete two-state button face (diamond + OFF/ON pill
+                   already baked in as one image each), not a recolourable
+                   vector icon, replacing the old currentColor diamond SVG
+                   + separately-styled text spans. Both images are always
+                   in the DOM; VCAS.css's body.route-active selector swaps
+                   which one is visible, mirroring exactly how the old
+                   .route-btn-off/.route-btn-on opacity toggle already
+                   worked off that same body class — zero JS change. -->
               <button class="mode-btn route-btn" id="btn-test-route" title="Set destination">
-                <svg class="route-btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                  <path d="M8 15 L14 15 L14 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M11 8 L14 8 L14 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span class="route-btn-toggle">
-                  <span class="route-btn-off">OFF</span>
-                  <span class="route-btn-on">ON</span>
-                </span>
+                <img class="route-btn-face route-btn-face-off" src="assets/icons/route-btn-off.png?v=__BUILD_ID__" alt="Off" />
+                <img class="route-btn-face route-btn-face-on" src="assets/icons/route-btn-on.png?v=__BUILD_ID__" alt="On" />
               </button>
             </div>
           </div>

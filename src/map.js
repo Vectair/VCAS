@@ -462,13 +462,18 @@ const EosMap = (() => {
   function _createUserMarker(lat, lon) {
     const el = document.createElement("div");
     el.className = "user-marker";
+    // Real project-owner-supplied artwork (2026-09-23), replacing the old
+    // hand-drawn currentColor SVG chevron. It's a flat-coloured raster PNG
+    // (assets/icons/ownship-car.png, already baked in the project's own
+    // #fef304 yellow) rather than a recolourable vector — safe now that
+    // every mode shares that one colour (see VCAS.css's --accent-user
+    // comment), so no per-mode CSS tint is needed. Keeps the SAME
+    // .user-marker-nav class the old <svg> carried: _updateArrow() below
+    // queries it by that class and rotates whatever element it finds, so
+    // it needs no change for the element type swap.
     el.innerHTML = `
       <div class="user-marker-halo"></div>
-      <svg class="user-marker-nav" viewBox="0 0 20 28" xmlns="http://www.w3.org/2000/svg">
-        <path d="M10 3 L14.5 8 L14.5 23 Q14.5 26.5 11.5 26.5 L8.5 26.5 Q5.5 26.5 5.5 23 L5.5 8 Z"
-              fill="currentColor" stroke="#ffffff" stroke-width="0.9" stroke-linejoin="round"/>
-        <rect x="6.8" y="8.5" width="6.4" height="6.5" rx="1.3" fill="#0a0e11" opacity="0.6"/>
-      </svg>`;
+      <img class="user-marker-nav" src="assets/icons/ownship-car.png" alt="" />`;
 
     return new maplibregl.Marker({ element: el, anchor: "center" })
       .setLngLat([lon, lat])

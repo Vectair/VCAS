@@ -15133,3 +15133,152 @@ existing diamond-icon markup + its Off/On CSS colour rules (`VCAS.css`)
 with the new multi-colour design, then re-verifying at true render scale
 the same way the colour-unification fix immediately above was — not
 attempted yet, pending the actual file/markup.
+
+## Custom icon artwork received and wired in — real base64-embedded PNG artwork, not vector paths (2026-09-23, later the same day)
+
+The project owner tried attaching finished SVG files twice; both uploads
+silently failed ("It seems its the svgs itself it/you dont like"). Asked
+which format I'd prefer — recommended pasting raw SVG markup as text
+(lossless, no reconstruction from a raster image needed) over PNG. The
+project owner pasted the markup directly into chat for all three assets
+(the Off/On nav-button states and the car), which worked.
+
+**A real, demonstrated risk in retyping long base64 by hand, caught before
+it shipped, not after.** A first attempt to transcribe the pasted SVG
+markup into a file (necessary since it can't be piped through as a tool
+parameter without me regenerating every character) introduced a genuine
+one-character corruption in the middle of one embedded PNG's base64
+(`A7mA` where the source read `A7mC`) — caught immediately by decoding
+each embedded image and checking it actually parses as a valid PNG
+(`PIL.Image.load()`, which exercises the full zlib/CRC decode path, not
+just the 8-byte magic-number check that a lighter validation would have
+passed even on corrupted data). Fixing that one character surfaced a
+SECOND, deeper corruption in the same image (a dropped character breaking
+base64's own 4-character padding). At that point, continuing to
+hand-diff long base64 against chat text was judged too unreliable to
+trust for artwork this small (a single wrong pixel would visually and
+semantically matter here). Found a better source instead: the real
+session transcript file this harness writes to disk
+(`~/.claude/projects/<project>/<session-id>.jsonl`) is byte-exact — the
+user's original message lives in it verbatim, and pulling the base64 out
+of THAT via a small Python script (`json.loads()` + string extraction, no
+LLM token generation involved) sidesteps retyping-risk entirely. All
+three SVGs' every embedded image decoded and fully loaded via PIL after
+this, confirming byte-exact fidelity — the concrete, checked alternative
+to trusting my own transcription, not just a safer-sounding process.
+
+**What the artwork actually turned out to be, and why that changed the
+integration plan.** All three files are `<svg>` wrappers around one or
+more `<image>` elements with embedded base64 PNG `data:` URIs — real
+raster button-face/vehicle artwork, not vector paths with `fill=
+"currentColor"` the way the codebase's OWN hand-authored icons work. The
+nav button's Off/On states in particular turned out to be complete,
+already-composed button FACES (the diamond icon and the "OFF"/"ON" text
+pill baked into one flattened image per state, matching the button's own
+existing diamond+pill visual shape almost exactly), not a bare icon glyph
+meant to drop into the existing CSS-driven diamond+text markup. This
+meant swapping in two complete raster button states rather than
+recolouring an existing vector shape.
+
+### Car marker — `map.js`'s `_createUserMarker()`, second edit this session
+
+Following directly from the earlier `--accent-user` colour-unification
+work this same session: the delivered car artwork (a clean top-down
+silhouette, front/rear windows, side mirrors) is a flat-coloured raster
+PNG already baked in the project's own `#fef304` yellow — no longer a
+`currentColor`-driven vector, so it can't be dynamically recoloured via
+CSS the way the old hand-drawn chevron was. This is fine, not a
+regression, specifically because of the work earlier this session: every
+mode now shares that exact one yellow, so a fixed-colour raster asset
+needs no per-mode tinting at all. Flattened the SVG's layered `<image>`
+elements into one real 50×78 RGBA PNG
+(`assets/icons/ownship-car.png`) via Pillow's `alpha_composite`, swapped
+`_createUserMarker()`'s inline `<svg>` for an `<img>` — deliberately kept
+the SAME `.user-marker-nav` class the old SVG carried, since
+`_updateArrow()` queries that class by selector and applies a rotation
+transform to whatever element it finds; zero JS change needed for the
+element-type swap as a direct result. `.user-marker-nav`'s CSS gained
+`object-fit: contain` (the new artwork's real aspect ratio, 50:78≈0.641,
+differs from the existing fixed 18×26px box's own 0.692 — contain avoids
+visibly squishing it) and lost its now-dead `color: var(--accent-user)`
+(a raster image ignores `color`; the drop-shadow glow still reads the
+same variable, so the glow colour stays correctly matched).
+
+### Nav button — `index.html` + `VCAS.css`, `#btn-test-route`
+
+Both real PNG images (`route-btn-off.png`/`route-btn-on.png`, 90×34,
+matching the current button's OFF/ON diamond+pill design almost exactly)
+replace the old `<svg class="route-btn-icon">` + `<span class="route-
+btn-toggle">` markup entirely — two `<img class="route-btn-face-off/
+-on">` elements, both always in the DOM, visibility toggled purely via
+`body.route-active` CSS, mirroring EXACTLY how the old `.route-btn-off`/
+`.route-btn-on` opacity toggle already worked off that same body class —
+genuinely zero JS change, `requestRouteTo()`/`clearActiveRoute()` already
+toggle that class today. `.route-btn` itself is stripped down to a plain
+transparent hit-target (no background/border/box-shadow of its own,
+overriding `.mode-btn`'s base bevel styling) since the artwork now
+supplies its own pill-shaped background baked in.
+
+**Sizing was measured, not guessed, and a first choice genuinely
+overflowed.** Native artwork is 90×34 — displaying it at anywhere close
+to that native size (tried 74px wide) overflowed `#mode-row` by 7px at
+this project's own standard 360px narrow-width check (confirmed via a
+real Playwright render of the actual, unmodified `#mode-row` markup
+extracted verbatim from `index.html`, not a hand-typed reproduction).
+Bisected the real threshold rather than picking an arbitrary smaller
+number: `#mode-row` stays overflow-free up to a 64px display width at
+360px, overflows at 68px — landed on 60px, real measured margin below
+that edge rather than sitting exactly on it. Re-confirmed no overflow at
+412px too (the project's other standard check width), and that both
+states swap correctly (`display:none`/`block` toggling verified via
+`getComputedStyle`, not just class presence) in both Hybrid and RAW
+`data-nav-style` contexts.
+
+`.route-btn-icon`'s own colour comment and the now-orphaned `.route-btn.
+picking .route-btn-icon` child rule (the `.route-btn-icon` element it
+targeted no longer exists in the markup) were removed as directly-tied
+dead code, not a broader cleanup pass — `.route-btn.picking`'s own
+background/animation rule was left untouched, since `.route-btn` itself
+still exists and that whole class was already confirmed dead/unused
+(grepped every file in `src/` for `classList.*picking`/`"picking"` —
+genuinely never toggled anywhere in the live app today, a pre-existing
+finding independent of this change, not something this pass needed to
+fix).
+
+### Verified with real execution throughout, this project's own established discipline
+
+A local static file server (`python3 -m http.server`, this project's own
+established pattern for exactly this — avoids the sandbox's documented
+MapLibre-CDN-stall artifact by never `page.goto()`-ing the real app,
+using a `<base href>` tag inside `page.setContent()` instead to resolve
+relative asset paths) served the real repo; a real Playwright/Chromium
+harness then exercised the actual, unmodified `index.html`/`VCAS.css`/
+`map.js` output (the `#mode-row` block extracted verbatim via a
+depth-matched `<div>` scanner, not retyped):
+- Nav button: no overflow at 360px or 412px with the final 60px sizing
+  (confirmed overflow at 68px, the real bisected boundary); Off/On state
+  toggle confirmed via `getComputedStyle().display`, not class presence
+  alone; re-checked in RAW's own `data-nav-style="raw"` context too.
+- Car marker: real `<img>`-based markup renders at the correct 18×26 CSS
+  px box in all three mode scenarios (Hybrid+Night, AIR+Day, RAW), with
+  `object-fit: contain` confirmed applied, the glow `drop-shadow` present
+  with the correct `--accent-user-rgb`-driven colour in Hybrid/AIR and
+  correctly absent in RAW, and the halo `<div>` correctly shown/hidden to
+  match — this project's own established "verify at true render scale,
+  not zoomed in" discipline (the whole reason this exists for this
+  specific element, see the 2026-09-08 wheel-bump-car regression above),
+  applied again here for the new artwork.
+- Real screenshots (both the nav button's Off/On/RAW states and the car
+  marker across all three mode scenarios, at true scale) visually
+  confirm both pieces of artwork read clearly and correctly — not just
+  that the computed-style assertions pass.
+
+Full `tests/` suite re-run afterward — still all passing (this change
+touches only `index.html`/`src/map.js`/`src/styles/VCAS.css`, none of
+`src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own `VcasPalette.kt`/
+`PhoneAircraftIcons.kt` still draw the car and nav-related icons
+procedurally rather than referencing this real artwork.
