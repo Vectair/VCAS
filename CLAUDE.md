@@ -15006,3 +15006,130 @@ own handoff). The real remaining check is the project owner deploying
 `userep-relay-deploy.zip` per its own `DEPLOY_INSTRUCTIONS.md`, filling in
 `USEREP_RELAY_URL` once it's live, and confirming a real submit → query
 round-trip from an actual device.
+
+
+## Ownship marker colour unified to one saturated yellow across every mode — the "flagged for a possible later trial" note, resolved (2026-09-23, later the same day)
+
+Direct instruction, alongside a planned custom-icon redesign (the ownship
+car symbol and the Navigation button icon, both still awaiting real
+artwork — see the entries above/below): a real hex, `#FEF304`, supplied for
+the car symbol. Confirmed via `AskUserQuestion` whether it should replace
+just RAW's own forced yellow or the mode-dependent colouring entirely —
+answer: **"Definitely RAW. Replace it in the other two if it is a better
+distinguisher than the current green."** — delegating the Hybrid/AIR
+judgment call rather than dictating it.
+
+**Judged yes, and shipped as one universal colour, not two.** Checked
+first, not assumed: `--accent-user` (the Hybrid/AIR ownship colour) was a
+muted olive-green (`#9cc828` Night / `#6b9418` Day) — genuinely duller
+than RAW's own already-pixel-sampled pure yellow (`#ffff00`, measured
+peak `(254,254,18)` off a real ND reference photo, see the 2026-09-08
+"Round 9" ownship-redesign entry above). Cross-checked the real
+`Visibility.getCategories()` `colorRaw` table (the colours EVERY mode's
+aircraft indicators now render, since the "Indicator colours brought in
+line with RAW everywhere" fix, 2026-09-19, above) to rule out a
+collision: `#fb000a`/`#ff9b14`/`#ffffff` — red, orange, white, no
+saturated yellow anywhere in it, so a yellow ownship marker can't be
+confused with any traffic-visibility tier in any mode. `#FEF304` is
+`(254,243,4)` — a hair off RAW's own previously-pixel-sampled value, but
+close enough (and directly supplied by the project owner) to treat as
+the new authoritative figure rather than keep the old pixel-sampled one
+as a second, slightly-different "yellow."
+
+**This is the concrete resolution of a note this file has carried since
+the 2026-08-22 cockpit-panel rebrand**: `--accent`/`--accent-user` were
+deliberately kept as VCAS's own brand colours (blue / lime-green) rather
+than shifted to the panel's own real functional switch-lighting colours
+(green=normal/amber=caution) — "flagged for a possible later trial, not
+decided against permanently... worth revisiting rather than
+re-litigating from scratch if it comes up again." This isn't that
+functional-lighting trial (the yellow isn't drawn from A320 legend
+lighting, it's the project owner's own supplied hex, and `--accent`
+itself — the logo blue — is untouched) — but it IS the first real
+revisit of `--accent-user` specifically since that note was written, so
+the note is resolved rather than left open indefinitely.
+
+**Mechanism, not a new one**: `--accent-user`/`--accent-user-rgb` changed
+to `#fef304`/`254,243,4` in both the Night (`:root`) and Day
+(`body[data-theme="day"]`) blocks — `.user-marker-nav`'s existing `color:
+var(--accent-user)` rule and `map.js`'s existing `fill="currentColor"`
+car-icon markup need zero changes, exactly the "keeps working unchanged
+if the icon shape/element mix ever changes" property that markup's own
+doc comment already promised. RAW's own dedicated override block
+(`body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
+color: #ffff00; }`) is now redundant — colour already matches via the
+base rule — and was removed rather than left duplicating the same value
+two ways that could silently drift apart later; only `filter: none`
+(suppressing the Hybrid/AIR glow, RAW's own pure-black background needs
+none — see "Round 9" above) remains in that block. Every comment
+touching this decision (VCAS.css's own header, the RAW-override block,
+`map.js`'s `_createUserMarker` doc comment) was rewritten to describe
+the new, current state rather than left contradicting the code beneath
+it, matching this file's own repeated "update the comment, don't leave
+it stale" lesson.
+
+Verified with a real Playwright/Chromium render of the actual, verbatim
+`_createUserMarker()` markup against the real `VCAS.css`, at the
+marker's true **18×26 CSS px** render size with `deviceScaleFactor: 3`
+(this project's own established discipline for this exact element —
+see "Round 1's car ownship icon didn't survive real-device scale" above,
+the whole reason "verify at true scale, not zoomed in" exists for this
+icon specifically) across three real scenarios: Hybrid+Night, AIR+Day,
+and RAW. All three resolved `color` to the identical `rgb(254, 243, 4)`
+— confirmed genuinely unified, not just visually similar — with the
+glow/halo correctly still present in Hybrid/AIR and correctly still
+suppressed in RAW. Real screenshots at true scale (not zoomed) confirm
+the tapered body + white outline + dark windshield still reads clearly
+as a distinct vehicle shape against a dark map-green backdrop, a pale
+Day backdrop, and RAW's pure black. Re-ran the full existing `tests/`
+suite afterward — still all passing (this change touches only
+`VCAS.css`/a `map.js` comment, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own `VcasPalette.kt` still carries
+the old lime-green ownship colour as a separately-duplicated literal.
+
+## Custom icon artwork — Photoshop hand-off in progress, not yet received (2026-09-23, same day)
+
+The project owner is designing the ownship car icon and the Navigation
+button icon in Photoshop and asked for document dimensions before
+starting — answered directly (not a code change): **180×260px** for the
+car icon (a clean 10x multiple of its real ~18×26 CSS px render size,
+transparent background, 72 DPI) and **240×240px** for the nav button
+icon (a 10x multiple of its existing `viewBox="0 0 24 24"`, same
+transparent/72 DPI treatment) — sized so any detail that vanishes when
+scaled down 10x to real size is caught before it ships, the same lesson
+the 2026-09-08 wheel-bump-car failure already taught this project once.
+
+Real hex palettes were supplied ahead of the actual artwork export:
+- **Car**: `#FEF304` — see the entry immediately above; already shipped
+  as the new `--accent-user` value across every mode.
+- **Nav button, Off state**: `#2C2D2E` + `#542926` (a dark charcoal
+  bezel/background plus a dark maroon — distinct from, and darker than,
+  the button's own current `#9c3b42` maroon set during the round-9
+  design-draft match, above).
+- **Nav button, On state**: `#14DF19` + `#0AB9FE` + `#2C2D2E` (bright
+  green + bright cyan + the same dark charcoal) — a genuine multi-colour
+  design, not the current single-`currentColor` diamond SVG
+  (`#btn-test-route`'s existing markup) — reads as real switch-panel
+  functional lighting (green=on/normal) layered with a second accent
+  colour, worth remembering as a DIFFERENT thing from the "flagged for a
+  possible later trial" functional-lighting note above: that note was
+  about `--accent`/`--accent-user` (app-wide brand colours), this is a
+  new colour set scoped to just this one button's own icon.
+
+**Not yet implemented — genuinely blocked on the actual artwork, not a
+decision needing to be made.** The project owner tried attaching the
+finished SVGs directly but the upload didn't go through ("I tried to
+attach the svgs but it wouldnt let me upload them"). Since an SVG is
+plain XML/text, not a binary format, the practical workaround offered:
+paste the raw SVG markup directly into the chat as text instead of
+attaching a file — should sidestep whatever blocked the file upload.
+Once that markup (or a finished PNG/other export, if the paste route
+doesn't work either) is in hand, the real work is wiring it into
+`map.js`'s `_createUserMarker()` (car) and replacing `#btn-test-route`'s
+existing diamond-icon markup + its Off/On CSS colour rules (`VCAS.css`)
+with the new multi-colour design, then re-verifying at true render scale
+the same way the colour-unification fix immediately above was — not
+attempted yet, pending the actual file/markup.

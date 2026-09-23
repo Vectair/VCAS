@@ -19,15 +19,18 @@
    background pairing below clears 5:1, well past the 4.5:1 AA minimum for
    normal text.
 
-   --accent/--accent-user deliberately KEPT as the VCAS logo's own blue
-   (~#0086cc-adjacent) and lime green (car+crosshair glyph, "you, tracked")
-   rather than shifted toward the panel's own functional switch colours
-   (green=normal/amber=caution, as real A320 legend lighting actually
-   uses) — explicit call from the project owner: the panel MATERIAL
-   changes, VCAS's own brand identity doesn't. The functional-colour
-   direction was raised and deliberately not taken for now; flagged here
-   in case it's worth trialling later rather than re-litigating from
-   scratch — see CLAUDE.md. */
+   --accent stays the VCAS logo's own blue (~#0086cc-adjacent) — brand
+   identity, not the panel's own functional switch colours. --accent-user
+   ("you, tracked") was originally kept as a lime green for the same
+   reason, but was moved to a saturated yellow (#fef304) per direct,
+   project-owner-supplied hex, after RAW mode's own ownship marker had
+   already independently converged on almost the identical yellow via
+   pixel-sampling a real ND reference photo (see the user-marker-nav rule
+   below) — the owner judged it a better "this is you" distinguisher than
+   the old olive-green in Hybrid/AIR too, not just RAW, so all three modes
+   now share one ownship colour instead of RAW being the odd one out. See
+   CLAUDE.md for the full history (including the "flagged for a possible
+   later trial" note this decision resolves). */
 :root {
   --bg-dark:        #12181c;
   --bg-panel:       #232d34;
@@ -38,8 +41,8 @@
   --text-muted:     #56707d;
   --accent:         #1191d8;
   --accent-rgb:     17,145,216;
-  --accent-user:      #9cc828;
-  --accent-user-rgb:  156,200,40;
+  --accent-user:      #fef304;
+  --accent-user-rgb:  254,243,4;
   --btn-bg:         #33434c;
   --btn-hover:      #475e6b;
   --btn-active-bg:  #1f6feb;
@@ -120,8 +123,8 @@ body[data-theme="day"] {
   --text-muted:     #82949e;
   --accent:         #1a73e8;
   --accent-rgb:     26,115,232;
-  --accent-user:      #6b9418;
-  --accent-user-rgb:  107,148,24;
+  --accent-user:      #fef304;
+  --accent-user-rgb:  254,243,4;
   --btn-bg:         #dae2e7;
   --btn-hover:      #c2ced6;
   --btn-active-bg:  #1a73e8;
@@ -224,20 +227,19 @@ html, body {
   animation: halo-pulse 2.5s ease-in-out infinite;
 }
 
-/* RAW's basemap is always near-black regardless of Day/Night/Auto, but the
-   user marker's own colour still followed the resolved theme, which read as
-   dim/low-contrast against RAW's black, same problem as the indicator
-   labels and range rings below — so it's forced here instead, same as
-   colorRaw already does for traffic symbols. Colour is pure yellow
-   (255,255,0), pixel-sampled directly from a real ND reference photo's own
-   ownship symbol (measured peak (254,254,18)) — not the olive/yellow-green
-   this used to be. Sets `color` (not a `path`-specific fill rule) because
-   the car-icon body+wheels (map.js's _createUserMarker) are drawn with
-   fill="currentColor" across a mix of <rect>/<path> elements — overriding
-   the cascade point once here covers all of them, and keeps working
-   unchanged if the icon shape/element mix ever changes again (e.g. a future
-   bike/pedestrian vehicle icon). The windshield keeps its own explicit dark
-   fill either way, so it still reads as glass against the yellow body. */
+/* RAW's basemap is always near-black regardless of Day/Night/Auto. The
+   ownship marker's colour used to be forced here independently of the
+   resolved theme (RAW's own pixel-sampled pure yellow, measured peak
+   (254,254,18) off a real ND reference photo) because the theme-driven
+   olive-green read as dim/low-contrast against RAW's black — same problem
+   the indicator labels and range rings below solve the same way. That
+   forced value is gone now that `--accent-user` itself is the same
+   saturated yellow (#fef304, project-owner-supplied) everywhere, so RAW's
+   own colour just falls through from the base `.user-marker-nav` rule
+   below — nothing left to override here except the glow/halo suppression.
+   `color`/`fill="currentColor"` (map.js's _createUserMarker) is still the
+   mechanism either way, so a future per-mode colour split would only need
+   a rule added back here, not a structural change. */
 /* Round 9 (2026-09-08, design-draft comparison): the draft's own ownship
    icon has no glow/halo behind it at all — a flat yellow silhouette on
    black, unlike Hybrid/AIR's glowing marker over a real map (where the
@@ -249,7 +251,6 @@ body[data-mode="nav"][data-nav-style="raw"] .user-marker-halo {
 }
 body[data-mode="nav"][data-nav-style="raw"] .user-marker-nav {
   filter: none;
-  color: #ffff00;
 }
 
 .user-marker-nav {

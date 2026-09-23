@@ -446,10 +446,12 @@ const EosMap = (() => {
    * not a separate few-pixel detail.
    *
    * fill="currentColor" on the body (not a hardcoded colour) so the
-   * existing `.user-marker-nav { color: var(--accent-user) }` /
-   * RAW-forced-yellow CSS override (VCAS.css) keeps working unchanged —
-   * only the windshield keeps an explicit dark fill, so it still reads as
-   * glass against either colour.
+   * existing `.user-marker-nav { color: var(--accent-user) }` rule
+   * (VCAS.css) drives it everywhere — `--accent-user` is now one shared
+   * saturated yellow (#fef304) across RAW/Hybrid/AIR, not a per-mode value,
+   * so nothing here needs to change if that ever splits again. Only the
+   * windshield keeps an explicit dark fill, so it still reads as glass
+   * against the body colour.
    *
    * Long-term this is meant to become one of several selectable vehicle
    * icons (car/bike/pedestrian, per the same instruction) — not built yet,
