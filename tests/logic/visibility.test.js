@@ -223,6 +223,87 @@ function flatProfile(temperatureC, relativeHumidityPct) {
     "a big, close aircraft keeps its angular-size score even under a real persistent-forming contrail profile");
 }
 
+// ---- USEREP (2026-09-23): downward cap ----
+{
+  const ac = aircraftAt(2, 5000);
+
+  const fog = { sky: "clear", visibility: "excellent", phenomena: ["fog"] };
+  t.eq(Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, fog).label,
+    "Very unlikely/not visible", "a reported fog phenomenon forces the worst tier, regardless of sky/visibility fields");
+
+  const thunder = { sky: "clear", visibility: "excellent", phenomena: ["thunderstorm"] };
+  t.eq(Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, thunder).label,
+    "Very unlikely/not visible", "a reported thunderstorm phenomenon also forces the worst tier");
+
+  const overcast = { sky: "overcast", cloudHeight: "low", visibility: "good", phenomena: [] };
+  const rOvercast = Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, overcast);
+  t.ok(rOvercast.score <= 33, "overcast sky caps at Possibly visible even with otherwise-good reported visibility");
+
+  const broken = { sky: "broken", visibility: "good", phenomena: [] };
+  const rBroken = Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, broken);
+  t.ok(rBroken.score <= 33, "mostly-cloudy (broken) sky also caps at Possibly visible");
+
+  const poorVis = { sky: "clear", visibility: "poor", phenomena: [] };
+  t.ok(Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, poorVis).score <= 33,
+    "poor reported visibility caps at Possibly visible even under an otherwise-clear sky");
+
+  const rain = { sky: "clear", visibility: "excellent", phenomena: ["rain"] };
+  t.ok(Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, rain).score <= 33,
+    "a non-severe phenomenon (rain) alone still caps at Possibly visible, not a full drop");
+
+  t.eq(Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, null).label,
+    Visibility.estimate(USER_LAT, USER_LON, ac, null, null, null, undefined).label,
+    "a null/undefined userep is a full no-op either way");
+}
+
+// ---- USEREP: the raise mechanism, and its three bounding guards ----
+{
+  // Genuinely beyond 40nm, low altitude (never contrail-eligible), fresh —
+  // isolates the plain ">40NM: cap at Possibly visible" branch as the
+  // reason cat starts at "Possibly visible" before any userep adjustment.
+  const farAircraft = (opts) => aircraftAt(45, 5000, opts);
+
+  const rBaseline = Visibility.estimate(USER_LAT, USER_LON, farAircraft());
+  t.eq(rBaseline.label, "Possibly visible",
+    "sanity check: a low-altitude aircraft beyond 40nm is capped at Possibly visible with no userep at all");
+
+  const excellent = { sky: "clear", visibility: "excellent", phenomena: [] };
+  const rRaised = Visibility.estimate(USER_LAT, USER_LON, farAircraft(), null, null, null, excellent);
+  t.eq(rRaised.label, "Likely visible",
+    "excellent local conditions raise the blanket >40nm Possibly-visible cap to Likely visible");
+
+  // Guard 1: only beyond 40nm — inside it, a no-op (nothing to lift; the
+  // aircraft's own tier there comes from angular size, not the blanket cap).
+  const nearAircraft = aircraftAt(20, 5000);
+  const rNearNoUserep = Visibility.estimate(USER_LAT, USER_LON, nearAircraft);
+  const rNearWithUserep = Visibility.estimate(USER_LAT, USER_LON, nearAircraft, null, null, null, excellent);
+  t.eq(rNearWithUserep.label, rNearNoUserep.label,
+    "excellent conditions have no effect inside 40nm — the raise is scoped to exactly the distance band it exists for");
+
+  // Guard 2: only fires when cat is CURRENTLY exactly "Possibly visible" —
+  // never re-raises an already-better tier.
+  const veryCloseAc = aircraftAt(0.3, 200);
+  const rVeryCloseWithUserep = Visibility.estimate(USER_LAT, USER_LON, veryCloseAc, null, null, null, excellent);
+  t.eq(rVeryCloseWithUserep.label, "Certainly visible",
+    "excellent conditions never touch an aircraft already better than Possibly visible (the veryClose override here)");
+
+  // Guard 3: never overrides a genuine staleness penalty.
+  const staleFar = farAircraft({ lastSeenSeconds: 21 });
+  const rStaleFar = Visibility.estimate(USER_LAT, USER_LON, staleFar, null, null, null, excellent);
+  t.eq(rStaleFar.label, "Very unlikely/not visible",
+    "a stale aircraft's own degrade is never overridden by excellent local conditions, even beyond 40nm");
+
+  // "few"/"scattered" sky also count as excellent-eligible, not just "clear".
+  const rFewSky = Visibility.estimate(USER_LAT, USER_LON, farAircraft(),
+    null, null, null, { sky: "few", visibility: "excellent", phenomena: [] });
+  t.eq(rFewSky.label, "Likely visible", "'few' clouds still qualifies as excellent-eligible sky, same as 'clear'");
+
+  // Good (not excellent) visibility does NOT qualify for the raise.
+  const rGoodOnly = Visibility.estimate(USER_LAT, USER_LON, farAircraft(),
+    null, null, null, { sky: "clear", visibility: "good", phenomena: [] });
+  t.eq(rGoodOnly.label, "Possibly visible", "merely 'good' (not 'excellent') reported visibility does not trigger the raise");
+}
+
 // ---- getCategories(): read-only, defensive copy ----
 {
   const cats = Visibility.getCategories();

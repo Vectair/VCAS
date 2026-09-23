@@ -45,7 +45,12 @@ function loadLogic() {
   // nothing else references it as a free global), added 2026-09-23 for the
   // Weather screen.
   const MetarWx = require(path.join(ROOT, "metarWx.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx };
+  // Userep — added 2026-09-23 for the USEREP feature. Its own
+  // distanceMiles() reads `Geo` as a free global (already attached above),
+  // so it's required AFTER that assignment, same ordering concern
+  // visibility.js/relevance.js already have.
+  const Userep = require(path.join(ROOT, "userep.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx, Userep };
 }
 
 module.exports = { loadLogic };

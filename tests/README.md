@@ -69,9 +69,24 @@ standalone — covering the WMO present-weather token grammar (intensity +
 0-2 descriptors + 1-2 phenomenon codes, the vicinity prefix, and the
 real "a descriptor can stand alone with no trailing phenomenon" grammar
 quirk), the sky-summary/cloud-label/visibility-formatting helpers, and
-graceful passthrough for anything unrecognised.
+graceful passthrough for anything unrecognised. `userep.js` (the shared
+vocab tables and pure helpers behind USEREP — user-submitted local
+weather reports feeding `Visibility.estimate()`'s own `userep` parameter,
+see CLAUDE.md's dated entry) came last so far — depends on `Geo` (loaded
+via `loadLogic.js` the same way `visibility.js`/`relevance.js` already
+are, since its `distanceMiles()` reads it as a free global) — covering
+`pickFreshest()`'s "most recent wins" selection (including malformed/
+null entries in the array being skipped rather than crashing),
+`ageMinutes()`/`distanceMiles()`'s own edge cases (clock skew never going
+negative, missing fields degrading to `null`), and `summarize()`'s exact
+output string across several real report shapes. The scoring
+INTERPRETATION of a `userep` report (severe-phenomena drop, partial cap,
+and the one adjustment in `visibility.js` allowed to RAISE a category) is
+tested directly in `visibility.test.js` instead, via `estimate()`'s own
+7th parameter — not duplicated here.
 
-Not yet covered: `upperAirProvider.js`/`metarProvider.js` themselves
+Not yet covered: `upperAirProvider.js`/`metarProvider.js`/
+`userepProvider.js` themselves
 (the network-fetch modules `metarWx.js` sits downstream of — would need
 a mocked `fetch`), and any DOM/UI wiring (would need a headless-browser
 harness, a materially bigger lift than these plain-Node checks — see

@@ -14651,3 +14651,358 @@ and `MetarProvider`'s Kotlin-side equivalent (if one existed) would need
 the same three new fields ported. No TAF/forecast, no temp/dewpoint/
 pressure/wind, no "favourite station" override — all explicitly out of
 scope for this pass, matching exactly what was asked.
+
+## USEREP — user-submitted local weather reports, feeding the visibility model (2026-09-23)
+
+Direct follow-up, the same day the Weather screen shipped (see the entry
+immediately above), once the project owner clarified what had actually
+been asked for: **"Ah, I think what you have done is just display the
+current metar from the closest issuing aerodrome. What I wanted was a
+simple method of the user reporting met conditions from their present
+position to help inform the visibility likelihood. A Userep instead of a
+Pirep if that makes sense. It needs to be simple because users may not
+have much in the way of meteorological knowledge but it should inform VL
+for the next 30 minutes within 5 miles of the user. So mirroring the
+principles of a metar but informing rather than dictating."**
+
+**The Weather screen and USEREP are two genuinely different features, not
+one built on a misunderstanding of the other** — worth stating plainly so
+a future session doesn't conflate them. The Weather screen (shipped
+immediately before this entry) is a READ-ONLY display of the nearest
+OFFICIAL station's current METAR. USEREP is a WRITE path: a real person,
+standing where they are right now, reports what THEY can see, and that
+report is shared with other nearby VCAS users and feeds directly into
+`Visibility.estimate()`'s own scoring — the exact "PIREP instead of
+dictating" framing the project owner used. Both surface inside
+`#weather-screen` (USEREP's own "Nearby reports" section and its
+"Report conditions here" entry point live there), but they are backed by
+completely separate data sources (`MetarProvider`/`aviationweather.gov`
+vs. `UserepProvider`/a brand-new relay) and serve different purposes —
+one is a reference, the other actively changes what the app tells the
+user about a specific aircraft's sightability.
+
+Two consequential design forks were confirmed via `AskUserQuestion`
+before any code was written, since ROADMAP.md's own pre-existing "User-
+submitted meteorological data" entry (2026-09-17, recorded before this
+was scoped) had speculated on both without a real answer:
+
+- **Sharing scope: "Shared with nearby users now"** — not local-device-
+  only. This is why the feature needed a genuinely new relay (a real
+  location-queryable store, not just a pass-through proxy or an append-
+  only log the way every prior VCAS relay has been) rather than something
+  simpler like extending the existing central observation log.
+- **Direction of effect: "Can also raise confidence"** — a real,
+  deliberate departure from every other adjustment in `visibility.js`
+  (METAR, upper-air, local-obstruction), all of which are strictly
+  downward-only caps. ROADMAP.md's own speculative note ("the same
+  discipline should apply here... never raises one") turned out to be
+  wrong once actually asked — recorded here so a future reader doesn't
+  read that ROADMAP entry as still describing the shipped behaviour.
+
+### The scoring model — `_applyUserepAdjustment()` (`src/logic/visibility.js`)
+
+`Visibility.estimate()` gained a genuine 7th positional parameter,
+`userep` — matching this file's own existing precedent (metar/
+localObstruction/upperAir are all plain positional params, deliberately
+not refactored into a named-options object per the still-not-adopted
+proposal calibration pass #2 already flagged) — carrying the SINGLE MOST
+RECENT matching report (`Userep.pickFreshest()` of
+`UserepProvider.getCached()`, already filtered to 5mi/30min by the
+relay's own query), not a computed blend of several possibly-conflicting
+ones. "Most recent wins" was a deliberate choice over averaging/
+weighting: simpler, and easier for a user to trust — one clear, current
+voice, matching "informing not dictating" directly rather than a
+committee vote nobody submitted.
+
+**Downward half** (mirrors `_applyMetarAdjustment`'s own severity split):
+fog or a reported thunderstorm is treated the same way METAR's own
+OVC/VV layer already is — a near-total block on line of sight, dropping
+straight to the worst tier. Overcast/mostly-cloudy sky, reduced
+(moderate/poor) reported visibility, or any OTHER phenomenon (rain/snow/
+haze) gets the gentler partial cap instead (`_capAtPossiblyVisible`),
+mirroring METAR's own BKN/<10SM treatment. `cloudHeight` is read for
+DISPLAY only right now — deliberately NOT factored into this scoring
+split (see `userep.js`'s own comment on why): USEREP's height categories
+are far coarser (3 wide bands) than a real reported base figure, and this
+feature's whole brief is staying simple for a non-expert reporter, not
+building a second geometric occlusion model on top of an already-coarse
+input. Kept in the submission form anyway for content parity with what
+was actually asked ("the two principle items we're interested in are
+cloud amount AND height") and because it's real, useful information for
+the OTHER nearby users this report is shared with, even where it doesn't
+yet feed the score.
+
+**Upward half, the genuinely new mechanism.** A report of a clear/mostly-
+clear sky, excellent visibility, and no phenomena at all is real, current,
+first-party evidence that this file's own existing >40NM "cap at Possibly
+visible... haze/curvature at that range isn't modelled" conservatism
+doesn't apply right now — allowed to lift exactly that one cap.
+
+A first draft bounded the raise strictly to "recompute what angular size
+alone would justify, and use that instead if it's better" — checked by
+hand, not just reasoned about, and turned out to be **vacuous**: even the
+single largest real aircraft in `AIRCRAFT_SIZE_METRES` (an 80m A388)
+never reaches the 0.167° "Likely visible" angular-size threshold at any
+slant range beyond ~14.8nm, so a raise bounded to "what angular size
+alone already earns" could never actually fire for ANY real aircraft
+beyond the 40nm gate this exists to help — the entire premise of the
+>40NM cap is that angular size alone under-counts real conspicuousness at
+that range (the same reason the contrail rescue mechanism exists and
+deliberately floors ABOVE what raw airframe size alone would prove).
+Caught before shipping by actually computing the numbers, not assumed.
+
+Redesigned to match the contrail rescue's OWN pattern instead — a fixed
+TIER-BASED floor, not a recomputed formula: floors at a flat "Likely
+visible" (never all the way to "Certainly visible", which stays reserved
+for cases with independent strong physical grounding — very close, or
+genuinely large angular size — not a single person's word about the sky,
+however confident). Three guards keep this bounded:
+- only applies beyond 40nm — exactly the distance band the existing cap
+  already exists to be conservative about, never a general "good
+  weather" boost inside it;
+- only fires when `cat` is CURRENTLY exactly "Possibly visible" — never
+  re-raising something already better, never jumping a worse tier (e.g.
+  a genuinely severe METAR/upper-air/local-obstruction signal) straight
+  past an intermediate step;
+- never overrides a genuine staleness penalty (`isStale`, `lastSeenSeconds
+  > 20` — the same threshold the existing degrade check already uses) —
+  a good local weather report says nothing about whether this aircraft's
+  OWN tracked position is still trustworthy, a completely separate
+  concern.
+
+`MODEL_VERSION` bumped to `2026-09-23` — a genuine scoring-logic change,
+same discipline this file already establishes for every prior adjustment.
+
+### `src/logic/userep.js` — the shared vocab, pure and standalone
+
+Plain-language categories, not METAR codes — direct requirement ("users
+may not have much in the way of meteorological knowledge"):
+- **Sky**: Clear / A few clouds / Some clouds / Mostly cloudy / Overcast
+  (`clear`/`few`/`scattered`/`broken`/`overcast`).
+- **Cloud height** (shown only once a non-clear sky is picked): Low
+  (below ~1,000ft) / Medium (~1,000–5,000ft) / High (above ~5,000ft).
+- **Visibility**: Excellent — miles and miles / Good — a few miles /
+  Moderate — a mile or two / Poor — hazy/murky, under a mile.
+- **Phenomena** (multi-select, optional): Rain / Snow / Fog or mist /
+  Haze / Thunderstorm.
+
+These four tables are the ONE shared source for the submission form's own
+button labels (`app.js`), the relay's server-side validation
+(`userep-relay/relay.php`, not committed to this repo — see below), and
+`visibility.js`'s own `_applyUserepAdjustment()` — the same "one shared
+source, not several independently-typed lists that could drift" discipline
+this codebase already applies to `Visibility.getCategories()` for the
+onboarding legend. Also exports `pickFreshest()`, `ageMinutes()`,
+`distanceMiles()` (reuses `Geo.calculateDistanceMeters()`, not a second
+distance implementation), and `summarize()` (a plain one-line description,
+e.g. "Overcast (low clouds) · Poor visibility · Rain, Haze" — reused both
+for the Weather screen's own "Nearby reports" display and, structurally,
+available for any future consumer that needs the same summary).
+
+### `src/logic/userepProvider.js` — the relay client/cache
+
+Two jobs: `refresh(lat, lon)` (queries the relay, caches the freshest
+matching report) and `submit(...)` (POSTs a new one, shared with nearby
+users immediately). Refresh is BOTH movement- and time-triggered — mirrors
+`LocalObstruction`'s own "re-query once moved far enough" pattern (a
+5-mile query radius is a real, meaningfully large area to outrun by
+driving, unlike a fixed weather station's own catchment — a ~1 mile
+movement threshold re-queries), with a `MetarProvider`-style 60-second
+time fallback on top, since — unlike local building/vegetation density —
+OTHER users can add a new nearby report at any moment even while this
+device stays perfectly still. `getCached()` re-validates the cached
+report's own age against `Userep.MAX_AGE_MINUTES` on every read (not just
+at fetch time) — a cheap, no-network safety net against briefly serving a
+report that's crossed the 30-minute mark since the last scheduled
+`refresh()`, not a correctness requirement the relay's own query filter
+doesn't already enforce for anything freshly fetched.
+
+`submit()` optimistically updates the local cache to the just-submitted
+report immediately on success — before the device's own next scheduled
+`refresh()` — so the submitting user's own visibility model reflects
+their own report right away, matching this project's own established
+"don't make the user wait for the next tick" convention already used for
+the colourblind/simplify-types settings toggles. A failed submit returns
+`null` and never throws — the caller (the submission form) shows the
+user whichever outcome resulted.
+
+### `userep-relay/relay.php` — a genuinely NEW kind of relay for this project, not committed to this repo
+
+Every prior VCAS relay (ADS-B, METAR) is a pass-through proxy: fetch from
+a real upstream, re-serve with CORS headers, optionally cache briefly.
+This one is the first relay in this project that both STORES data (a
+flat-file report store — no DB on this shared hosting, same constraint
+every relay here already works within) and answers a real location-based
+QUERY ("what's within 5 miles/30 minutes of here"), because reports are
+shared with other nearby users, not kept local-device-only.
+
+Two endpoints on one file: `GET ?lat=..&lon=..` (active reports within
+5mi/30min, newest first) and `POST` (a new report, server-stamped
+`submittedAt` — never trusts the client's own clock for TTL correctness).
+No cron on this hosting — expired reports are pruned lazily, on every
+single request, before anything else runs, the same "no scheduled job"
+discipline every other VCAS relay already established. A hard cap of 500
+stored reports (oldest dropped first) bounds the file's own growth
+against a flood of submissions. A file-lock (`flock`) guards every
+read-modify-write of the store, the same discipline the ADS-B relay's own
+`reserve_upstream_slot()` already established, so two near-simultaneous
+requests can't race and clobber each other's write.
+
+**CORS preflight handling was built correctly from the very first line of
+this file, not discovered as a bug afterward** — this project has hit the
+exact "missing `Access-Control-Allow-Headers`/`OPTIONS` short-circuit
+before the auth check" bug THREE separate times already across its other
+relays (see the "Relay ledger update follow-up" entries above) — the CORS
+headers block sits before `require_valid_key()` here, and `OPTIONS` is
+answered with a plain 204 before anything else runs, applying the lesson
+from that whole saga up front rather than repeating it a fourth time.
+
+**Verified locally with this project's own established relay-testing
+discipline** (`php -l` + a live `php -S` dev server, since this sandbox
+can't reach the real live hosting): a real OPTIONS preflight returns 204
+with the correct three CORS headers; missing/wrong-key requests correctly
+401 WITH those same CORS headers still present (the exact thing that was
+missing the first time this bug shipped for the ADS-B relay); invalid
+lat/lon, an invalid `sky` value, and an invalid phenomenon token all
+correctly 400; a `sky: "clear"` submission correctly forces `cloudHeight`
+to `null` server-side even if the client sent a stray value; a genuine
+submit → query round-trip correctly returns the just-stored report,
+sorted newest-first alongside a second one; a query centred far away
+(outside the 5-mile radius) correctly returns nothing; a manually-injected
+expired entry is correctly pruned out of both the response AND the
+on-disk file on the very next request; and 510 real submissions correctly
+cap the store at exactly 500 stored/returned reports, oldest dropped.
+
+Not committed to this repo, same handoff pattern as every prior relay —
+`relay.php`, `data/.htaccess` (blocks direct web access to the raw JSON
+store, same reasoning as every other relay's own `logs/`/`cache/`
+`.htaccess`), and `DEPLOY_INSTRUCTIONS.md` (including the same cPanel
+leading-dot `.htaccess`-stripping gotcha this project has hit once before
+with the ADS-B relay's own `logs/.htaccess`, flagged again so it isn't
+rediscovered a second time), sent via `SendUserFile` as
+`userep-relay-deploy.zip`. `src/config.js` gained `USEREP_RELAY_URL`
+(blank — the feature safely no-ops with nothing configured, no fallback
+direct call is possible here unlike ADS-B/METAR since this report STORE
+only exists on the relay itself) and `USEREP_RELAY_KEY` (a freshly
+generated real secret, baked directly into both `config.js` and the
+handoff zip's own `relay.php`, matching how every prior relay's shared
+secret was generated on this side and handed over pre-filled rather than
+asking the project owner to pick one).
+
+### The submission UI
+
+A new "Nearby reports" section lives inside `#weather-screen` itself
+(below the existing METAR content, but NOT gated behind it — a nearby
+USEREP can exist independent of whether the official METAR fetch has
+ever succeeded) — shows whichever report is currently cached via
+`Userep.summarize()`/`ageMinutes()`/`distanceMiles()`, or an honest empty
+state ("No reports from nearby users in the last 30 minutes"), plus a
+"Report conditions here" button opening a new full-screen `#userep-screen`
+modal (same tier, 235, as `#calibrate-screen` — for the same reason: it
+must stay reachable from on top of an already-open `#weather-screen`).
+
+The form itself reuses `.settings-toggle-btn`'s own established visual
+language (small tappable pill, `.active` toggles to the accent-filled
+state) for every field — sky/cloud-height/visibility are single-select
+(tapping one clears `.active` from its row's siblings), phenomena is
+multi-select (each button toggles independently) — the SAME button CSS
+class for both, distinguished only by `app.js`'s own click-handling logic,
+not by two separate visual styles. Picking a non-"clear" sky reveals the
+cloud-height field; switching back to "clear" hides it again and clears
+any selected height.
+
+**Speed-gated** (`CONFIG.GPS_HEADING_MIN_SPEED_MPH`), same reasoning as
+LOG/ManualTilt/3D View/the RAW popup's own record buttons — filling a
+multi-field form is real screen interaction, unlike the Weather screen's
+own read-only display, which stays ungated. Wired into the same
+`applySpeedOverrideIfActive()` convergence point every other speed-gated
+control already uses: `_syncUserepButtonState()` dims the "Report
+conditions here" button and force-closes an already-open form the instant
+speed crosses the threshold, mirroring `_syncCalibButtonState()`'s own
+shape exactly.
+
+Validation requires only sky + visibility (cloud height and phenomena are
+both genuinely optional); a missing GPS fix, a validation failure, and a
+network/relay failure each show their own real, distinct status message
+rather than one generic error. A successful submission shows a
+confirmation, immediately re-renders the Weather screen's own "Nearby
+reports" section (not waiting for the next scheduled `refresh()`), and
+auto-closes the form after a short delay so the confirmation is actually
+readable first.
+
+### Verified with real execution throughout — this project's own established discipline, applied at both levels
+
+- **106 real Node checks** against the actual shipped files: 61 in
+  `tests/logic/userep.test.js` (the vocab tables' own coverage/cross-check
+  against what `visibility.js` switches on, `pickFreshest()`'s malformed-
+  entry handling, `ageMinutes()`'s clock-skew-never-negative guarantee,
+  `distanceMiles()` cross-checked against an independent metres→miles
+  conversion of `Geo`'s own distance, and `summarize()`'s exact output
+  across several real report shapes); 14 new checks added directly to
+  `tests/logic/visibility.test.js` covering the full downward/upward
+  adjustment split — the severe-phenomena full drop, the partial cap
+  (overcast/broken/reduced-visibility/other-phenomena), and every one of
+  the raise mechanism's three bounding guards (only beyond 40nm, only from
+  exactly "Possibly visible", never overriding staleness) checked
+  independently, plus the "few"/"scattered" sky both qualifying and mere
+  "good" (not "excellent") visibility correctly NOT qualifying. Full
+  committed suite: **10 files, 450 checks, all passing.**
+- **42 real Playwright/Chromium checks** against the actual extracted
+  (verbatim, not retyped) `index.html` markup and `app.js` functions, this
+  project's established fallback for UI wiring living inside `app.js`'s
+  own large closure given this sandbox's documented MapLibre-CDN
+  flakiness: the form renders all real option buttons from the real
+  vocab tables; single-select correctly clears siblings, multi-select
+  correctly toggles independently; picking a non-clear sky correctly
+  reveals (and switching back to clear correctly re-hides) the cloud-
+  height field; validation correctly blocks an incomplete submission
+  without ever calling `UserepProvider.submit()`; a full valid submission
+  calls `submit()` with the real selected values and the real current
+  `userLat`/`userLon`, shows a real confirmation, updates the Nearby-
+  reports section with the real `Userep.summarize()` output, and
+  auto-closes after ~1.2s; a failed submission shows a real error,
+  re-enables the submit button, and leaves the form open (so the user can
+  retry, rather than being silently dropped); a missing GPS fix shows its
+  own distinct message; the full speed-gate cycle (blocked above 5mph,
+  exactly-at-5mph still allowed, force-closes an already-open form the
+  instant speed crosses the threshold, re-enables once back under it);
+  the Nearby-reports section itself rendering a real cached report's
+  summary/age/distance correctly and reverting to its empty state once
+  the cache clears; and no horizontal overflow at this project's standard
+  360px check. A real screenshot (412×915) confirms both the Nearby-
+  reports section and the submission form (mid-fill, showing the single-
+  select/multi-select states side by side) read cleanly and consistently
+  with the rest of the app's existing chrome.
+
+### Explicit scope, not silently implied to be more
+
+`cloudHeight` is display-only in v1, not yet factored into scoring (see
+`_applyUserepAdjustment()`'s own comment for why — a deliberate
+simplification, not an oversight). No abuse/spam mitigation beyond input
+validation and the 500-report cap and the shared-secret deterrent every
+other VCAS relay already relies on (the same "given the actual scale
+here... that complexity wasn't judged worth adding" precedent this
+project has established elsewhere) — a real, separate concern if this
+feature ever sees meaningfully more than "a handful of known testers."
+No per-report corroboration/consensus mechanism (ROADMAP.md's own earlier
+speculative note raised this as a possible mitigation for exactly this
+risk) — "most recent wins" is the whole selection mechanism, deliberately
+simple. No native Android Auto port sync — same standing "synced in
+dedicated passes, not every change" note this file carries for every
+other PWA-only feature; it has no USEREP equivalent, submission form, or
+`_applyUserepAdjustment()` port at all today.
+
+**Honest status**: `userep.js`'s pure logic is genuinely, fully verified
+via real Node execution. `visibility.js`'s new adjustment is genuinely,
+fully verified the same way, against the real shipped
+`_applyUserepAdjustment()`. `userepProvider.js`'s own network code and
+`relay.php` are verified the way every other fetch-based provider/relay
+in this project's history has been — real local `php -S` testing for the
+relay, real DOM/click-wiring Playwright verification for the client-side
+form — but neither has been exercised against the real, live
+`vectair.org` hosting from this sandbox (same standing limitation every
+prior relay in this project's history has carried at the moment of its
+own handoff). The real remaining check is the project owner deploying
+`userep-relay-deploy.zip` per its own `DEPLOY_INSTRUCTIONS.md`, filling in
+`USEREP_RELAY_URL` once it's live, and confirming a real submit → query
+round-trip from an actual device.

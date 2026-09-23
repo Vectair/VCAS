@@ -102,6 +102,25 @@ const CONFIG = {
   METAR_RELAY_URL: "https://vectair.org/metar-relay/relay.php",
   METAR_RELAY_KEY: "yLzDuqVXmYesxciEnjbwVZsPTj6xfGiy4EsKg4BcIDs",
 
+  // ---- USEREP (2026-09-23) ----
+  // User-submitted local weather reports — src/logic/userep.js/
+  // userepProvider.js, feeding Visibility.estimate()'s own `userep`
+  // parameter. A genuinely NEW relay, not a pass-through proxy like the
+  // two above: it both STORES reports (a flat-file store on the relay,
+  // pruned lazily on every request — no cron on this shared hosting) and
+  // answers a location-based query ("what's within 5 miles/30 minutes of
+  // here"), since submitted reports are shared with other nearby VCAS
+  // users in real time, not kept local-device-only (direct instruction).
+  // Not committed to this repo — userep-relay/relay.php, same handoff
+  // pattern (SendUserFile, manual Bluehost deploy) as ADSB_RELAY_URL/
+  // METAR_RELAY_URL above. Leave both blank to disable the feature
+  // entirely — userepProvider.js degrades safely with no key set (no
+  // fallback direct call is possible here, unlike ADS-B/METAR, since this
+  // report STORE only exists on the relay itself, there's nothing else to
+  // call).
+  USEREP_RELAY_URL: "",
+  USEREP_RELAY_KEY: "yDd8l6fALOVTqwuU3IEGUZCJ5wGPVrBI1IlNB_w2CXc",
+
   // ---- Telemetry & Refresh Intervals ----
   // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
   // leaves generous headroom below that ceiling for a single client while

@@ -826,6 +826,71 @@
               <div id="weather-raw-metar" class="weather-raw-metar"></div>
             </div>
           </div>
+
+          <!-- USEREP (2026-09-23) — "a Userep instead of a Pirep... mirroring
+               the principles of a metar but informing rather than dictating"
+               (direct instruction). A real, ground-observer, self-submitted
+               report shared with nearby VCAS users in real time (see
+               CLAUDE.md's dated entry and src/logic/userep.js/
+               userepProvider.js) — deliberately its own section here rather
+               than gated behind #weather-content's own metar-only empty
+               state, since a nearby report can exist independent of whether
+               the official METAR fetch has succeeded. Shows whichever
+               single report Userep.pickFreshest() currently has cached
+               (already filtered to Userep.RADIUS_MILES/MAX_AGE_MINUTES by
+               the relay's own query), plus the entry point to submit a new
+               one — see app.js's renderWeatherScreen()/openUserepScreen(). -->
+          <div class="weather-section" id="userep-section">
+            <div class="weather-section-title">Nearby reports</div>
+            <div id="userep-nearby-empty" class="weather-empty-state">
+              No reports from nearby users in the last 30 minutes.
+            </div>
+            <div id="userep-nearby-current" class="hidden">
+              <div id="userep-nearby-summary" class="weather-big-value"></div>
+              <div id="userep-nearby-meta"></div>
+            </div>
+            <!-- Speed-gated (CONFIG.GPS_HEADING_MIN_SPEED_MPH) — a multi-
+                 field form is real screen interaction, unlike this whole
+                 screen's own read-only display; see app.js's
+                 openUserepScreen()/_syncUserepButtonState(). -->
+            <button type="button" id="btn-userep-open" class="userep-open-btn">Report conditions here</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- USEREP submission form (2026-09-23) — see #userep-section above
+           and CLAUDE.md's dated entry. A modal like #calibrate-screen, same
+           tier (235) for the same reason: reachable from inside another
+           already-open modal (#weather-screen), not just the top bar. -->
+      <div id="userep-screen" class="hidden">
+        <div id="userep-header">
+          <div id="userep-title">Report Conditions</div>
+          <button type="button" id="btn-userep-close" title="Close">✕</button>
+        </div>
+        <div id="userep-body">
+          <div class="userep-field">
+            <div class="userep-field-label">Sky</div>
+            <div class="userep-option-row" id="userep-sky-row"></div>
+          </div>
+          <!-- Only shown once a non-"clear" sky is picked — see
+               userep.js's own comment on why cloudHeight is display-only
+               (not yet factored into scoring) but still asked for, to
+               mirror what was actually requested ("cloud amount AND
+               height"). -->
+          <div class="userep-field hidden" id="userep-cloud-height-field">
+            <div class="userep-field-label">How high do the clouds look?</div>
+            <div class="userep-option-row" id="userep-cloud-height-row"></div>
+          </div>
+          <div class="userep-field">
+            <div class="userep-field-label">Visibility</div>
+            <div class="userep-option-row" id="userep-visibility-row"></div>
+          </div>
+          <div class="userep-field">
+            <div class="userep-field-label">Anything else? (optional — tap any that apply)</div>
+            <div class="userep-option-row" id="userep-phenomena-row"></div>
+          </div>
+          <div id="userep-status"></div>
+          <button type="button" id="btn-userep-submit" class="userep-submit-btn">Submit report</button>
         </div>
       </div>
 
@@ -1110,6 +1175,8 @@
   <script src="src/logic/geo.js?v=__BUILD_ID__"></script>
   <script src="src/logic/metarProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/metarWx.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/userep.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/userepProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/localObstruction.js?v=__BUILD_ID__"></script>
   <script src="src/logic/upperAirProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/contrail.js?v=__BUILD_ID__"></script>

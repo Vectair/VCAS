@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-09-17";
+  const MODEL_VERSION = "2026-09-23";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -532,6 +532,115 @@ const Visibility = (() => {
   }
 
   /**
+   * USEREP (2026-09-23) — a real, ground-observer, self-submitted report of
+   * current local conditions (src/logic/userep.js/userepProvider.js), the
+   * SINGLE MOST RECENT one within 5 miles and 30 minutes of the observer,
+   * per direct instruction: "mirroring the principles of a metar but
+   * informing rather than dictating." Deliberately plain-language categories
+   * (sky/cloudHeight/visibility/phenomena — see userep.js's own vocab
+   * tables), not METAR codes, since "users may not have much in the way of
+   * meteorological knowledge."
+   *
+   * This is the ONE adjustment in this file allowed to RAISE a category, not
+   * only cap it downward — a direct, deliberate departure from every other
+   * adjustment above, confirmed explicitly before building
+   * ("Can also raise confidence"). Two halves, kept strictly separate and
+   * mutually exclusive (a single report is either degraded-reading-worthy or
+   * excellent-reading-worthy, never scored as both):
+   *
+   *  1. DOWNWARD (mirrors _applyMetarAdjustment's own severity split): fog or
+   *     a reported thunderstorm is treated the same way METAR's own OVC/VV
+   *     layer is — a near-total block on line of sight, dropping straight to
+   *     the bottom tier. Overcast/mostly-cloudy sky, reduced (moderate/poor)
+   *     reported visibility, or any OTHER phenomenon (rain/snow/haze) gets
+   *     the gentler partial cap instead, mirroring METAR's own BKN/<10SM
+   *     treatment. `cloudHeight` is read for DISPLAY only right now (see
+   *     userep.js's own comment on that field) — not factored into this
+   *     scoring split at all; a real height-relative-to-aircraft occlusion
+   *     check (the way METAR's baseMslFt comparison already works) is a
+   *     real, deliberately-deferred v1 simplification, not an oversight —
+   *     USEREP's height categories are far coarser (3 wide bands vs a real
+   *     reported base figure) and this feature's whole brief is staying
+   *     simple for a non-expert reporter, not building a second geometric
+   *     occlusion model on top of an already-coarse input.
+   *
+   *  2. UPWARD, the genuinely new mechanism: a report of a clear/mostly-clear
+   *     sky, excellent visibility, and no phenomena at all is real, current,
+   *     first-party evidence that this file's own existing >40NM "cap at
+   *     Possibly visible... haze/curvature at that range isn't modelled"
+   *     conservatism (see estimate()'s own branch below) doesn't apply right
+   *     now — so it's allowed to lift exactly that one cap.
+   *
+   *     Deliberately NOT "recompute from angular size and use it if better"
+   *     (an earlier draft of this function did exactly that, and turned out
+   *     to be vacuous — checked by hand, not just reasoned about: even the
+   *     single largest real aircraft in AIRCRAFT_SIZE_METRES, an 80m A388,
+   *     never reaches the 0.167deg "Likely visible" angular-size threshold
+   *     at any slant range beyond ~14.8nm, so a raise bounded strictly to
+   *     "what angular size alone already earns" could never actually fire
+   *     for ANY real aircraft beyond the 40nm gate this exists to help).
+   *     Instead this floors at a fixed "Likely visible" — the exact same
+   *     tier-based-floor pattern (not a recomputed formula) the contrail
+   *     rescue above already establishes for "a real, externally-confirmed
+   *     condition generically increases conspicuousness beyond what raw
+   *     angular size alone would prove." Deliberately never floors all the
+   *     way to "Certainly visible", which stays reserved for cases with
+   *     independent strong physical grounding (very close, or genuinely
+   *     large angular size) — a single person's word about the sky, however
+   *     confident, doesn't unlock the model's absolute top tier.
+   *
+   *     Three guards keep this bounded rather than free-floating:
+   *       - only applies beyond 40nm — exactly the distance band the
+   *         existing cap already exists to be conservative about, never a
+   *         general-purpose "good weather" boost inside it;
+   *       - only fires when `cat` is CURRENTLY exactly "Possibly visible" —
+   *         whatever the reason it landed there (the blanket >40nm cap, a
+   *         non-persistent contrail rescue, or angular size alone naturally
+   *         landing there), never re-raising something already better, and
+   *         never jumping a worse tier (e.g. "Very unlikely" from a
+   *         genuinely severe METAR/upper-air/local-obstruction signal)
+   *         straight past an intermediate step;
+   *       - never overrides a genuine staleness penalty (`isStale` gates it
+   *         off entirely) — a good local weather report says nothing about
+   *         whether this aircraft's OWN tracked position is still
+   *         trustworthy, a completely separate concern.
+   *
+   * No-ops entirely when `userep` is null/absent (no matching report exists
+   * right now) — same "absence of data must never itself change a score"
+   * discipline every other adjustment in this file already follows.
+   */
+  function _applyUserepAdjustment(cat, slantNm, isStale, userep) {
+    if (!userep) return cat;
+
+    const phenomena = Array.isArray(userep.phenomena) ? userep.phenomena : [];
+    const severe = phenomena.includes("fog") || phenomena.includes("thunderstorm");
+    if (severe) {
+      return CATEGORIES[CATEGORIES.length - 1]; // "Very unlikely/not visible"
+    }
+
+    const cloudyEnough = userep.sky === "overcast" || userep.sky === "broken";
+    const reducedVisibility = userep.visibility === "moderate" || userep.visibility === "poor";
+    const otherPhenomena = phenomena.length > 0; // rain, snow, haze — none rise to "severe" alone
+    if (cloudyEnough || reducedVisibility || otherPhenomena) {
+      return _capAtPossiblyVisible(cat);
+    }
+
+    const excellent =
+      (userep.sky === "clear" || userep.sky === "few" || userep.sky === "scattered") &&
+      userep.visibility === "excellent" &&
+      phenomena.length === 0;
+    if (excellent && slantNm > 40 && !isStale) {
+      const possiblyIdx = CATEGORIES.findIndex((c) => c.label === "Possibly visible");
+      const likelyIdx = CATEGORIES.findIndex((c) => c.label === "Likely visible");
+      if (CATEGORIES.indexOf(cat) === possiblyIdx) {
+        cat = CATEGORIES[likelyIdx];
+      }
+    }
+
+    return cat;
+  }
+
+  /**
    * Estimate visual detectability of an aircraft.
    *
    * @param {object} [metar]  Current METAR context from MetarProvider.getCached()
@@ -545,13 +654,19 @@ const Visibility = (() => {
    *   elevationFt, pressureProfile: [{pressureHpa, temperatureC,
    *   relativeHumidityPct}, ...] }. Omit/null for no adjustment and the
    *   contrail check's flat fallback floor (see _contrailRescueCategory).
-   *   Plain 6th positional parameter, matching this file's own existing
-   *   precedent (metar/localObstruction) rather than a signature refactor
-   *   — see CLAUDE.md.
+   * @param {object} [userep]  The single most recent matching USEREP
+   *   report (Userep.pickFreshest() of UserepProvider.getCached(), already
+   *   filtered to 5mi/30min by the relay's own query) — { sky, cloudHeight,
+   *   visibility, phenomena: [...] }. Omit/null for no adjustment. See
+   *   _applyUserepAdjustment() — the ONE adjustment below allowed to RAISE
+   *   a category, not just cap it downward.
+   *   Plain 7th positional parameter, matching this file's own existing
+   *   precedent (metar/localObstruction/upperAir) rather than a signature
+   *   refactor — see CLAUDE.md.
    *
    * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
    */
-  function estimate(userLat, userLon, aircraft, metar, localObstruction, upperAir) {
+  function estimate(userLat, userLon, aircraft, metar, localObstruction, upperAir, userep) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
 
     const horizNm = Geo.calculateDistanceNm(userLat, userLon, lat, lon);
@@ -607,7 +722,8 @@ const Visibility = (() => {
     }
 
     // Stale data degrades the category
-    if (lastSeenSeconds > 20 && cat.score > 10) {
+    const isStale = lastSeenSeconds > 20;
+    if (isStale && cat.score > 10) {
       const idx = CATEGORIES.indexOf(cat);
       cat = CATEGORIES[Math.min(idx + 1, CATEGORIES.length - 1)];
     }
@@ -615,6 +731,7 @@ const Visibility = (() => {
     cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
     cat = _applyUpperAirAdjustment(cat, altitudeFt, upperAir);
     cat = _applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction, veryClose);
+    cat = _applyUserepAdjustment(cat, slantNm, isStale, userep);
 
     return {
       label: cat.label,

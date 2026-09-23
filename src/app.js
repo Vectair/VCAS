@@ -348,6 +348,7 @@
     _initSettingsScreen();
     _initCalibrateScreen();
     _initWeatherScreen();
+    _initUserepScreen();
     _initDevModeUnlock();
     _initOnboarding();
 
@@ -888,6 +889,10 @@
     const metar = MetarProvider.getCached();
     const empty = document.getElementById("weather-empty");
     const content = document.getElementById("weather-content");
+    // Rendered unconditionally, before the metar-only early return below —
+    // a nearby USEREP report can exist (and is worth showing) completely
+    // independent of whether the official METAR fetch has ever succeeded.
+    _renderUserepNearby();
     if (!empty || !content) return;
 
     if (!metar) {
@@ -982,6 +987,233 @@
     if (ageMin < 60) return `observed ${ageMin} min ago`;
     const ageHr = Math.round(ageMin / 60);
     return `observed ${ageHr}h ago`;
+  }
+
+  // ---- USEREP (2026-09-23) ----
+  // User-submitted local weather reports — see CLAUDE.md's dated entry,
+  // src/logic/userep.js (shared vocab/pure helpers), src/logic/
+  // userepProvider.js (the relay client/cache), and visibility.js's own
+  // _applyUserepAdjustment(). Direct instruction: "a simple method of the
+  // user reporting met conditions from their present position to help
+  // inform the visibility likelihood... mirroring the principles of a
+  // metar but informing rather than dictating." Two halves: the "Nearby
+  // reports" read-only section lives inside #weather-screen itself (see
+  // renderWeatherScreen()'s own call to _renderUserepNearby() above); the
+  // submission form is its own modal, #userep-screen, opened from that
+  // section's own "Report conditions here" button.
+
+  /** In-memory form state for whichever submission is currently in
+   * progress — reset fresh every time _renderUserepForm() runs (i.e. every
+   * time the form is opened), same "rebuild rather than persist stale
+   * state across opens" discipline _renderAltPresets() already uses
+   * elsewhere in this file. */
+  let _userepForm = { sky: null, cloudHeight: null, visibility: null, phenomena: [] };
+
+  function _initUserepScreen() {
+    document.getElementById("btn-userep-open")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openUserepScreen();
+    });
+    document.getElementById("btn-userep-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeUserepScreen();
+    });
+    document.getElementById("btn-userep-submit")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onUserepSubmitClick();
+    });
+  }
+
+  /** Renders whatever UserepProvider currently has cached (already
+   * filtered to Userep.RADIUS_MILES/MAX_AGE_MINUTES of the CURRENT user
+   * position by the relay's own query — see userepProvider.js) into
+   * #weather-screen's own "Nearby reports" section. Called both from
+   * renderWeatherScreen() (every time that screen opens/refreshes) and
+   * directly after a successful submission, so the submitting user's own
+   * report shows immediately rather than waiting for that screen's own
+   * next open. */
+  function _renderUserepNearby() {
+    const report = UserepProvider.getCached();
+    const emptyEl = document.getElementById("userep-nearby-empty");
+    const currentEl = document.getElementById("userep-nearby-current");
+    if (!emptyEl || !currentEl) return;
+
+    if (!report) {
+      emptyEl.classList.remove("hidden");
+      currentEl.classList.add("hidden");
+      return;
+    }
+    emptyEl.classList.add("hidden");
+    currentEl.classList.remove("hidden");
+
+    const summaryEl = document.getElementById("userep-nearby-summary");
+    if (summaryEl) summaryEl.textContent = Userep.summarize(report);
+
+    const metaEl = document.getElementById("userep-nearby-meta");
+    if (metaEl) {
+      const parts = [];
+      const age = Userep.ageMinutes(report);
+      if (age != null) {
+        parts.push(age === 0 ? "reported just now" : age === 1 ? "reported 1 min ago" : `reported ${age} min ago`);
+      }
+      if (userLat != null && userLon != null) {
+        const distMi = Userep.distanceMiles(userLat, userLon, report);
+        if (distMi != null) parts.push(`${distMi.toFixed(1)}mi away`);
+      }
+      metaEl.textContent = parts.join(" · ") || "—";
+    }
+  }
+
+  /** Not gated the same way as #btn-calibrate/LOG's own toggle buttons —
+   * this dims/re-enables the CTA button itself, and force-closes the form
+   * if it's already open, mirroring _syncCalibButtonState()'s own shape —
+   * see applySpeedOverrideIfActive()'s own call to this. */
+  function _syncUserepButtonState() {
+    const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    document.getElementById("btn-userep-open")?.classList.toggle("userep-toggle-disabled", blocked);
+    if (blocked) {
+      const screen = document.getElementById("userep-screen");
+      if (screen && !screen.classList.contains("hidden")) closeUserepScreen();
+    }
+  }
+
+  /** Speed-gated — see #userep-section's own index.html comment for why
+   * (a multi-field form is real screen interaction, unlike the Weather
+   * screen's own read-only display, which stays ungated). */
+  function openUserepScreen() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return;
+    _renderUserepForm();
+    document.getElementById("userep-screen")?.classList.remove("hidden");
+  }
+
+  function closeUserepScreen() {
+    document.getElementById("userep-screen")?.classList.add("hidden");
+  }
+
+  /** Builds one row of tappable option buttons (Userep.SKY_OPTIONS etc.)
+   * from real DOM elements + textContent — same "no innerHTML template
+   * string" discipline this file's own renderCalibAircraftList() already
+   * established, though these particular labels are all static/trusted
+   * (Userep's own vocab tables), not untrusted external data — kept
+   * consistent anyway rather than treating this one spot differently.
+   * `onSelect(value, btn, container)` decides single- vs multi-select
+   * behaviour; this function itself is agnostic to which. */
+  function _buildUserepOptionRow(containerId, options, onSelect) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = "";
+    options.forEach((opt) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "userep-option-btn";
+      btn.textContent = opt.label;
+      btn.dataset.value = opt.value;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        onSelect(opt.value, btn, container);
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  /** Single-select helper: clears .active from every sibling in the row,
+   * marks only the tapped button active, and applies the value via the
+   * caller's own setter — shared by the sky/cloudHeight/visibility rows. */
+  function _userepSelectSingle(container, btn, value, setValue) {
+    Array.from(container.children).forEach((c) => c.classList.remove("active"));
+    btn.classList.add("active");
+    setValue(value);
+  }
+
+  /** Multi-select helper: each button toggles independently, pushed/spliced
+   * against the given array reference in place — used by the phenomena row
+   * only. */
+  function _userepToggleMulti(btn, value, arrRef) {
+    const idx = arrRef.indexOf(value);
+    if (idx === -1) {
+      arrRef.push(value);
+      btn.classList.add("active");
+    } else {
+      arrRef.splice(idx, 1);
+      btn.classList.remove("active");
+    }
+  }
+
+  /** Rebuilds the whole form fresh — real fields from Userep's own shared
+   * vocab tables (see that file's own header comment on why this is the
+   * one source both this form and visibility.js's _applyUserepAdjustment()
+   * draw from), reset to a clean, unselected state every time the form is
+   * opened. */
+  function _renderUserepForm() {
+    _userepForm = { sky: null, cloudHeight: null, visibility: null, phenomena: [] };
+    document.getElementById("userep-cloud-height-field")?.classList.add("hidden");
+    _setUserepStatus("", null);
+    const submitBtn = document.getElementById("btn-userep-submit");
+    if (submitBtn) submitBtn.disabled = false;
+
+    _buildUserepOptionRow("userep-sky-row", Userep.SKY_OPTIONS, (value, btn, container) => {
+      _userepSelectSingle(container, btn, value, (v) => { _userepForm.sky = v; });
+      // cloudHeight is only ever meaningful (and only ever sent) when the
+      // sky isn't "clear" — see Userep.CLOUD_HEIGHT_OPTIONS's own comment.
+      const heightField = document.getElementById("userep-cloud-height-field");
+      if (heightField) heightField.classList.toggle("hidden", value === "clear");
+      if (value === "clear") _userepForm.cloudHeight = null;
+    });
+    _buildUserepOptionRow("userep-cloud-height-row", Userep.CLOUD_HEIGHT_OPTIONS, (value, btn, container) => {
+      _userepSelectSingle(container, btn, value, (v) => { _userepForm.cloudHeight = v; });
+    });
+    _buildUserepOptionRow("userep-visibility-row", Userep.VISIBILITY_OPTIONS, (value, btn, container) => {
+      _userepSelectSingle(container, btn, value, (v) => { _userepForm.visibility = v; });
+    });
+    _buildUserepOptionRow("userep-phenomena-row", Userep.PHENOMENA_OPTIONS, (value, btn) => {
+      _userepToggleMulti(btn, value, _userepForm.phenomena);
+    });
+  }
+
+  function _setUserepStatus(text, kind) {
+    const el = document.getElementById("userep-status");
+    if (!el) return;
+    el.textContent = text;
+    el.className = kind === "error" ? "userep-status-error" : kind === "ok" ? "userep-status-ok" : "";
+  }
+
+  /** Validates (sky + visibility are the only required fields — cloudHeight
+   * and phenomena are both genuinely optional), submits via
+   * UserepProvider.submit(), and — on success — immediately re-renders the
+   * Weather screen's own "Nearby reports" section (rather than waiting for
+   * the next scheduled refresh()) before closing the form on a short
+   * delay, so the confirmation message is actually readable. */
+  async function onUserepSubmitClick() {
+    if (userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) {
+      closeUserepScreen();
+      return;
+    }
+    if (userLat === null || userLon === null) {
+      _setUserepStatus("Waiting for a GPS fix — try again in a moment.", "error");
+      return;
+    }
+    if (!_userepForm.sky || !_userepForm.visibility) {
+      _setUserepStatus("Pick a sky condition and a visibility before submitting.", "error");
+      return;
+    }
+
+    const submitBtn = document.getElementById("btn-userep-submit");
+    if (submitBtn) submitBtn.disabled = true;
+    _setUserepStatus("Submitting…", null);
+
+    const report = await UserepProvider.submit(
+      userLat, userLon, _userepForm.sky, _userepForm.cloudHeight, _userepForm.visibility, _userepForm.phenomena
+    );
+
+    if (!report) {
+      _setUserepStatus("Couldn't submit — check your connection and try again.", "error");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
+    _setUserepStatus("Thanks — your report is now live for nearby drivers.", "ok");
+    _renderUserepNearby();
+    setTimeout(() => { closeUserepScreen(); }, 1200);
   }
 
   /** Moves the real #btn-raw/#btn-air/#btn-hybrid/#btn-3d elements into
@@ -1994,6 +2226,10 @@
       if (calibPendingType !== null) hideCalibConfirmBar();
     }
     _syncCalibButtonState();
+    // USEREP (2026-09-23) — same convergence point, same "dim/force-close
+    // the instant speed crosses the threshold" reasoning as ManualTilt/3D
+    // View/compass calibration above.
+    _syncUserepButtonState();
   }
 
   function onSpeedSimChanged() {
@@ -2295,6 +2531,11 @@
     // real server source, see upperAirProvider.js's own comment), so this
     // fetch()es api.open-meteo.com directly from the browser.
     UpperAirProvider.refresh(userLat, userLon).then(() => UI.setUpperAirStatus(UpperAirProvider.getStatus()));
+    // USEREP (2026-09-23) — same "safe to call every tick, internally
+    // no-ops until movement/time thresholds are actually crossed" contract
+    // as the three providers above (see userepProvider.js's own
+    // _shouldRefresh()).
+    UserepProvider.refresh(userLat, userLon);
 
     // setInterval fires on a fixed clock regardless of whether the previous
     // call finished — on a slow connection a single fetch (up to the 8s
@@ -2548,6 +2789,7 @@
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
       upperAir: UpperAirProvider.getCached(),
+      userep: UserepProvider.getCached(),
       // Not read by Indicators.build() itself — carried through purely so
       // LogPanel.update()'s own copy of this object (see below) can hand it
       // to ObservationLogger.buildObservation(), which was missing "which
@@ -2911,6 +3153,7 @@
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
       upperAir: UpperAirProvider.getCached(),
+      userep: UserepProvider.getCached(),
       mode: _activeDisplayMode(),
     };
 
@@ -3126,6 +3369,7 @@
       metar: MetarProvider.getCached(),
       localObstruction: LocalObstruction.getCached(),
       upperAir: UpperAirProvider.getCached(),
+      userep: UserepProvider.getCached(),
       mode: _activeDisplayMode(),
     };
     const allTracked = Indicators.buildAll(_currentAircraftList(), userState, CONFIG.STALE_THRESHOLD_SECONDS);

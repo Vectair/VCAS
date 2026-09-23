@@ -346,38 +346,22 @@ through before building anything:**
   flagged as the most fun part to get right and the easiest to
   over-scope if it's picked up.
 
-### User-submitted meteorological data (2026-09-17)
+### User-submitted meteorological data — DONE, see CLAUDE.md's 2026-09-23 "USEREP" entry
 
-A PIREP-style community input layer — explicitly lower-confidence than
-METAR/Open-Meteo, not weighted the same. Real design questions, not yet
-answered:
-- **Where it's stored**: this needs to be shared across users, so it's
-  architecturally closer to the existing central observation log
-  (`log.php` + GitHub mirror, not committed to this repo — see
-  CLAUDE.md's "Central observation log" entry) than to a purely local
-  feature. Reusing that same handoff pattern (a small PHP endpoint +
-  shared secret) is the obvious starting point rather than inventing new
-  infrastructure.
-- **Weighting/decay**: needs its own confidence tier, separate from
-  METAR/local-obstruction/upper-air — likely wired into
-  `Visibility.estimate()` as a new optional parameter following the
-  exact pattern `metar`/`localObstruction`/`upperAir` already establish
-  (each is `null`-safe, each only ever caps a category downward, never
-  raises one — the same discipline should apply here). A stale or
-  unweighted submission floor should decay/expire, unlike METAR which
-  is refreshed on its own cadence.
-- **Abuse/spam**: unlike the existing observation log (personal,
-  opt-in, low-volume, from known testers), a user-submitted-met feature
-  that's genuinely shared and influences OTHER users' scoring is a real
-  new surface for bad data (deliberate or accidental) to degrade the
-  model for everyone. Needs real thought before building — at minimum
-  some geographic/temporal clustering or a minimum-corroboration
-  threshold before a submission actually affects scoring, not just
-  "any single tap moves the needle."
-- **UI**: needs to be simple enough that a non-technical tester can use
-  it (same target audience as the existing ground-truth LOG panel) —
-  likely a small set of tap-to-select conditions (visibility band,
-  cloud description) rather than free text.
+Built as USEREP (a real, direct instruction gave it that name — "a
+Userep instead of a Pirep"). Both real design forks this entry originally
+left open were resolved with direct answers, NOT the way this entry's own
+speculation guessed: shared with nearby users in real time (a genuinely
+new location-queryable relay, not the existing observation log's
+append-only shape), and — the real surprise — allowed to RAISE
+`Visibility.estimate()`'s confidence, not just cap it downward the way
+this entry assumed "the same discipline should apply here." Abuse/spam
+was addressed narrowly (input validation, a 500-report store cap, the
+same shared-secret deterrent every other relay already relies on), not
+with the corroboration-threshold mechanism this entry speculated about —
+flagged in CLAUDE.md's own entry as a real, deferred gap if usage ever
+exceeds "a handful of known testers." Still pending: the project owner
+deploying the handed-off relay and filling in `USEREP_RELAY_URL`.
 
 ### Passive "probably not seen" inference from unlogged aircraft — PARKED (2026-09-17)
 
@@ -524,6 +508,13 @@ equivalent yet, accumulated across many passes without a full sync:
   rotate to follow the arc's own tangent (mockup style) instead of
   staying flat/horizontal regardless of position. None of these four
   have a native equivalent either.
+- The Weather screen (standalone read-only METAR display, 2026-09-23)
+  and USEREP (user-submitted local weather reports feeding
+  `Visibility.estimate()`, same day, see CLAUDE.md's own entry) — no
+  native equivalent of either at all. USEREP's own scoring change
+  (`Visibility.estimate()`'s new `userep` 7th parameter, the one
+  adjustment allowed to RAISE a category) would also need porting to
+  `Visibility.kt` for the native app's own scores to match the PWA's.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather

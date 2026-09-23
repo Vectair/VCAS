@@ -84,7 +84,7 @@ const Indicators = (() => {
    * with that.
    */
   function _computeAll(aircraftList, userState, staleThresholdSeconds) {
-    const { lat, lon, heading, viewportWidth, viewportHeight, metar, localObstruction, upperAir } = userState;
+    const { lat, lon, heading, viewportWidth, viewportHeight, metar, localObstruction, upperAir, userep } = userState;
     // Must match what the camera actually used for this frame (see
     // CameraController/geo.js's projectToPolarPosition doc comment) or the
     // plotted origin silently drifts from where the user marker and range
@@ -127,7 +127,7 @@ const Indicators = (() => {
       .map(a => {
         const bearing = Geo.calculateBearing(lat, lon, a.lat, a.lon);
         const distanceNm = Geo.calculateDistanceNm(lat, lon, a.lat, a.lon);
-        const vis = Visibility.estimate(lat, lon, a, metar, localObstruction, upperAir);
+        const vis = Visibility.estimate(lat, lon, a, metar, localObstruction, upperAir, userep);
         const relativeBearing = Geo.calculateRelativeBearing(bearing, heading);
         const relevance = Relevance.evaluate(userState, a, relativeBearing, vis);
         // Slant range (not flat horizontal distance) — the same figure
@@ -178,6 +178,9 @@ const Indicators = (() => {
    *   localObstruction (optional): current LocalObstruction.getCached()
    *   snapshot, same pass-through treatment — see visibility.js's
    *   _applyLocalObstructionAdjustment() for what it does.
+   *   userep (optional): the single most recent matching USEREP report
+   *   (Userep.pickFreshest() of UserepProvider.getCached()), same pass-
+   *   through treatment — see visibility.js's _applyUserepAdjustment().
    * @param {Set<string>} [suppressedHexes]  Aircraft hex codes to exclude regardless of
    *   relevance (manually dismissed via the popup's Suppress button). Applies uniformly —
    *   there's no relevance reason exempt from suppression, including overhead/close cases.
