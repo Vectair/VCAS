@@ -515,6 +515,19 @@ equivalent yet, accumulated across many passes without a full sync:
   (`Visibility.estimate()`'s new `userep` 7th parameter, the one
   adjustment allowed to RAISE a category) would also need porting to
   `Visibility.kt` for the native app's own scores to match the PWA's.
+- Two real bug fixes from an actual-drive report (2026-09-23, later the
+  same day): RAW's map gesture handlers now disable while RAW is active
+  (`map.js`'s `_setGesturesEnabled`), since the exposed canvas could
+  register an accidental touch as a real pan gesture and permanently
+  freeze the camera while the ownship marker kept tracking the driver's
+  real GPS position, walking off-screen; and `EosMap.clearAirMarkers()`
+  — written, exported, and never actually called anywhere — is now
+  wired into `_enterNavMode()`, so AIR-mode markers no longer linger,
+  frozen, on the map after switching away from AIR (previously visible
+  as a stale, ghost-looking "duplicate" of a live RAW indicator for the
+  same aircraft). Worth checking whether the native port's own
+  `VcasMapRenderer.kt`/mode-switch code has an equivalent gap for
+  either bug class — not audited there this pass.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
