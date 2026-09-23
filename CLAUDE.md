@@ -15282,3 +15282,173 @@ Not done: no change to the native Android Auto port (same standing
 for every other PWA-only fix) — its own `VcasPalette.kt`/
 `PhoneAircraftIcons.kt` still draw the car and nav-related icons
 procedurally rather than referencing this real artwork.
+
+## Two real bugs from an actual drive, same day the new icon artwork shipped: ownship marker drift, and stale AIR markers bleeding into RAW (2026-09-23, later the same day)
+
+Direct report, with 4 real-device screenshots from an actual drive right
+after the icon-artwork update above went out: "On the drive in this
+morning the user icon slowly decentralized and finally disappeared from
+the screen" and "there is some sort of residual ha[z]e occuring that is
+leaving multiple instances of the same aircraft on the screen." Two
+completely independent root causes, both found by reading the real code
+rather than guessing, both verified against a real, locally-installed
+MapLibre GL JS instance driven by Playwright (this project's own
+established MapLibre-testing convention) before shipping either fix.
+
+### Bug 1 — the ownship marker drifted off-screen because RAW's own map canvas was silently gesture-enabled
+
+The reported sequence (08:13 near the 2NM ring, slightly left → 08:17 at
+the extreme left edge, partially clipped → 08:21 gone entirely) is the
+signature of a frozen camera with a still-moving real position, not a
+math bug in the anchor formulas themselves — `CameraController.
+_renderAnchoredFrame()` re-derives the camera fresh every animation
+frame from the CURRENT target/anchor inputs (no accumulator, nothing
+that could compound error tick over tick), confirmed by re-reading it in
+full.
+
+**Root cause**: `app.js`'s `onUserPannedMap()` — wired to `map.js`'s
+`dragstart`/`zoomstart`/`rotatestart`/`pitchstart` listeners, itself
+correctly guarded by `if (!e.originalEvent) return`, a real, working
+distinction between a genuine touch/mouse gesture and MapLibre's own
+programmatic `jumpTo()`/`panBy()` calls (verified directly: a real
+synthetic pointer drag fires `dragstart` WITH `originalEvent` set; the
+camera controller's own per-frame `jumpTo()`/`panBy()` calls never fire
+any of these four events with `originalEvent` set at all) — sets
+`navFollowSuspended = true` the instant a REAL gesture is detected.
+Once set, every subsequent `CameraController.followNav()` call is
+skipped on every GPS tick (`if (!navFollowSuspended) ...`), freezing the
+camera in place — but `EosMap.updateUserPosition()` (unconditional,
+every tick) keeps moving the real ownship marker to the driver's actual,
+continuously-advancing GPS position on that now-frozen camera. The
+marker visibly walks away from its anchor point for the rest of the
+drive with no automatic recovery — only the small "Recenter" button,
+easy to miss while driving.
+
+The real, previously-unnoticed gap: nothing has ever disabled MapLibre's
+normal gesture handlers (`dragPan`/`dragRotate`/`scrollZoom`/
+`touchZoomRotate`/`doubleClickZoom`/`keyboard`/`touchPitch`/`boxZoom`,
+all default-enabled) while RAW is active — and RAW's own live content
+(compass tape, range rings, aircraft dots/labels, the LOG/range/list
+panel) is a separate DOM/SVG overlay layered on top of the SAME live
+MapLibre canvas every mode shares (just styled to plain black, see the
+module's own top-of-file doc comment) — large areas of the actual
+screen (the corners the circular plot doesn't reach, the space around
+the aircraft-list panel) are the bare, fully-touchable canvas itself.
+A single accidental touch there — bumping a dash mount, an imprecise
+tap near a button's edge — is a completely real user gesture as far as
+MapLibre is concerned, and RAW has no legitimate reason for ANY of
+these handlers to be enabled in the first place: its map is purely an
+internal anchor-rendering surface with no visible tiles a user would
+ever want to pan/zoom/rotate, unlike Hybrid/AIR's own real, exploreable
+maps.
+
+**Fix**: new `EosMap._setGesturesEnabled(enabled)` (`map.js`) toggles
+all 8 handlers together, called from `init()` (keyed on
+`initialTheme !== "raw"`, since RAW is this app's documented default —
+a fresh install can boot directly into it) and from `setTheme(theme)`
+(keyed on `theme !== "raw"`, covering every later mode switch). Hybrid/
+AIR keep their normal, real interactivity completely untouched — this
+only ever disables anything while `theme === "raw"`.
+
+Verified two ways against a real, locally npm-installed `maplibre-gl@4`
+instance (`registry.npmjs.org` reachable, `api.tomtom.com`/`docs.
+tomtom.com`-style live domains are not — same asymmetry this file
+already documents elsewhere): (1) an isolated harness confirming the
+underlying MapLibre behaviour this fix depends on — a real pointer drag
+fires `dragstart` with `originalEvent` set; the camera controller's own
+`jumpTo()`+`panBy()` calls never do; disabling all 8 handlers makes a
+real pointer drag fire zero events with the map center genuinely
+unchanged; re-enabling restores full real-gesture handling — 5/5
+checks passed; (2) a second harness loading the ACTUAL, unmodified
+`map.js` (not a re-implementation) and driving it through
+`EosMap.init(..., "raw")` → confirms every handler reports `isEnabled()
+=== false` immediately, and a real pointer drag against this RAW-booted
+map genuinely does not move the camera at all (center bit-for-bit
+unchanged) → `EosMap.setTheme("night")` → confirms every handler
+re-enables and a real drag now DOES move the camera → `EosMap.
+setTheme("raw")` again → confirms every handler disables again, not
+just at boot — 5/5 checks passed against the real, shipped code.
+
+### Bug 2 — a stale, frozen AIR-mode marker was floating over the RAW plot, never cleared on the AIR → NAV transition
+
+The screenshot's own top box read "UAM26 / G115 / 625ft" in a green-
+bordered rounded box, sitting near — but visually distinct from — a
+second, genuinely live RAW indicator for what the aircraft list showed
+as "UAM42 / G115 · 900ft · 1.5nm" (only ONE G115 row in the list, not
+two). Checked every plausible rendering path this markup could have
+come from: `renderIndicators()`'s own `.indicator-label` shows type +
+altitude only, no callsign (a deliberate 2026-08-21 decision, still
+correctly in effect); `showPopup()`'s real markup carries far more
+fields (distance/bearing/updated/a vis badge/log buttons) than the
+three bare lines in the screenshot; `renderAircraftList()`'s own row
+layout is a single horizontal line (chevron + callsign, then "type ·
+alt · range" combined), not three stacked lines. None of them match.
+
+**`map.js`'s `_airMarkerHtml()` (AIR mode's own marker content) matches
+exactly**: `<div class="callsign">${callsign}</div>` followed by
+`.actype` (type) then `.indicator-altitude` (altitude) — three stacked
+lines, confirmed byte-for-byte against a real rendered instance (see
+verification below). The green border on both boxes is independently
+explained too, not a separate mystery: `TrafficRulesLogic.
+evaluateHighlight()` is called fresh in both `_airMarkerHtml()` (map.js)
+and `renderIndicators()` (ui.js), keyed only on the aircraft's own
+current traits — a matching highlight rule rings BOTH the stale AIR
+marker and the live RAW indicator for the same hex consistently, since
+neither call site knows or cares which is stale.
+
+**Root cause**: `EosMap.clearAirMarkers()` has existed in `map.js`,
+fully implemented and exported, since AIR markers themselves were
+built — but grepping the entire `src/` tree turned up exactly zero real
+call sites. It was written and never wired up. `app.js`'s `btnAir`
+click handler (entering AIR mode) is, by contrast, extremely careful
+about this exact bug CLASS on its own transition — it explicitly clears
+seven separate Hybrid/RAW-only overlays (`UI.clearIndicators`/
+`EosMap.clearRangeRings`/`UI.clearCompassRing`/
+`UI.clearRangeRingsOverlay`/`UI.clearAircraftList`/
+`UI.clearRangeSelector`/`UI.clearRouteLine`/`UI.clearRowsBackdrop`/
+`_hideManualTiltControls`), each with its own "stale content floats
+over the map for as long as the user stays there" comment — but the
+MIRROR-IMAGE cleanup, on the AIR → NAV/RAW/Hybrid transition
+(`_enterNavMode()`), never got the equivalent `EosMap.clearAirMarkers()`
+call. Since `refreshAirMode()` (the only caller of `renderAirMarkers()`)
+stops running the moment `mode` leaves `"air"`, any AIR markers still on
+the map at that instant are simply abandoned — real MapLibre `Marker`
+objects, still attached to the live map, frozen at whatever lat/lon/
+callsign/altitude they last held. Reprojected under RAW's own
+completely different camera transform, they can land anywhere on
+screen, including — as in the reported screenshot — coincidentally near
+a real, live RAW indicator for the very same physical aircraft,
+reading exactly like "multiple instances of the same aircraft."
+
+**Fix**: one line, `EosMap.clearAirMarkers();`, added to `_enterNavMode()`
+(`app.js`) — the single, confirmed entry point both the RAW and Hybrid
+main-screen buttons already share, reached only once the function has
+already established `mode !== "nav"` (i.e. only on a real transition
+away from AIR), matching the exact style/placement of every other
+`clear*()` call this codebase already uses for this bug class.
+
+Verified against the real, unmodified `map.js` (loaded via a real
+`<script>` tag, not retyped) driven through a real, locally-installed
+MapLibre instance: `EosMap.renderAirMarkers([{hex, callsign:"UAM26",
+type:"G115", altitudeFt:625, ...}], ...)` produces a real marker whose
+rendered HTML matches the reported screenshot's own content exactly
+(`.callsign` textContent `"UAM26"`, `.actype`/`.indicator-altitude`
+containing `"G115"`/`"625ft"`) — confirming this really is what the
+stale box was; `EosMap.clearAirMarkers()` then genuinely, completely
+removes it (`.air-marker`/`.air-label-box` both absent from the DOM
+afterward, `_airMarkers` empty) — 2/2 checks passed. Confirmed via a
+direct grep that `_enterNavMode()` now calls it exactly once, at the
+correct point in the function.
+
+Full `tests/run.js` suite re-run after both fixes — still all passing
+(neither fix touches `src/logic/`; both are `map.js`/`app.js` wiring).
+
+**Honest status**: both fixes are logic/behaviour-verified against real
+MapLibre execution, matching this project's own established discipline
+for this exact class of change — neither has yet been confirmed on a
+real device during an actual drive, which is the real remaining check
+for both. Not done: no change to the native Android Auto port (same
+standing "synced in dedicated passes, not every change" note this file
+carries for every other PWA-only fix) — worth checking whether its own
+`VcasMapRenderer.kt`/mode-switch code has an equivalent gap for either
+bug class, since neither was audited there this pass.

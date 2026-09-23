@@ -2298,6 +2298,21 @@
     indicatorPage = 0; // fresh start when re-entering NAV mode
     document.body.dataset.mode = "nav";
     UI.setModeLabel(_activeDisplayMode());
+    // Real bug fix (2026-09-23): reported directly, with a real device
+    // screenshot — a second, stale ".air-label-box" marker (callsign +
+    // type + altitude, frozen at whatever it last showed while AIR mode
+    // was active) floating near a real RAW-mode indicator for the same
+    // aircraft, visible only because renderAirMarkers()'s own real
+    // MapLibre Marker objects (map.js's _airMarkers) were never removed
+    // on this transition — EosMap.clearAirMarkers() has existed and been
+    // exported since AIR markers themselves were built, but was never
+    // actually wired up here. The mirror-image btnAir click handler above
+    // already clears every Hybrid/RAW-only overlay on ITS own transition
+    // (clearIndicators/clearRangeRings/clearCompassRing/etc, each with its
+    // own "stale content floats over the map for as long as the user
+    // stays there" comment) — this is the same bug, on the direction that
+    // was missed.
+    EosMap.clearAirMarkers();
     navFollowSuspended = false;
     UI.setRecenterVisible(false);
     WakeLock.enable();

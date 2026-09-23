@@ -101,6 +101,11 @@ const EosMap = (() => {
     });
 
     _applySkyCss(initialTheme);
+    // RAW is this app's default NAV display style (see CLAUDE.md,
+    // "RAW as default") — a fresh install can boot directly into it, so
+    // gestures need to start disabled here too, not just on a later
+    // setTheme() call. See _setGesturesEnabled's own doc comment above.
+    _setGesturesEnabled(initialTheme !== "raw");
 
     _userMarker = _createUserMarker(lat, lon);
     return _map;
@@ -108,16 +113,66 @@ const EosMap = (() => {
 
   // ---- Theme ----
 
+  // Real bug fix (2026-09-23): reported directly, with 4 real-device
+  // screenshots from an actual drive — "the user icon slowly decentralized
+  // and finally disappeared from the screen." Traced to a real, working-
+  // as-designed mechanism with a real gap: RAW's own map.js instance is
+  // the SAME live MapLibre map every mode shares (just styled to a plain
+  // black background, see the module doc comment above), and nothing has
+  // ever disabled its normal gesture handlers (dragPan/scrollZoom/etc,
+  // all default-enabled) while RAW is active. RAW's real content —
+  // compass tape, range rings, aircraft dots/labels, the LOG/range/list
+  // panel — is a separate DOM/SVG overlay layered on top; large areas of
+  // the actual screen (corners the circular plot doesn't reach, the space
+  // around the aircraft-list panel) are the bare MapLibre canvas itself,
+  // fully touchable. A single accidental touch there (bumping a dash
+  // mount, an imprecise tap near a button's edge) is a REAL user gesture
+  // as far as MapLibre is concerned — confirmed via a real, locally
+  // installed maplibre-gl instance driven by Playwright, not assumed: a
+  // genuine synthetic pointer drag on the canvas fires `dragstart` with
+  // `e.originalEvent` set, exactly the signal map.js's own dragstart/
+  // zoomstart/rotatestart/pitchstart wiring (below) already treats as "a
+  // real manual pan happened" — which calls CameraController.cancelFollow()
+  // and (app.js's onUserPannedMap) sets navFollowSuspended = true. Once
+  // that's set, app.js stops calling CameraController.followNav() on every
+  // subsequent GPS tick — but EosMap.updateUserPosition() (unconditional,
+  // every tick) keeps moving the real user marker to the driver's actual,
+  // continuously-advancing GPS position on a camera that's now permanently
+  // frozen at wherever it was when the accidental touch happened. The
+  // marker visibly walks away from its anchor point for the rest of the
+  // drive and eventually runs off-screen entirely — exactly the reported
+  // symptom — with no automatic recovery (only the small "Recenter" button,
+  // easy to miss while driving).
+  //
+  // The same real Playwright harness confirmed the actual fix: disabling
+  // every one of MapLibre's own interaction handlers stops a real pointer
+  // drag from firing ANY of these events at all (confirmed: zero events,
+  // map center genuinely unchanged), and re-enabling them afterward
+  // restores full real-gesture handling. RAW has no legitimate reason for
+  // any of them to be enabled in the first place — its map is purely an
+  // internal anchor-rendering surface (no visible tiles, no reason to pan/
+  // zoom/rotate it), unlike Hybrid/AIR's own real, exploreable maps, which
+  // keep their normal interactivity untouched.
+  function _setGesturesEnabled(enabled) {
+    if (!_map) return;
+    const method = enabled ? "enable" : "disable";
+    [
+      _map.dragPan, _map.dragRotate, _map.scrollZoom, _map.touchZoomRotate,
+      _map.doubleClickZoom, _map.keyboard, _map.touchPitch, _map.boxZoom,
+    ].forEach(handler => { if (handler && handler[method]) handler[method](); });
+  }
+
   /**
    * Switch the map basemap theme.  Safe to call at any time after init().
    * The Markers (user arrow, aircraft) are DOM elements and are unaffected
    * by setStyle; camera state is also preserved.
    *
-   * @param {"day"|"night"} theme
+   * @param {"day"|"night"|"raw"} theme
    */
   function setTheme(theme) {
     if (!_map) return;
     _currentTheme = theme;
+    _setGesturesEnabled(theme !== "raw");
     _map.setStyle(NavStyle.getStyle(theme), { diff: true });
     _applySkyCss(theme);
     // setStyle({diff:true}) only patches layers/sources present in the style JSON;
