@@ -57,13 +57,26 @@ Rules feature) came next — also standalone, no dependency on the other
 separated type list, category, altitude above/below, military/civil),
 the AND-not-OR combination of multiple conditions on one rule, and the
 filter (OR-across-enabled-rules) vs. highlight (first-match-wins-in-
-list-order) evaluation semantics.
+list-order) evaluation semantics. `simplifiedType.js` (the ICAO type ->
+layperson-family lookup behind the "Simplify aircraft types" setting)
+followed the same standalone shape — covering the exact-table tier, the
+regex family-root-pattern tier (including deliberately synthetic/
+hypothetical variant codes to prove the pattern generalises beyond
+today's known variants, not just the ones hand-enumerated), and that the
+two tiers don't fight each other. `metarWx.js` (the present-weather/
+cloud/visibility decoding behind the Weather screen) came next — also
+standalone — covering the WMO present-weather token grammar (intensity +
+0-2 descriptors + 1-2 phenomenon codes, the vicinity prefix, and the
+real "a descriptor can stand alone with no trailing phenomenon" grammar
+quirk), the sky-summary/cloud-label/visibility-formatting helpers, and
+graceful passthrough for anything unrecognised.
 
-Not yet covered: `upperAirProvider.js`/`metarProvider.js` (network-fetch
-modules, would need a mocked `fetch`), and any DOM/UI wiring (would need
-a headless-browser harness, a materially bigger lift than these plain-
-Node checks — see ROADMAP.md's own note that "Playwright/DOM harnesses
-for UI wiring are more expensive but still worth a small curated set").
+Not yet covered: `upperAirProvider.js`/`metarProvider.js` themselves
+(the network-fetch modules `metarWx.js` sits downstream of — would need
+a mocked `fetch`), and any DOM/UI wiring (would need a headless-browser
+harness, a materially bigger lift than these plain-Node checks — see
+ROADMAP.md's own note that "Playwright/DOM harnesses for UI wiring are
+more expensive but still worth a small curated set").
 
 Extending this suite to another `src/logic/` module is the same shape
 every time: add `tests/logic/<module>.test.js`, `require` it through

@@ -3372,6 +3372,169 @@ body[data-nav-state="turn_approach"] { }
 #btn-calib-confirm-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
 #btn-calib-confirm-ok:active, #btn-calib-confirm-cancel:active { box-shadow: var(--btn-shadow-active); }
 
+/* ---- Weather screen (2026-09-23) ----
+   A modal like #settings-screen — same tier (200), since it's only ever
+   reached from the top bar itself and never needs to stay reachable while
+   another overlay covers that bar (unlike #calibrate-screen's own reason
+   for sitting higher, at 235). ---- */
+#weather-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dark);
+  animation: settings-in .2s ease-out;
+}
+
+#weather-screen.hidden { display: none; }
+
+#weather-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+#weather-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#btn-weather-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--text-secondary);
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  box-shadow: var(--btn-shadow);
+}
+
+#btn-weather-close:active { background: var(--btn-hover); box-shadow: var(--btn-shadow-active); }
+
+#weather-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.weather-empty-state {
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.weather-empty-state.hidden { display: none; }
+#weather-content.hidden { display: none; }
+
+#weather-station-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 13px;
+}
+
+#weather-station-id { font-weight: 700; color: var(--text-primary); }
+#weather-station-meta { color: var(--text-secondary); font-size: 12px; }
+
+.weather-section {
+  margin-bottom: 18px;
+}
+
+.weather-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.weather-big-value {
+  font-family: 'B612 Mono', monospace;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#weather-cloud-layers {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weather-cloud-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  font-size: 13px;
+}
+
+.weather-cloud-row.weather-empty-row {
+  color: var(--text-muted);
+  justify-content: flex-start;
+}
+
+.weather-cloud-cover { color: var(--text-primary); font-weight: 600; }
+.weather-cloud-height { font-family: 'B612 Mono', monospace; color: var(--text-secondary); }
+
+#weather-phenomena {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weather-phenomenon-badge {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--raw-value-cyan);
+  color: var(--raw-value-cyan);
+  background: rgba(56, 189, 248, .08);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weather-phenomenon-badge.weather-phenomenon-none {
+  border-color: var(--border);
+  color: var(--text-secondary);
+  background: var(--btn-bg);
+  font-weight: 400;
+}
+
+.weather-raw-metar {
+  font-family: 'B612 Mono', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
 .traffic-rules-list {
   display: flex;
   flex-direction: column;

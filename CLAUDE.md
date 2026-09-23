@@ -14456,3 +14456,198 @@ Not done: no change to the native Android Auto port (same standing
 "synced in dedicated passes, not every change" note this file carries
 for every other PWA-only fix) — it has no simplify-types equivalent at
 all yet.
+
+## Weather screen — cloud amount/height, visibility, present weather, standalone (2026-09-23)
+
+Direct instruction: "work on a simple weather reporting feature, the two
+principle items we're interested in are cloud (amount and height) and
+visibility... I think it's also worth including weather phenomena like
+rain, fog, snow etc. I don't think this should go into the principle view
+screens but it should be easily accessible."
+
+**A conscious, explicit exception to this project's own earlier "no full
+METAR/TAF display" rejection — recorded here so a future reader doesn't
+read the two as an unnoticed contradiction.** CLAUDE.md's own "What VCAS
+is, and isn't" section states: "Features that serve neither [navigation
+nor identification] (e.g. full METAR/TAF weather display...) have been
+explicitly rejected even when technically interesting, per direct
+instruction: 'we don't need to display any additional information'
+beyond what feeds the navigation/identification pipelines." This is the
+exact feature category that rule names. The project owner's own direct,
+current instruction supersedes that earlier rejection for this one
+feature — the standing "don't add more than asked" discipline still held
+throughout the implementation (see the narrow scope below), just not the
+"weather display is entirely out of scope" line specifically. Not a
+silent reversal: named directly, both here and in `metarWx.js`'s own
+header comment.
+
+**Reuses existing infrastructure end-to-end, no new fetch/relay
+built.** `MetarProvider` (see the "Visibility model calibration pass #1"
+entry above) already fetches the nearest real METAR every poll tick,
+through the already-deployed CORS relay, purely to feed
+`Visibility.estimate()`'s sightability adjustment — but it discarded
+everything except occlusion-relevant cloud layers and prevailing
+visibility. This screen is downstream of the exact same fetch, not a
+second network integration.
+
+### `metarProvider.js` — three new cached fields, the existing occlusion path untouched
+
+- **`allClouds`** — every reported layer (`_parseAllClouds`, new),
+  including CLR/SKC/NSC/NCD/FEW/SCT, which the existing `_parseClouds`
+  deliberately drops (they can't occlude an aircraft, so they were never
+  useful to the sightability model) — a human weather report needs
+  "Scattered at 3,000ft" or "Sky clear," not just what's relevant to
+  scoring. `_parseClouds` itself is now a thin filter on top of
+  `_parseAllClouds` (same per-layer math, `baseFt`/`baseMslFt` both
+  computed identically) rather than a second parallel implementation —
+  `Visibility.estimate()`'s own `metar.clouds` input is bit-for-bit
+  unchanged.
+- **`wxString`** — the raw present-weather group(s) (e.g. `"-RA BR"`),
+  WMO-coded, decoded for display by the new `metarWx.js` (below).
+- **`rawOb`** — the raw METAR text itself, shown as-is for anyone who
+  already reads METAR notation, no new parsing needed for it.
+
+### `src/logic/metarWx.js` (new) — pure decoding, real WMO present-weather grammar
+
+`MetarWx.decode(wxString)` parses each space-separated present-weather
+token (intensity `+`/`-`/`VC`, then 0-2 descriptor codes, then 1-2
+phenomenon codes — the real WMO Manual on Codes table, not an app
+invention) into a plain-English label ("Light rain", "Thunderstorm with
+rain", "Fog in the vicinity"). Two real grammar subtleties handled
+explicitly rather than glossed over:
+- **Multi-phenomenon tokens** (`RASN` = rain + snow) split into 2-letter
+  pairs and joined with "and".
+- **A descriptor can stand alone with no trailing phenomenon code** in
+  real-world METARs (bare `TS`/`VCTS` — thunderstorm reported with no
+  precipitation) — a second, narrower regex
+  (`DESCRIPTOR_ONLY_RE`) catches this case with its own small standalone-
+  label map, rather than letting it fall through unrecognised.
+
+An unrecognised token (any code this table doesn't cover) passes through
+as its own raw code text rather than being dropped or guessed at —
+matching `MetarProvider`'s own "never a crash or a silently wrong value"
+discipline, extended here to a genuinely-standardised-but-not-
+exhaustively-implemented code table.
+
+Also: `cloudLabel(cover)` (BKN -> "Broken", etc.), `summariseSky(clouds)`
+(a one-line header summary — the LOWEST ceiling-forming layer BKN/OVC/VV
+if one exists, matching how a real briefing would name "the ceiling";
+else the reported clear-sky label; else the highest FEW/SCT layer if
+that's genuinely all there is), and `formatVisibility(sm)` (statute
+miles + a real sm->km conversion, with the API's own "10+" at-least cap
+rendered as "10+ mi (16+ km)" rather than a bare, misleadingly-precise
+"10 mi").
+
+**Verified with real Node execution against the actual shipped file**,
+this project's own established discipline — 51 checks: every plain
+phenomenon code, every intensity prefix, six real descriptor+phenomenon
+combinations (TSRA/SHRA/FZRA/MIFG/BCFG/BLSN/DRSN), the multi-phenomenon
+split, the vicinity prefix (including the standalone-descriptor case,
+`VCTS`), the standalone-descriptor case without vicinity (`TS` alone),
+the `NSW` special case, an unrecognised token's raw-passthrough
+behaviour, case-insensitivity, every cloud-cover label, `summariseSky`'s
+three branches (ceiling present even with a higher FEW/SCT layer also
+reported; all-clear; FEW/SCT-only falling back to the highest layer),
+and `formatVisibility`'s cap/normal/sub-mile cases including a direct
+check that the raw km figure is a real conversion, not a rounded guess.
+**One real bug caught by running the tests, not assumed correct**: the
+first draft's `DESCRIPTOR_LABELS` values were capitalised ("Thunderstorm
+with", "Showers of") on the assumption each word would only ever open a
+label — but a leading intensity word ("Heavy") pushed the descriptor
+into the MIDDLE of the sentence, producing "Heavy Thunderstorm with
+rain" (wrongly capitalised mid-string) instead of "Heavy thunderstorm
+with rain". Fixed by lowercasing every individual word table and
+capitalising only the final assembled string once, at the end — caught
+immediately by the test run, not shipped and found later.
+
+### UI — its own top-bar icon and modal, deliberately kept out of RAW/Hybrid/AIR
+
+New `#btn-weather` (☁) in the top bar, next to the existing compass-
+calibration icon — opens `#weather-screen`, a modal built to the exact
+same visual language as `#calibrate-screen`/`#settings-screen` (dark
+panel, same header/close-button chrome, same `--bg-panel`/`--border`
+tokens). **Deliberately NOT speed-gated**, unlike `#btn-calibrate`/LOG/
+ManualTilt/3D View — this is a pure glance-and-close read-only report
+with no list-tap interaction of its own to invite real driving
+distraction, matching the exact same reasoning that already keeps the
+aircraft popup's own read-only info (distance/altitude/bearing/vis
+badge) ungated while only its record/suppress BUTTONS are (see the
+"popup action gating" entry above). Same tier as `#settings-screen`
+(z-index 200) rather than `#calibrate-screen`'s elevated 235 — this
+screen is only ever reached from the top bar itself, never needs to stay
+reachable from underneath a DIFFERENT already-open overlay the way
+calibrate's aircraft-picker does from inside 3D View.
+
+`renderWeatherScreen()` (`app.js`) is a pure render of whatever
+`MetarProvider.getCached()` currently holds — no fetch of its own, since
+`MetarProvider.refresh()` already runs every poll tick regardless of
+whether this screen is open. Degrades to a plain "waiting for a GPS fix
+and a nearby station report" empty state when nothing's cached yet,
+never a blank/broken screen. Built with real DOM elements + `textContent`
+throughout, not `innerHTML` — every field here (station id, raw METAR
+text, decoded present-weather labels) traces back to untrusted external
+data, the same "real elements, not an escaped template string"
+discipline `renderCalibAircraftList()` already established for ADS-B
+callsigns.
+
+Content, matching exactly what was asked and nothing more: a station-
+id/distance/observation-age header row; visibility (mi + km); a one-line
+sky summary plus every individual reported cloud layer with its own
+cover label and height in feet **AGL** (the conventional, familiar unit
+for a human weather report — "broken at 2,500ft" — deliberately NOT the
+MSL-converted figure `Visibility.estimate()`'s own occlusion check
+uses internally, which only matters for comparing against an aircraft's
+own MSL altitude, not for a person reading a weather report); present-
+weather badges (or an explicit "No significant weather reported" rather
+than an empty, ambiguous gap); and the raw METAR text itself. **No TAF,
+no forecast, no temperature/dewpoint/pressure/wind** — none of that was
+asked for, kept out on purpose per this project's own "don't build
+beyond what's asked" convention, even while overriding the broader
+"no weather display at all" rule above.
+
+`obsTime`'s Unix-epoch-seconds assumption is flagged honestly as
+unverified against a live response (same standing caveat
+`MetarProvider`'s own header comment already carries for this whole
+API) — degrades to showing nothing for the observation age rather than
+a wrong/NaN figure if that assumption turns out wrong.
+
+**Verified with a real Playwright/Chromium harness**, this project's own
+established fallback for UI wiring living inside `app.js`'s own large
+closure (same brace-matched verbatim-extraction technique used
+throughout this file's history): the real `#weather-screen` markup
+(extracted from `index.html`) plus the real `geo.js`/`metarProvider.js`/
+`metarWx.js`/`app.js` render functions, driven against a real mocked
+`aviationweather.gov`-shaped response (not a hand-typed stand-in for
+`MetarProvider`'s own cache shape) — 23 checks: the empty state before
+any data is cached; every field rendering correctly once real data
+lands (station id, distance, observation age, visibility, sky summary,
+both cloud-layer rows with correct cover+height, both decoded
+phenomenon badges, the raw METAR text); a second, independent scenario
+(CAVOK/clear skies, no `wxString`) confirming the "10+" visibility cap,
+the clear-sky summary, a `baseFt`-less SKC layer rendering with no
+height text, and the explicit no-weather badge; `openWeatherScreen()`/
+`closeWeatherScreen()`'s own hide/show toggling; and no horizontal
+overflow at this project's standard 360px check. A SEPARATE harness
+confirmed the real click-event wiring specifically (not just a direct
+function call) — clicking the real `#btn-weather`/`#btn-weather-close`
+buttons genuinely opens/closes the screen through `_initWeatherScreen()`'s
+own `addEventListener` calls, the same "verify the actual DOM event
+path, not just that the handler function works when called directly"
+discipline this project's own simplify-types settings-toggle harness
+already caught a real bug with once (see the entry above). A real
+screenshot (412×915, this project's own standard device-size check)
+confirms the rendered screen reads cleanly — station row, visibility,
+sky summary, both cloud rows, two colour-matched phenomenon badges, and
+the raw METAR text all legible together on one screen.
+
+Full committed suite re-run after every change in this pass — still
+green throughout, growing to **9 files, 375 checks, all passing** (the
+prior 324 plus `metarWx.js`'s own 51).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only feature) — it has no weather-screen equivalent,
+and `MetarProvider`'s Kotlin-side equivalent (if one existed) would need
+the same three new fields ported. No TAF/forecast, no temp/dewpoint/
+pressure/wind, no "favourite station" override — all explicitly out of
+scope for this pass, matching exactly what was asked.

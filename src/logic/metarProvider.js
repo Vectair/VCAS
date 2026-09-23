@@ -1,11 +1,21 @@
 /**
  * MetarProvider — fetches the nearest current METAR (aviationweather.gov,
- * free, no key) and caches it, feeding Visibility.estimate()'s optional
- * `metar` parameter: cloud-layer occlusion and reported prevailing
- * visibility, nothing else. No display surface, no TAF, no other METAR
- * fields — this exists purely to inform the existing sightability score
- * (which then drives symbology and screen priority through the pipeline
- * that already exists), per the app's own navigation+identification focus.
+ * free, no key) and caches it. Feeds two consumers now, deliberately kept
+ * separate:
+ *   1. Visibility.estimate()'s `metar` parameter (cloud-layer occlusion via
+ *      the `clouds` field, reported prevailing visibility via
+ *      `visibilitySm`) — the original, still-untouched purpose.
+ *   2. The Weather screen (2026-09-23, see CLAUDE.md's dated entry and
+ *      src/logic/metarWx.js) — a standalone cloud/visibility/present-
+ *      weather report, reachable from its own top-bar icon, deliberately
+ *      kept OUT of the principal RAW/Hybrid/AIR views. Reads `allClouds`
+ *      (every reported layer, not just the occluding ones),
+ *      `wxString` (present weather — rain/fog/snow/etc, WMO-coded), and
+ *      `rawOb` (the raw METAR text, shown as-is for anyone who already
+ *      reads METAR notation). No TAF, no forecast, no temp/dewpoint/
+ *      pressure/wind — none of that was asked for; kept narrow on
+ *      purpose, matching this project's own "don't build beyond what's
+ *      asked" convention.
  *
  * Refreshed on a slow timer (METARs update roughly hourly, occasional
  * SPECI between) — refresh() is cheap to call every poll tick since it
@@ -29,7 +39,7 @@ const MetarProvider = (() => {
   const OCCLUDING_COVERS = ["BKN", "OVC", "VV"];
   const M_TO_FT = 3.28084;
 
-  let _cached = null; // { stationId, visibilitySm, clouds, obsTime, distanceNm, elevationFt }
+  let _cached = null; // { stationId, visibilitySm, clouds, allClouds, wxString, rawOb, obsTime, distanceNm, elevationFt }
   let _lastFetchAt = 0;
   let _inFlight = null;
 
@@ -86,8 +96,32 @@ const MetarProvider = (() => {
    * matching the raw METAR text's own `BKN110` (11,000ft AGL). When
    * `elevationFt` isn't available, baseMslFt just falls back to the raw
    * AGL value — degrades gracefully rather than dropping the whole layer.
+   *
+   * This is Visibility.estimate()'s own OCCLUSION-only input — kept
+   * exactly as-is (never touched by the 2026-09-23 weather-screen work
+   * below) so that already-verified pathway can't regress. The weather
+   * screen's own "every layer, for display" needs are served by
+   * `_parseAllClouds` instead, a separate function reusing the same
+   * per-layer math.
    */
   function _parseClouds(raw, elevationFt) {
+    return _parseAllClouds(raw, elevationFt)
+      .filter(l => OCCLUDING_COVERS.includes(l.cover) && l.baseFt != null);
+  }
+
+  /**
+   * Every reported layer, unfiltered — including CLR/SKC/NSC/NCD/FEW/SCT,
+   * which `_parseClouds` above deliberately drops since they can't occlude
+   * an aircraft. Added 2026-09-23 for the Weather screen (see
+   * CLAUDE.md/metarWx.js): a human-facing weather report needs to show
+   * "Scattered at 3,000ft" or "Sky clear," not just whatever's relevant to
+   * the sightability model. `baseFt` is `null` for the clear-sky covers
+   * (CLR/SKC/NSC/NCD never report a base) — kept in the array rather than
+   * dropped, since "reported clear" is itself real, displayable
+   * information, unlike the occlusion path where a missing base is simply
+   * unusable.
+   */
+  function _parseAllClouds(raw, elevationFt) {
     if (!Array.isArray(raw)) return [];
     return raw
       .filter(l => l && typeof l.cover === "string")
@@ -98,8 +132,7 @@ const MetarProvider = (() => {
           baseFt,
           baseMslFt: baseFt == null ? null : baseFt + (elevationFt != null ? elevationFt : 0),
         };
-      })
-      .filter(l => OCCLUDING_COVERS.includes(l.cover) && l.baseFt != null);
+      });
   }
 
   async function _fetchNearest(lat, lon) {
@@ -157,6 +190,9 @@ const MetarProvider = (() => {
         stationId: best.icaoId || null,
         visibilitySm: _parseVisibilitySm(best.visib),
         clouds: _parseClouds(best.clouds, elevationFt),
+        allClouds: _parseAllClouds(best.clouds, elevationFt),
+        wxString: typeof best.wxString === "string" && best.wxString.trim() ? best.wxString.trim() : null,
+        rawOb: typeof best.rawOb === "string" && best.rawOb.trim() ? best.rawOb.trim() : null,
         obsTime: best.obsTime || null,
         distanceNm: bestDistNm,
         elevationFt,

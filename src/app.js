@@ -347,6 +347,7 @@
     EosMap.onUserInteraction(onUserPannedMap);
     _initSettingsScreen();
     _initCalibrateScreen();
+    _initWeatherScreen();
     _initDevModeUnlock();
     _initOnboarding();
 
@@ -842,6 +843,145 @@
     const blocked = userSpeedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH;
     document.getElementById("btn-calibrate")?.classList.toggle("calib-toggle-disabled", blocked);
     document.getElementById("btn-3d-calibrate-aircraft")?.classList.toggle("calib-toggle-disabled", blocked);
+  }
+
+  // ---- Weather screen (2026-09-23) ----
+  // A standalone cloud/visibility/present-weather report, sourced from the
+  // same MetarProvider cache Visibility.estimate() already reads for the
+  // sightability model — see metarProvider.js's own header comment and
+  // metarWx.js for the decoding. Deliberately its own top-bar icon/modal,
+  // never folded into RAW/Hybrid/AIR, per direct instruction.
+
+  function _initWeatherScreen() {
+    document.getElementById("btn-weather")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      openWeatherScreen();
+    });
+    document.getElementById("btn-weather-close")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeWeatherScreen();
+    });
+  }
+
+  /** Not speed-gated — see #btn-weather's own index.html comment for why
+   * (a pure glance-and-close read-only report, same reasoning the aircraft
+   * popup's own read-only info is never gated, only its record/suppress
+   * buttons are). Renders whatever's already cached; MetarProvider.refresh()
+   * already runs every poll tick alongside the aircraft fetch
+   * (fetchAircraft()), so this never needs to trigger its own fetch. */
+  function openWeatherScreen() {
+    document.getElementById("weather-screen")?.classList.remove("hidden");
+    renderWeatherScreen();
+  }
+
+  function closeWeatherScreen() {
+    document.getElementById("weather-screen")?.classList.add("hidden");
+  }
+
+  /** Built with real DOM elements + textContent throughout, not innerHTML —
+   * every field read here (station id, raw METAR text, decoded present-
+   * weather labels) ultimately traces back to untrusted external data
+   * (aviationweather.gov), same "real elements, not an escaped template
+   * string" discipline renderCalibAircraftList() already established for
+   * ADS-B callsigns. */
+  function renderWeatherScreen() {
+    const metar = MetarProvider.getCached();
+    const empty = document.getElementById("weather-empty");
+    const content = document.getElementById("weather-content");
+    if (!empty || !content) return;
+
+    if (!metar) {
+      empty.classList.remove("hidden");
+      content.classList.add("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    content.classList.remove("hidden");
+
+    const stationId = document.getElementById("weather-station-id");
+    const stationMeta = document.getElementById("weather-station-meta");
+    if (stationId) stationId.textContent = metar.stationId ? `Station ${metar.stationId}` : "Nearest station";
+    if (stationMeta) {
+      const distTxt = metar.distanceNm != null ? `${metar.distanceNm.toFixed(1)}nm away` : null;
+      const ageTxt = _weatherObsAgeText(metar.obsTime);
+      stationMeta.textContent = [distTxt, ageTxt].filter(Boolean).join(" · ") || "—";
+    }
+
+    const visEl = document.getElementById("weather-visibility-value");
+    if (visEl) {
+      const vis = MetarWx.formatVisibility(metar.visibilitySm);
+      visEl.textContent = vis ? vis.label : "Not reported";
+    }
+
+    const skyEl = document.getElementById("weather-sky-summary");
+    if (skyEl) skyEl.textContent = MetarWx.summariseSky(metar.allClouds);
+
+    const layersEl = document.getElementById("weather-cloud-layers");
+    if (layersEl) {
+      layersEl.innerHTML = "";
+      const layers = Array.isArray(metar.allClouds) ? metar.allClouds : [];
+      if (layers.length === 0) {
+        const row = document.createElement("div");
+        row.className = "weather-cloud-row weather-empty-row";
+        row.textContent = "No cloud layers reported";
+        layersEl.appendChild(row);
+      } else {
+        layers.forEach(l => {
+          const row = document.createElement("div");
+          row.className = "weather-cloud-row";
+          const cover = document.createElement("span");
+          cover.className = "weather-cloud-cover";
+          cover.textContent = MetarWx.cloudLabel(l.cover);
+          row.appendChild(cover);
+          if (l.baseFt != null) {
+            const height = document.createElement("span");
+            height.className = "weather-cloud-height";
+            height.textContent = `${Math.round(l.baseFt).toLocaleString()}ft AGL`;
+            row.appendChild(height);
+          }
+          layersEl.appendChild(row);
+        });
+      }
+    }
+
+    const phenomenaEl = document.getElementById("weather-phenomena");
+    if (phenomenaEl) {
+      phenomenaEl.innerHTML = "";
+      const tokens = MetarWx.decode(metar.wxString);
+      if (tokens.length === 0) {
+        const badge = document.createElement("div");
+        badge.className = "weather-phenomenon-badge weather-phenomenon-none";
+        badge.textContent = "No significant weather reported";
+        phenomenaEl.appendChild(badge);
+      } else {
+        tokens.forEach(tok => {
+          const badge = document.createElement("div");
+          badge.className = "weather-phenomenon-badge";
+          badge.textContent = tok.label;
+          phenomenaEl.appendChild(badge);
+        });
+      }
+    }
+
+    const rawEl = document.getElementById("weather-raw-metar");
+    if (rawEl) rawEl.textContent = metar.rawOb || "—";
+  }
+
+  /** aviationweather.gov's `obsTime` is documented as Unix epoch seconds —
+   * not independently verified against a live response, the same standing
+   * caveat MetarProvider's own header comment already carries for this
+   * whole API. Degrades to null (nothing shown) rather than a wrong/NaN
+   * age if that assumption turns out wrong or the field's simply absent —
+   * never a crash or a silently misleading number. */
+  function _weatherObsAgeText(obsTimeSec) {
+    if (typeof obsTimeSec !== "number" || !Number.isFinite(obsTimeSec)) return null;
+    const ageMin = Math.round((Date.now() - obsTimeSec * 1000) / 60000);
+    if (!Number.isFinite(ageMin) || ageMin < 0) return null;
+    if (ageMin < 1) return "observed just now";
+    if (ageMin === 1) return "observed 1 min ago";
+    if (ageMin < 60) return `observed ${ageMin} min ago`;
+    const ageHr = Math.round(ageMin / 60);
+    return `observed ${ageHr}h ago`;
   }
 
   /** Moves the real #btn-raw/#btn-air/#btn-hybrid/#btn-3d elements into

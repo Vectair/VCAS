@@ -514,6 +514,19 @@
                  entirely) — that screen gets its own equivalent entry
                  point, #btn-3d-calibrate-aircraft, in its own header. -->
             <button type="button" id="btn-calibrate" title="Calibrate compass">🧭</button>
+            <!-- Weather (2026-09-23) — a standalone cloud/visibility/present-
+                 weather report (METAR-sourced, the same station data
+                 MetarProvider already fetches for the sightability model —
+                 see src/logic/metarWx.js/CLAUDE.md's dated entry), reachable
+                 from its own icon rather than folded into any principal
+                 RAW/Hybrid/AIR view. Not speed-gated (matching #btn-settings,
+                 not #btn-calibrate/LOG) — this is a pure glance-and-close
+                 read-only report with no list-tap interaction of its own,
+                 the same reasoning that already keeps the aircraft popup's
+                 own read-only info ungated while only its record/suppress
+                 BUTTONS are. Opens #weather-screen; see app.js's
+                 openWeatherScreen(). -->
+            <button type="button" id="btn-weather" title="Weather">☁</button>
             <button type="button" id="btn-settings" title="Settings">⚙</button>
           </div>
         </div>
@@ -762,6 +775,58 @@
         <div id="calib-confirm-text">Facing it?</div>
         <button type="button" id="btn-calib-confirm-cancel">Cancel</button>
         <button type="button" id="btn-calib-confirm-ok">Confirm heading</button>
+      </div>
+
+      <!-- Weather screen (2026-09-23) — a standalone cloud amount/height,
+           visibility, and present-weather (rain/fog/snow/etc) report,
+           sourced from the same station-based METAR data MetarProvider
+           already fetches for the sightability model (src/logic/
+           metarProvider.js/metarWx.js). Reachable from its own top-bar
+           icon (#btn-weather), a modal like #settings-screen/
+           #calibrate-screen but with no speed gate — see that button's own
+           comment for why. Direct instruction, 2026-09-23: a conscious,
+           explicit exception to this project's own earlier "no full
+           METAR/TAF display" rejection (see CLAUDE.md's "What VCAS is,
+           and isn't" section) — kept deliberately narrow regardless (no
+           TAF/forecast/temp/dewpoint/pressure/wind), matching what was
+           actually asked for. -->
+      <div id="weather-screen" class="hidden">
+        <div id="weather-header">
+          <div id="weather-title">Weather</div>
+          <button type="button" id="btn-weather-close" title="Close">✕</button>
+        </div>
+        <div id="weather-body">
+          <div id="weather-empty" class="weather-empty-state hidden">
+            No weather data available yet — waiting for a GPS fix and a nearby station report.
+          </div>
+          <div id="weather-content" class="hidden">
+            <div id="weather-station-row">
+              <span id="weather-station-id"></span>
+              <span id="weather-station-meta"></span>
+            </div>
+
+            <div class="weather-section">
+              <div class="weather-section-title">Visibility</div>
+              <div id="weather-visibility-value" class="weather-big-value"></div>
+            </div>
+
+            <div class="weather-section">
+              <div class="weather-section-title">Cloud</div>
+              <div id="weather-sky-summary" class="weather-big-value"></div>
+              <div id="weather-cloud-layers"></div>
+            </div>
+
+            <div class="weather-section">
+              <div class="weather-section-title">Weather phenomena</div>
+              <div id="weather-phenomena"></div>
+            </div>
+
+            <div class="weather-section">
+              <div class="weather-section-title">Raw METAR</div>
+              <div id="weather-raw-metar" class="weather-raw-metar"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Settings screen — "configure occasionally" preferences live here,
@@ -1044,6 +1109,7 @@
   <script src="src/data/adsbExchangeClient.js?v=__BUILD_ID__"></script>
   <script src="src/logic/geo.js?v=__BUILD_ID__"></script>
   <script src="src/logic/metarProvider.js?v=__BUILD_ID__"></script>
+  <script src="src/logic/metarWx.js?v=__BUILD_ID__"></script>
   <script src="src/logic/localObstruction.js?v=__BUILD_ID__"></script>
   <script src="src/logic/upperAirProvider.js?v=__BUILD_ID__"></script>
   <script src="src/logic/contrail.js?v=__BUILD_ID__"></script>

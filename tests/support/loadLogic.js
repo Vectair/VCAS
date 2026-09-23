@@ -41,7 +41,11 @@ function loadLogic() {
   // Visibility/etc dependency, nothing else references it as a free
   // global), added 2026-09-21 for the "Simplify aircraft types" setting.
   const SimplifiedType = require(path.join(ROOT, "simplifiedType.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType };
+  // MetarWx — standalone, same reasoning (no Geo/Visibility/etc dependency,
+  // nothing else references it as a free global), added 2026-09-23 for the
+  // Weather screen.
+  const MetarWx = require(path.join(ROOT, "metarWx.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx };
 }
 
 module.exports = { loadLogic };

@@ -191,6 +191,20 @@ scoping efforts rather than one screen built in one pass:
     en route, destination conditions. A natural follow-up once the
     non-route version works, not a prerequisite for it.
 
+**2026-09-23 update**: the standalone "current conditions" building
+block this idea's dynamic half would need is now built and shipped —
+see CLAUDE.md's "Weather screen" entry. `MetarProvider` now caches every
+cloud layer (not just occlusion-relevant ones), the raw present-weather
+string, and the raw METAR text; `src/logic/metarWx.js` decodes all of it
+into plain-English labels (cloud cover/height, present-weather phrases,
+formatted visibility). A real, standalone top-bar screen, NOT the
+direction/altitude-aware sightability synthesis this idea describes —
+that harder half (proximity-weighted, by-bearing analysis of how
+conditions affect spotting in different directions) is still entirely
+unbuilt — but any future work on that synthesis should reuse
+`MetarWx`'s decoding rather than re-deriving present-weather/cloud-label
+text from scratch a second time.
+
 ### Simplified/grouped aircraft type display (2026-09-21)
 
 Direct tester feedback, relayed by the project owner, who agrees: showing
