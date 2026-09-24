@@ -15452,3 +15452,113 @@ standing "synced in dedicated passes, not every change" note this file
 carries for every other PWA-only fix) — worth checking whether its own
 `VcasMapRenderer.kt`/mode-switch code has an equivalent gap for either
 bug class, since neither was audited there this pass.
+
+## Navigation button artwork, v2: real inline SVG replaces the flattened PNGs, and a real class-name collision caught before shipping (2026-09-24)
+
+Direct follow-up, one day after the previous nav-button artwork
+(`route-btn-off.png`/`route-btn-on.png`, see "Custom icon artwork
+received and wired in" above) shipped: "I've updated the navigation
+buttons:" followed by two complete SVG markup blocks (Off/On states) —
+revised artwork from the project owner's own Photoshop/Illustrator
+export, superseding the flattened PNGs from the day before.
+
+**Extraction, same hard-won safe method this project already
+established for exactly this risk.** Per the prior entry's own
+documented lesson (a real one-character base64 corruption, caught only
+by a full `PIL.Image.load()` decode, from manually retyping pasted SVG
+markup through a tool call) — the pasted content was instead pulled
+byte-exact directly from this session's own transcript JSONL file on
+disk via `json.loads()` + string extraction, zero LLM token
+regeneration, zero retyping risk. Both embedded PNG glyphs (36×36 each,
+one per state) were decoded and `PIL.Image.load()`-validated before
+touching any real file, and — after the real edit — the base64
+ultimately embedded in the live `index.html` was diffed byte-for-byte
+against the transcript-extracted originals to confirm the whole pipeline
+introduced zero corruption at any step, not just the extraction step.
+
+**A real, previously-unconsidered structural difference from the prior
+artwork: this is mostly vector, not fully flattened raster.** Each state
+is a real bezel `<path>` (17px-radius rounded rect, 4px stroke) + a
+diamond `<path>` (6px stroke) + two `<text>` elements reading "OFF"/"ON"
+(`font-family: B612, font-weight: 700` — the app's own real, already-
+loaded typeface, not a generic fallback), with only a small 36×36
+embedded raster PNG for the turn-arrow glyph inside the diamond. This
+changed the integration decision from the prior artwork's own "flatten
+to one raster image" approach (chosen there because THAT artwork was
+already fully raster start to finish) — genuine inline `<svg>` was used
+instead of either flattening to PNG or referencing an external `.svg`
+file via `<img src>`, for two concrete, checked reasons: an SVG loaded
+via `<img src>` renders in a sandboxed context with no access to the
+parent document's own loaded fonts or stylesheets, so the "OFF"/"ON"
+text would silently fall back off B612 onto the browser's generic
+default — confirmed to be a real risk, not a theoretical one, by reading
+how `<img>`-embedded SVGs are actually specified to behave, not assumed;
+and staying vector means the artwork scales cleanly at any real device
+pixel ratio instead of being pinned to one fixed raster resolution,
+mattering more here than for the car marker (which has no text at all).
+
+**A real, previously-undiscovered bug caught by testing BEFORE shipping,
+not found in the field afterward — worth recording as its own lesson.**
+Both source SVGs reuse identical CSS class names (`cls-1`..`cls-4`) AND
+element ids (`Button`/`On`, `NAV`, `Rectangle_11_copy`, `OFF`/`ON`) with
+genuinely DIFFERENT colour definitions per state (maroon `#542926` for
+Off's diamond stroke, cyan `#0ab9fe` for On's). Since both states need
+to live in the SAME document at once (the existing `body.route-active`
+CSS toggle swaps which is *visible*, but both are always present in the
+DOM), a real Playwright render of both inlined together — done
+proactively, before touching the real repo, not after a report —
+confirmed a genuine collision: `<style>` blocks inside an inline SVG are
+**not** scoped to that SVG's own subtree, so ordinary CSS cascade/
+source-order rules applied across the whole document, and the LATER
+`<style>` block (On's) silently overrode the EARLIER one's (Off's)
+identically-named class definitions — the Off state's own diamond
+rendered in the On state's cyan instead of its own maroon. Fixed by
+mechanically renaming every `cls-N`/id in each SVG to a unique per-state
+prefix (`rbo-*` for Off, `rbn-*` for On) via pure regex substitution
+before inlining — re-verified with the same collision test afterward,
+confirming both states now retain their own correct, independent colours
+when rendered together. None of the renamed ids were referenced by any
+existing CSS/JS in this app (confirmed via grep before renaming), so
+this was a pure, safe mechanical fix with no behavioural side effect.
+
+**CSS sizing behaviour was verified, not assumed identical between
+`<img>` and inline `<svg>`.** The existing `.route-btn-face { width:
+60px; height: auto; }` rule (real-device-bisected against the OLD
+90×34-ratio artwork, see the prior entry) was re-checked directly
+against the new artwork's own 219×84 viewBox (2.607:1, a close but not
+identical ratio to the old 2.647:1) — confirmed via a real
+`getBoundingClientRect()` read that `width: 60px; height: auto;`
+correctly preserves an inline SVG's own intrinsic aspect ratio from its
+`viewBox` exactly the way it already did for the old `<img>`'s
+width/height attributes (60px → 23.01px, matching the analytically
+expected value), rather than assumed to behave the same across the two
+genuinely different element types.
+
+**Verified end-to-end against the real, live-edited `index.html`/
+`VCAS.css`** (this project's established convention), not just the
+isolated pieces: real Playwright renders at this project's standard
+360px/412px widths, in both `data-nav-style="raw"` and `"hybrid"`
+contexts, confirming zero horizontal overflow in every combination,
+correct 60×23 real rendered size, and correct Off↔On visibility toggling
+via `getComputedStyle` (not just class presence) both before and after
+toggling `body.route-active`. Real screenshots confirm both states read
+clearly and match the project's existing chrome. Full `tests/run.js`
+suite re-run afterward — still all 450 checks passing, unaffected (this
+change touches only `index.html`/`src/styles/VCAS.css`/asset files,
+none of `src/logic/`).
+
+The now-unreferenced `assets/icons/route-btn-off.png`/`route-btn-on.png`
+(the prior day's flattened artwork) were deleted outright rather than
+left as a disabled shell, per this project's own established "delete
+unused code" convention — confirmed via a repo-wide grep that nothing
+else references them (their only remaining mention is this file's own
+historical narrative of the prior entry, left as-is since CLAUDE.md is a
+chronological changelog, not something rewritten retroactively).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — it has no equivalent nav-button artwork
+to update. Not verified: real on-device rendering — the same "logic/
+DOM-verified, real-device-pending" caveat this file already carries for
+every UI change verified this way, not yet confirmed by the project
+owner on their own phone.

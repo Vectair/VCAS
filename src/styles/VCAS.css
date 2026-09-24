@@ -1772,15 +1772,17 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
    requestRouteTo()/clearActiveRoute() — see app.js), not a fabricated
    indicator: OFF highlighted with no active route, ON highlighted once
    one exists. */
-/* 2026-09-23: real project-owner-supplied artwork (two complete PNG
-   button faces, diamond + OFF/ON pill already baked into each image)
+/* 2026-09-23/24: real project-owner-supplied artwork (a complete two-
+   state button face, diamond + OFF/ON pill baked into each state)
    replaced the old currentColor SVG diamond + separately-CSS-styled
-   OFF/ON text spans — see index.html's own comment on the markup. The
-   artwork supplies its own background/border/bevel, so .route-btn itself
-   is stripped down to a plain transparent hit-target sized to the image,
-   overriding .mode-btn's base padding/border/background/box-shadow
-   (which this button used to visibly need, back when its own content
-   was just a bare icon + text with no background of its own). */
+   OFF/ON text spans — see index.html's own comment on the markup for
+   why the v2 (2026-09-24) update is genuine inline SVG rather than the
+   v1 flattened-PNG approach it replaced. The artwork supplies its own
+   background/border/bevel, so .route-btn itself is stripped down to a
+   plain transparent hit-target sized to it, overriding .mode-btn's base
+   padding/border/background/box-shadow (which this button used to
+   visibly need, back when its own content was just a bare icon + text
+   with no background of its own). */
 .route-btn {
   display: flex;
   align-items: center;
@@ -1799,12 +1801,16 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
 
 .route-btn-face {
   display: block;
-  /* Native artwork is 90x34 (2.647:1), so this is a real downscale, not
-     1:1 pixel display — measured the actual overflow threshold via
-     Playwright at this project's standard 360px narrow-width check
-     rather than guessing: #mode-row stays overflow-free up to 64px here
-     (68px overflows by 1px), so 60px keeps real margin below that edge
-     rather than sitting exactly on it. */
+  /* Native artwork (v2, 2026-09-24) is a 219x84 viewBox (2.607:1) — a
+     real downscale, not 1:1 pixel display, same as the v1 raster artwork
+     this replaced (90x34, 2.647:1 — close enough a ratio that the
+     already-measured 60px width still fits with real margin to spare;
+     re-confirmed via Playwright against the actual new artwork, not
+     just assumed from the old ratio). width:60px / height:auto works
+     identically for this inline <svg> root as it did for the old <img>
+     — CSS width/height on an SVG element with a real viewBox correctly
+     preserves its own intrinsic aspect ratio, confirmed directly rather
+     than assumed different element types would behave alike. */
   width: 60px;
   height: auto;
 }
