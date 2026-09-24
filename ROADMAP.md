@@ -528,6 +528,11 @@ equivalent yet, accumulated across many passes without a full sync:
   same aircraft). Worth checking whether the native port's own
   `VcasMapRenderer.kt`/mode-switch code has an equivalent gap for
   either bug class — not audited there this pass.
+- Navigation-button artwork, v2 (2026-09-24): the real inline-SVG Off/On
+  button faces (replacing the 2026-09-23 flattened PNGs) have no native
+  equivalent — `PhoneAircraftIcons.kt`/`VcasPalette.kt` still draw the
+  route/nav button's own icon procedurally, unrelated to either version
+  of this PWA-only artwork.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
