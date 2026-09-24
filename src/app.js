@@ -381,14 +381,25 @@
     let _pillFitResizeTimer = null;
     window.addEventListener("resize", () => {
       clearTimeout(_pillFitResizeTimer);
-      _pillFitResizeTimer = setTimeout(() => UI.refitStatusPillRow(), 120);
+      _pillFitResizeTimer = setTimeout(() => {
+        UI.refitStatusPillRow();
+        // Same reasoning as the status pills, applied to the SCREEN
+        // bracket's own real-measured ticks (2026-09-24) — a resize can
+        // shift button widths (text wrap, viewport width) with no
+        // button-order change to trigger _applyModeButtonOrder()'s own
+        // call to this.
+        _updateModeBracket();
+      }, 120);
     });
     // A web font (B612) finishing its load after the pills' first render
     // can shift their real text width — re-check once fonts are actually
     // ready rather than trusting a measurement taken against fallback-font
     // metrics. Guarded: document.fonts isn't universally supported.
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(() => UI.refitStatusPillRow());
+      document.fonts.ready.then(() => {
+        UI.refitStatusPillRow();
+        _updateModeBracket();
+      });
     }
 
     // Measure the real bottom-bar height immediately so the VIEW/SPD/LOG dev
@@ -1240,6 +1251,76 @@
       const btn = idToBtn[id];
       if (btn) container.appendChild(btn);
     });
+    // A reorder moves real buttons around, which the bracket's own ticks
+    // need to track — see _updateModeBracket()'s own doc comment for why
+    // this can't just be a static shape.
+    _updateModeBracket();
+  }
+
+  /**
+   * Redraws the "SCREEN" bracket's ticks/horizontal line from real,
+   * measured button positions (2026-09-24 feedback, three separate
+   * findings against the design draft):
+   *  - each of the 4 mode buttons should align with its own tick, but the
+   *    old SVG used 4 evenly-spaced ticks (x=1,3,5,7 in a 0-8 viewBox) on
+   *    the assumption the buttons are roughly equal width — false (HYBRID
+   *    is far wider than AIR/3D); confirmed via Playwright up to ~8px of
+   *    real misalignment at 360-412px widths.
+   *  - the horizontal connector shouldn't extend past the two outermost
+   *    ticks — the old path (`M0,0 L8,0`) ran the full viewBox width while
+   *    the outermost ticks sat at x=1/x=7, overshooting on both ends.
+   *  - the horizontal line's own stroke should match the vertical ticks'
+   *    thickness — the old SVG used preserveAspectRatio="none" with one
+   *    stroke-width in a non-square viewBox, so X/Y scaled differently
+   *    (measured: ~3.2px effective vertical-tick thickness vs ~0.9px
+   *    horizontal-line thickness at 412px — a real, confirmed mismatch,
+   *    not a rounding artifact).
+   * Fixed by abandoning the old fractional/preserveAspectRatio approach
+   * entirely: the SVG's viewBox is set to the bracket's own real pixel
+   * size (1 unit == 1 CSS px) so a single literal stroke-width renders
+   * identically in both directions, and every tick's x is each button's
+   * own real getBoundingClientRect() centre — the same "measure the real
+   * DOM, don't guess" discipline #route-card/_rawChromeInsets() already
+   * established elsewhere in this app. Called after _applyModeButtonOrder()
+   * (button order/positions can change) and on resize/font-load (button
+   * widths can shift) — see init()'s own resize listener.
+   */
+  function _updateModeBracket() {
+    const svg = document.querySelector(".mode-bracket");
+    const container = document.querySelector(".mode-toggle");
+    if (!svg || !container) return;
+    const buttons = Array.from(container.querySelectorAll(".mode-btn"));
+    if (buttons.length === 0) return;
+
+    const bracketRect = svg.getBoundingClientRect();
+    const w = bracketRect.width;
+    const h = bracketRect.height;
+    if (w <= 0 || h <= 0) return; // not laid out yet (e.g. display:none)
+
+    const STROKE_PX = 1.5;
+    const centers = buttons
+      .map(btn => {
+        const r = btn.getBoundingClientRect();
+        return r.left + r.width / 2 - bracketRect.left;
+      })
+      .sort((a, b) => a - b);
+
+    const minC = centers[0];
+    const maxC = centers[centers.length - 1];
+
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.removeAttribute("preserveAspectRatio");
+
+    let d = `M${minC},0 L${maxC},0`;
+    centers.forEach(cx => {
+      d += ` M${cx},0 L${cx},${h}`;
+    });
+
+    const path = svg.querySelector("path");
+    if (path) {
+      path.setAttribute("d", d);
+      path.setAttribute("stroke-width", String(STROKE_PX));
+    }
   }
 
   const MODE_ORDER_LABELS = { raw: "RAW", air: "AIR", hybrid: "HYBRID", "3d": "3D" };

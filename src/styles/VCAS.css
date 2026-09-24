@@ -553,11 +553,30 @@ body.colorblind-safe .status-pill.stale  .dot { background: #d55e00; }
 /* Mode row: [Hybrid|Raw|Air toggle] | count | route */
 #mode-row {
   display: flex;
-  align-items: center;
+  /* flex-start, not center (2026-09-24 feedback) — both .mode-row-groups
+     start their own column with a label as the first child, so top-
+     aligning the ROW guarantees "Screen"/"Navigation" land at the exact
+     same Y regardless of how much taller the SCREEN group's own bracket+
+     button row is than the NAV group's single button — vertically
+     centering the two groups independently (the old behaviour) offset
+     the labels from each other whenever the two groups' total heights
+     differed, which they do. #aircraft-count isn't part of either group
+     and gets its own align-self below so it stays vertically centred. */
+  align-items: flex-start;
   justify-content: space-between;
   padding: 12px 14px 14px;
   background: var(--raw-chrome-bg);
-  gap: 10px;
+  /* Trimmed from 10px (2026-09-24) — the nav button's own real width grew
+     from 60px to ~78px matching the 4 mode buttons' height (see
+     .route-btn-face above), which pushed this row into a real, confirmed
+     360px-width overflow (13px in Hybrid/AIR, where #aircraft-count is
+     also present) that didn't exist before. Recovered here plus in
+     .mode-toggle's own inter-button gap below, rather than shrinking the
+     nav button back down and undoing the "same scale as the 4 screen
+     buttons" fix — verified clear (with margin) at 360px in all three
+     modes via Playwright, not just at the 412px this project's checks
+     have sometimes stopped at. */
+  gap: 6px;
 }
 
 /* The horizontal rule above the mode row (added 2026-09-08 to match the
@@ -565,9 +584,11 @@ body.colorblind-safe .status-pill.stale  .dot { background: #d55e00; }
    redundant in Hybrid/AIR — the real map content above it already reads
    as its own visual break, per direct instruction (2026-09-15). RAW has
    no map underneath (pure black instrument background), so it keeps the
-   rule as the only thing separating the row from the content above. */
+   rule as the only thing separating the row from the content above.
+   White (2026-09-24 feedback), not the muted --border grey it used to
+   be. */
 body[data-mode="nav"][data-nav-style="raw"] #mode-row {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #fff;
 }
 
 .mode-btn {
@@ -603,7 +624,9 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
 .mode-toggle {
   display: flex;
   align-items: center;
-  gap: 5px;
+  /* 5px -> 3px (2026-09-24), same "recover the width the nav button's
+     own growth needed" reasoning as #mode-row's own gap trim above. */
+  gap: 3px;
 }
 
 /* High-contrast black/white switch caps, pixel-sampled straight from the
@@ -620,6 +643,15 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   background: #000;
   border-color: #fff;
   color: #fff;
+  /* The mockup's own switch caps carry a slight dark bezel ring outside
+     their white/cyan border (2026-09-24 feedback: "all buttons are
+     missing the slight black border seen in the mockup") — the same
+     #2c2d2e near-black already pixel-matched to the route button's own
+     artwork bezel stroke (see .route-btn-face below), drawn as an
+     outline rather than folded into the border itself so it doesn't
+     disturb the existing white/cyan state colour or box-shadow rules. */
+  outline: 1px solid #2c2d2e;
+  outline-offset: 0;
 }
 
 /* Active button reads via a coloured border+text, not a filled
@@ -657,36 +689,62 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   flex-shrink: 0;
 }
 
+/* Both "Screen" and "Navigation" share this same box model (padding,
+   border, radius) now, not just the same font — 2026-09-24 feedback:
+   "The Screen (and its outline) and Navigation labels should both be on
+   the same horizontal level." A bare-text "Navigation" sat visibly
+   higher/shorter than "Screen"'s own bordered capsule (16px vs 10px
+   tall, confirmed via Playwright) purely because the capsule's border+
+   padding added real height the plain label never claimed — giving both
+   the identical padding/border footprint (a transparent border here,
+   overridden to a visible one by .mode-row-label-boxed below) makes them
+   occupy the same vertical space regardless of which one is actually
+   outlined, so #mode-row's own top-alignment (see its own rule below)
+   lines their text up exactly. White text per the same feedback. */
 .mode-row-label {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: #fff;
   white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  padding: 2px 8px;
+  box-sizing: border-box;
 }
 
 /* "SCREEN"'s own bordered capsule (2026-09-08, matching the draft) — "NAV"
    stays plain text, per the draft's own distinction between the two
-   labels (only SCREEN gets a boxed outline there). */
+   labels (only SCREEN gets a boxed outline there). Only the border
+   colour differs now (see .mode-row-label above) — both share the same
+   padding/radius/border-width, so this alone doesn't change the label's
+   own footprint, matching the "same horizontal level" requirement. */
 .mode-row-label-boxed {
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2px 8px;
+  border-color: #fff;
 }
 
-/* Bracket connecting the "SCREEN" label down to the three mode buttons —
-   purely decorative (the same tree-connector the draft draws by hand),
-   drawn once as a relative-unit SVG (viewBox 0 0 6 1.4, stretched via
-   CSS width to whatever the actual button row measures) rather than
-   computed from real button positions — the three drop points (x=1,3,5)
-   assume three roughly-equal-width buttons, which HYBRID/RAW/AIR already
-   are. .mode-bracket-stem is the short vertical link between the label
-   and the bracket's own horizontal bar. */
+/* Bracket connecting the "SCREEN" label down to the four mode buttons —
+   the tree-connector the design draft draws by hand. Originally a static,
+   relative-unit SVG assuming roughly-equal-width buttons — real
+   measurement (2026-09-24 feedback) showed that's not true (HYBRID's own
+   label is far wider than AIR's/3D's, up to ~8px of real misalignment
+   between a tick and its button's true centre) — app.js's
+   _updateModeBracket() now regenerates this path's own d/viewBox/
+   stroke-width from real getBoundingClientRect() measurements every time
+   the button set/order/sizes can change (mirrors #route-card/
+   _rawChromeInsets()'s own "measure the real DOM, don't guess"
+   discipline). .mode-bracket-stem is the short vertical link between the
+   label and the bracket's own horizontal bar — recoloured to the same
+   green as the JS-drawn ticks (2026-09-24: it was a dim border-grey
+   before, reading as a 4th disconnected element rather than what the
+   feedback calls "a 5th vertical green line linking to the Screen
+   label") and widened to the same 1.5px stroke weight _updateModeBracket()
+   itself now draws. */
 .mode-bracket-stem {
-  width: 1px;
+  width: 1.5px;
   height: 6px;
-  background: var(--border);
+  background: var(--raw-value-green);
 }
 
 .mode-bracket {
@@ -699,7 +757,7 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
   align-self: stretch;
   width: 1px;
   flex-shrink: 0;
-  background: var(--border);
+  background: #fff;
   /* Pushes itself + the NAV group after it to the row's right edge,
      collecting whatever free space #aircraft-count's own flex:1 doesn't
      claim first — this is what keeps SCREEN-left/NAV-right correct
@@ -711,6 +769,12 @@ body[data-mode="nav"][data-nav-style="raw"] #mode-row {
 
 #aircraft-count {
   flex: 1;
+  /* #mode-row switched to align-items:flex-start (2026-09-24, see that
+     rule's own comment) so the SCREEN/NAVIGATION labels line up — this
+     is the one #mode-row child that isn't part of either label group and
+     still wants its old vertical centring, so it gets its own
+     align-self back rather than inheriting the row's new top-alignment. */
+  align-self: center;
   /* Real bug fix (2026-09-14): flex items default to min-width:auto, which
      floors them at their own text's intrinsic width rather than letting
      them actually shrink — on a narrower real device (~360px, not the
@@ -1801,18 +1865,26 @@ body[data-mode="nav"][data-nav-style="raw"] #aircraft-count {
 
 .route-btn-face {
   display: block;
-  /* Native artwork (v2, 2026-09-24) is a 219x84 viewBox (2.607:1) — a
-     real downscale, not 1:1 pixel display, same as the v1 raster artwork
-     this replaced (90x34, 2.647:1 — close enough a ratio that the
-     already-measured 60px width still fits with real margin to spare;
-     re-confirmed via Playwright against the actual new artwork, not
-     just assumed from the old ratio). width:60px / height:auto works
-     identically for this inline <svg> root as it did for the old <img>
-     — CSS width/height on an SVG element with a real viewBox correctly
-     preserves its own intrinsic aspect ratio, confirmed directly rather
-     than assumed different element types would behave alike. */
-  width: 60px;
-  height: auto;
+  /* Sized by HEIGHT, not width (2026-09-24 feedback: "The Navigation
+     button should be to the same scale and shape as the 4 screen
+     buttons"). 30px is .mode-toggle .mode-btn's own real, measured
+     rendered height (Playwright, not guessed) — a genuine coincidence
+     worth noting, not a second number to keep in sync by hand: the
+     artwork's own bezel corner radius (17 units in its 219x84 viewBox)
+     lands at 17*(30/84)≈6.1px once scaled to this height, matching
+     .mode-btn's own 6px border-radius (var(--radius)) closely enough
+     that the "same rounded edges" half of the feedback falls out of
+     this one change for free, with no separate CSS border-radius/
+     overflow:hidden clip needed on top of the artwork's own path.
+     width:auto/height:Npx preserves this inline <svg> root's own
+     intrinsic aspect ratio exactly like width:Npx/height:auto already
+     did for the old sizing (confirmed both directions via Playwright,
+     not assumed symmetric) — real content width comes out ~78px at
+     this height, wider than any one mode button (expected: this one has
+     a diamond icon + OFF/ON text baked in, more content than a bare
+     label), same overall "scale" as its siblings either way. */
+  width: auto;
+  height: 30px;
 }
 
 .route-btn-face-on { display: none; }

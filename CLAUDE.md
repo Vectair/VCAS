@@ -15562,3 +15562,170 @@ to update. Not verified: real on-device rendering — the same "logic/
 DOM-verified, real-device-pending" caveat this file already carries for
 every UI change verified this way, not yet confirmed by the project
 owner on their own phone.
+
+## Mode-row chrome, matched against the design mockup again: nav-button scale/shape, black bezel borders, bracket alignment, label parity, white separators (2026-09-24, later the same day)
+
+Direct follow-up, immediately after the nav-button-artwork-v2 work above
+shipped — a real screenshot of the resulting RAW bottom bar, compared
+directly against the project owner's own original design mockup, with
+itemized corrections: "The Navigation button should be to the same scale
+and shape as the 4 screen buttons. So it needs to have the same rounded
+edges. Now that I look closer, I realise all buttons are missing the
+slight black border seen in the mockup. All 4 screen buttons should be
+aligned with their associated green line. Additionally the Green
+horizontal green connector line needs to be the same thickness as the 4
+vertical ones and it should not extend further that the two outer most.
+There should also be a 5th vertical green line linking to the Screen
+label. The Screen (and its outline) and Navigation labels should both be
+on the same horizontal level, white text and the separation lines between
+screen and navigation and the upper horizontal one should also be white."
+Eight concrete items, all addressed in this one pass.
+
+**1. Nav button scale/shape — sized by height, not a fixed width.**
+`.route-btn-face` switched from `width:60px;height:auto;` to
+`width:auto;height:30px;` — 30px being `.mode-toggle .mode-btn`'s own
+real, Playwright-measured rendered height (not guessed). A genuine, worth-
+recording coincidence: the artwork's own bezel corner radius (17 units in
+its 219×84 viewBox) lands at `17*(30/84)≈6.1px` once scaled to this
+height — matching `.mode-btn`'s own 6px `var(--radius)` closely enough
+that "same rounded edges" fell out of this one change for free, no
+separate CSS `border-radius`/`overflow:hidden` clip needed. Real content
+width comes out ~78px at this height (wider than any single mode button —
+expected, this one button packs a diamond icon + OFF/ON text into its own
+artwork, more content than a bare label).
+
+**2. Black border added to all 5 buttons.** The 4 mode-toggle buttons
+never had one — only the nav artwork's own bezel stroke did. Added
+`outline: 1px solid #2c2d2e; outline-offset: 0;` to `.mode-toggle
+.mode-btn` — the exact same `#2c2d2e` near-black already established as
+this artwork's own bezel colour (see the nav-button-artwork-v2 entry
+above), drawn as an `outline` (not folded into `border`) specifically so
+it doesn't disturb the existing white/cyan state border or box-shadow
+rules.
+
+**3-5. The bracket: real per-button alignment, matched stroke thickness,
+no overshoot, plus the missing 5th line — all from one rewrite, not three
+patches.** `.mode-bracket`'s SVG was a static, relative-unit path
+(`viewBox="0 0 8 1.4"`, `preserveAspectRatio="none"`, ticks at fixed
+fractions x=1/3/5/7) built on the assumption of four roughly-equal-width
+buttons — real measurement (Playwright) showed that's false: HYBRID's own
+label is far wider than AIR's/3D's, producing up to ~8px of real
+misalignment between a tick and its button's true centre at 360-412px.
+The same non-uniform scaling (`preserveAspectRatio="none"` stretching an
+8×1.4 viewBox onto a ~216×10 real box) also meant the horizontal line's
+effective stroke thickness (~0.86px, scaled by the Y axis) didn't match
+the vertical ticks' own (~3.24px, scaled by the X axis) — a real,
+measured mismatch, not a rounding artifact, directly matching item 4's
+complaint. Fixed by abandoning static/fractional SVG geometry entirely:
+new `app.js` function `_updateModeBracket()` measures each real mode
+button's `getBoundingClientRect()` centre, sets the SVG's own `viewBox`
+to its real pixel size (`0 0 {w} {h}`, dropping `preserveAspectRatio`
+altogether — 1 unit == 1 CSS px, so one literal `stroke-width` renders
+identically in both directions), draws one vertical tick per button at
+its own true centre, and draws the horizontal connector spanning exactly
+`min(centres)` to `max(centres)` — never past the two outermost ticks,
+per item 4's other half. Called from `_applyModeButtonOrder()` (so a
+Settings-screen mode reorder, which moves real buttons, keeps the bracket
+correct — covers all three of that function's existing call sites for
+free) and from the same debounced resize listener / `document.fonts.
+ready` handler that already exists for the top-bar status pills (button
+widths can shift on resize or once B612 finishes loading, same reasoning
+`UI._fitStatusPillRow()` already established). Item 5 (the missing "5th
+vertical green line linking to the Screen label") turned out to be a
+colour bug, not a missing element: `.mode-bracket-stem` — the short
+vertical link between the label and the bracket's own horizontal bar —
+already existed, just styled `background: var(--border)` (a dim
+grey), reading as a 4th disconnected element rather than part of the same
+green "tree." Recoloured to `var(--raw-value-green)` and widened to
+1.5px, matching `_updateModeBracket()`'s own newly-set tick/line stroke
+weight.
+
+**6-7. Label parity: same vertical level, both white.** "Screen"
+(`.mode-row-label.mode-row-label-boxed`, a bordered capsule) and
+"Navigation" (`.mode-row-label` alone, bare text) measured 16px vs 10px
+tall — the capsule's own border+padding added real height the plain
+label never claimed, so even though both labels sat at the top of their
+own `.mode-row-group` column, the groups' own differing total content
+heights (SCREEN's bracket+button row vs. NAV's single button) meant
+`#mode-row`'s previous `align-items:center` landed the two groups — and
+therefore their labels — at different absolute Y. Fixed two ways
+together: `.mode-row-label`'s base rule now carries the SAME padding/
+border/radius footprint `.mode-row-label-boxed` used to own alone (a
+transparent 1px border by default, overridden to a visible white one by
+`.mode-row-label-boxed`, which is now just a one-line `border-color`
+override) — both labels occupy the identical box regardless of which one
+is actually outlined; and `#mode-row` switched from `align-items:center`
+to `align-items:flex-start` — since both groups start their own column
+with a label as the first child, top-aligning the ROW (rather than
+vertically centring each group independently) guarantees the two labels
+land at the exact same Y regardless of how much taller the rest of either
+group's content is. `#aircraft-count` (a direct `#mode-row` child, not
+part of either label group) got its own explicit `align-self:center` so
+it isn't swept into the new top-alignment. Text colour: `var(--text-
+muted)` → `#fff` on the shared `.mode-row-label` rule.
+
+**8. Separator lines, white.** `.mode-row-divider` (the vertical line
+between the SCREEN/NAVIGATION groups) and `body[data-mode="nav"]
+[data-nav-style="raw"] #mode-row`'s own `border-top` (the horizontal rule
+above the whole row, RAW-only per the 2026-09-15 fix — see "Three small
+tweaks" above) both changed from `var(--border)` (a muted slate-grey) to
+literal `#fff`.
+
+**A real regression introduced by item 1, caught and fixed before
+shipping, not after — this project's own established "verify at the
+project's standard widths, not just one" discipline paying off again.**
+Growing the nav button from 60px to ~78px wide pushed `#mode-row` into a
+genuine, Playwright-confirmed overflow at 360px (this project's own
+standard narrow-device check) — 13px over in Hybrid/AIR (where
+`#aircraft-count` is also present and already fully collapsed to 0-width
+under its own existing min-width:0/ellipsis mechanism, so there was
+nothing left to absorb it), 3px over in RAW. Fixed by trimming two `gap`
+values that don't touch any of the actually-requested scale/shape
+changes: `#mode-row`'s own `gap` (10px → 6px, three gap instances between
+its four children) and `.mode-toggle`'s inter-button `gap` (5px → 3px,
+three instances among the four mode buttons) — together recovering ~18px,
+comfortably clearing the 13px overflow with real margin, re-verified
+clean at both 360px and 412px in all three modes (RAW/Hybrid/AIR)
+afterward.
+
+**Verified with the same real-execution discipline this project has used
+throughout its RAW-mode-redesign history** — a real Playwright/Chromium
+harness loading the actual, unmodified `#bottom-bar` markup (depth-
+matched div extraction from the real `index.html`, not retyped) and the
+real `VCAS.css`, with the real, brace-matched `_updateModeBracket()`
+function body extracted verbatim from `app.js` and wired to run on load
+(this project's established fallback for logic living inside `app.js`'s
+own closure): confirmed every tick's x-position exactly matches its own
+button's real measured centre (not approximated — bit-for-bit against
+`getBoundingClientRect()`); the horizontal line's endpoints exactly match
+`min`/`max` of those same centres, never the bracket's own full width;
+tick and horizontal-line strokes both report the identical 1.5px
+`stroke-width` (no more `preserveAspectRatio` distortion); the recomputed
+geometry still holds correctly after the gap-trim CSS change (button
+positions shifted, ticks tracked them automatically — the whole point of
+computing from real measurement rather than a static shape); the outline
+renders on both an active (cyan-bordered) and inactive (white-bordered)
+mode button at the correct `#2c2d2e` colour; "Screen" and "Navigation"
+now measure the identical 16px height and land at the identical Y in
+every one of RAW/Hybrid/AIR, both in white; the divider and RAW-only
+top border both resolve to white; and — the regression check — `#mode-
+row`'s own `scrollWidth`/`clientWidth` (and `document.body`'s) are equal
+at both 360px and 412px across all three modes, confirming no overflow
+either before or after the gap trim. Real screenshots (both a plain 2×
+upscale and a 4× crop with `route-active` toggled to check the nav
+button's ON state too) confirm the whole row visually reads as a close
+match to the reference mockup: black-bordered switch caps, green ticks
+dropping cleanly into each button with a matching-weight horizontal bar
+that doesn't overshoot, a genuine 5th green stem linking to "SCREEN,"
+both labels level and white, and a nav button now sharing the same scale/
+roundedness as its four neighbours. `node tests/run.js` re-run afterward
+— still all 450 checks passing (this fix touches only `app.js`/
+`VCAS.css`, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only fix) — its own bottom-bar chrome has no bracket/
+tick concept at all. Not verified: real on-device rendering — the same
+"logic/DOM-verified, real-device-pending" caveat this file already
+carries for every UI change checked this way, not yet confirmed by the
+project owner on their own phone.
