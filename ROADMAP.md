@@ -533,6 +533,14 @@ equivalent yet, accumulated across many passes without a full sync:
   equivalent — `PhoneAircraftIcons.kt`/`VcasPalette.kt` still draw the
   route/nav button's own icon procedurally, unrelated to either version
   of this PWA-only artwork.
+- Mode-row chrome vs. the design mockup (2026-09-24, later the same day):
+  the 8-item fix pass (nav-button scale/shape matching the 4 mode
+  buttons, a shared black bezel border, the bracket's real per-button
+  tick alignment via app.js's new `_updateModeBracket()`, matched
+  tick/line stroke thickness with no overshoot, a recoloured 5th green
+  stem to the SCREEN label, Screen/Navigation label parity, and white
+  separator lines) has no native equivalent — the native bottom bar has
+  no bracket/tick concept at all to bring in line with it.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
