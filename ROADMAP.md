@@ -48,6 +48,13 @@ not automated deployment. Needs the project owner to paste in (or upload)
 the actual current live file for each relay as the starting point, since
 no session has ever had direct access to what's actually deployed.
 
+**Same gap, now a third instance (2026-09-27)**: the internal VCAS data
+dashboard (`vectair.org/vcas-data/` — `index.php`/`stats.php`/
+`.htaccess`, see CLAUDE.md's own dated entry) is Bluehost-side PHP
+handed over via `SendUserFile`, same as the two relays and `log.php` —
+not committed here either, for the same reason and with the same fix
+available whenever this item is actually picked up.
+
 ### 2. No persisted, repeatable automated test suite — STARTED (2026-09-18)
 
 Every verification in this project's entire history — hundreds of

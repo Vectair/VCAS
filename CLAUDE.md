@@ -15729,3 +15729,126 @@ tick concept at all. Not verified: real on-device rendering — the same
 "logic/DOM-verified, real-device-pending" caveat this file already
 carries for every UI change checked this way, not yet confirmed by the
 project owner on their own phone.
+
+## VCAS internal data dashboard — heatmap/weather/model-calibration analytics, deployed outside this repo (2026-09-26/27)
+
+Direct request: a private, non-public analytics page for the ground-truth
+observation log — a heatmap of where sightings are logged, the weather in
+effect at each one, leaderboards, and a live confusion matrix ("does the
+model's own predicted visibility tier match what testers actually
+marked?"). Lives at `https://vectair.org/vcas-data/`, **not committed to
+this repo** — same handoff pattern as the ADS-B/METAR/USEREP relays and
+`log.php` (see "Central observation log" above): it's Bluehost-side
+infrastructure carrying real credentials, not something that belongs in
+version control.
+
+**What it is, architecturally**: a single-file dashboard (`index.php`)
+that fetches from a sibling `stats.php`, which reads the SAME
+`logs/observations.jsonl` file `log.php` (`vcas-log/`) already appends
+to — read-only, never writes to it. `stats.php` excludes crash/watchdog
+reports (`"kind":"error"` entries) automatically. Charts are hand-rolled
+inline SVG (no charting library dependency), using the dataviz skill's
+validated default categorical palette re-checked against this app's own
+`--bg-panel`/`--bg-dark` surfaces, plus the real visibility-tier
+`colorblindSafe` hex values (`visibility.js`) reused wherever a chart
+specifically represents the model's own predicted tier, so a tier means
+the same colour there as everywhere else in the app. A small
+`SimplifiedType` table (ported from `src/logic/simplifiedType.js`, kept
+in sync by hand) powers an optional "group aircraft families" toggle on
+the leaderboard. Heatmap via Leaflet + leaflet.heat (CDN).
+
+**Sections**: KPI tiles (total observations, distinct testers by
+`installId`, date span, overall model-agreement %, most-used screen);
+observer/aircraft position heatmap; a 2×2 confusion matrix (predicted-
+visible-vs-actually-not-seen and predicted-not-visible-vs-actually-seen,
+both directions, with counts/percentages and a breakdown of which
+predicted tier is wrong most often, in which direction) — this is the
+automated version of the manual "pull real log data and cross-tab
+outcome vs. predicted label" work the visibility-model calibration
+passes earlier in this file did by hand; weather correlation (sky
+condition/METAR visibility/present-weather phenomena/local-obstruction
+density, each split by outcome, plus a dedicated "not visible — weather"
+validation card checking whether that outcome actually correlates with
+reported bad conditions); leaderboards; observations-per-day and daily-
+agreement-rate trend lines; usage-pattern histograms (mode/speed/
+altitude/range); a sortable, paginated raw table. All of it live-
+filterable by date range/screen mode/outcome group, one shared filter
+state driving every section.
+
+**Verified before handoff, this project's own established discipline for
+anything built without direct server access**: 220 synthetic sample
+observations (shaped exactly like real `ObservationLogger.
+buildObservation()` output) run through a real local PHP server, driven
+by a real Playwright/Chromium harness — confirmed correct filtering,
+confusion-matrix math (checked by isolating outcome groups and watching
+the matrix cells zero out correctly), zero console errors, zero
+horizontal overflow at 320–1400px (a real CSS Grid `1fr`-track blowout
+was caught and fixed this way — `1fr` alone doesn't clamp to
+`minmax(0,1fr)`, so a wide table/SVG descendant was forcing `.card`
+wider than the viewport).
+
+### The real deploy saga: `.htaccess` Basic Auth was silently broken on this specific server — worked around with a PHP session gate instead
+
+Genuinely the most time spent on any part of this delivery, worth
+recording in detail so it isn't re-diagnosed from scratch if it ever
+resurfaces. The dashboard shows real GPS positions of real testers (a
+small number of known people), so it was built access-gated from the
+start, not just relying on an unlisted URL.
+
+**Both a hand-written `.htaccess` (`AuthType Basic`/`AuthUserFile`/
+`Require valid-user`) AND cPanel's own native "Directory Privacy" tool
+(which generates its own, guaranteed-compatible `.htaccess`/`.htpasswd`
+pair) produced the identical symptom: every request 404'd, with no
+login prompt ever appearing** — confirmed via DevTools Network tab
+(`WWW-Authenticate` header absent, a genuine server-returned 404 status,
+not an app-level soft-404). Ruled out, one at a time, over a long back-
+and-forth: folder permissions (755, correct), the `.htpasswd` file's own
+permissions (644, correct), the `AuthUserFile` path itself (this
+server's real home directory is `/home4/eqfcdzmy/`, NOT the generic
+`/home/`Bluehost's own docs would suggest — a real, worth-remembering
+fact about this specific account), rewrite-rule ordering in the site's
+root `public_html/.htaccess` (a front-controller pattern — `RewriteCond
+%{REQUEST_FILENAME} !-f`/`!-d` → `index.php` — an exemption rule added
+for `vcas-data`/`vcas-log`/the relay folders made no observable
+difference either way), and the Apache/LiteSpeed error log (came back
+completely clean for every one of these requests — ruling out a "hard"
+config error, consistent with either a genuine file-not-found or an
+app-level 404, not distinguishing between them). The account's PHP
+handler (`ea-php82___lsphp` in the cPanel-generated block) confirms this
+server runs **LiteSpeed**, not stock Apache — LiteSpeed is known to
+diverge from Apache's own error-handling behaviour in edge cases, and is
+the most likely reason for this, though the exact root cause was never
+conclusively identified from outside the server.
+
+**Fix: moved authentication out of `.htaccess` entirely, into a plain
+PHP session gate.** `index.php` (renamed from `index.html`) checks
+`$_SESSION['vcas_authed']` before rendering anything; unauthenticated
+requests get a small password-only login form (bcrypt-verified via
+`password_hash()`/`password_verify()`, no username — a single shared
+credential for one internal tool, not a multi-user system).
+`session.cookie_httponly`/`secure`/`samesite=Strict` all set.
+`stats.php` checks the exact same session flag before returning any
+data, so it can't be fetched directly to route around the login screen.
+`.htaccess` is now just the `noindex`/`X-Robots-Tag` header — no
+`AuthType` directive anywhere in the folder at all. This sidesteps
+whatever LiteSpeed-specific issue was breaking Basic Auth entirely,
+since plain PHP execution on this server was already proven reliable
+(the relays run as plain PHP scripts here too). Verified end-to-end
+against a real local PHP server before handoff: wrong password rejected,
+correct password grants a real session that persists across requests,
+`stats.php` returns 403 while logged out and real 200 JSON once
+authenticated, `?logout=1` correctly revokes the session.
+
+**Lesson, matching this file's own repeated theme**: when a well-
+established, standard mechanism (`.htaccess` Basic Auth, confirmed
+working elsewhere on the same account via that `.htpasswds` folder at
+account root) fails identically across two independent implementations
+with every individually-testable cause ruled out, the productive move is
+switching to a completely different mechanism the platform is already
+proven to support (plain PHP, confirmed via the working relay endpoints)
+rather than continuing to debug the original approach blind.
+
+**Credentials are not recorded here** — same discipline this file
+already applies to the relays' own shared secret keys, never printed in
+this changelog. Kept by the project owner outside this repo, same as
+every other deploy-time credential in this project's history.
