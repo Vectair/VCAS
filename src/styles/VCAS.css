@@ -2542,6 +2542,38 @@ body[data-nav-state="turn_approach"] { }
   color: #7b8cde;
 }
 
+/* 2026-09-27 — logPanel.js's own doc comment on _updateFallbackBadge()
+   has the full "why": ObservationLogger.record() can silently fall back
+   to localStorage-only on a failed POST with zero visible difference from
+   a real success, so a tester whose device can't reach the log relay had
+   no way to notice. This badge is the fix — set via a data-attribute
+   (not a DOM child) specifically so it survives independently of #lp-menu
+   being rebuilt/hidden. Vermillion (#d55e00), the same Okabe-Ito
+   "needs your attention" colour this app already uses for
+   #route-error-toast and the dashed off-state border on the guidance-text
+   toggle — not a plain CSS red, matching this app's colourblind-safe
+   palette discipline even though this element sits outside the aircraft-
+   identification colour system those two mainly exist for. */
+#lp-toggle[data-fallback]::after {
+  content: attr(data-fallback);
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #d55e00;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: 0;
+  box-shadow: 0 0 0 2px rgba(18, 18, 36, 0.9);
+  pointer-events: none;
+}
+
 #lp-menu {
   position: fixed;
   /* left/top set by logPanel.js's setPosition() — just below the toggle's

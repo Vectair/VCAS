@@ -514,6 +514,7 @@
     document.getElementById("btn-settings-export")?.addEventListener("click", (e) => {
       e.preventDefault();
       ObservationLogger.exportFallback();
+      LogPanel.refreshFallbackBadge();
       _refreshSettingsScreen();
     });
 
@@ -3495,6 +3496,7 @@
     };
     const observation = ObservationLogger.buildObservation(item, userState, outcomeCode);
     await ObservationLogger.record(observation);
+    LogPanel.refreshFallbackBadge(); // see logPanel.js's own doc comment on this
   }
 
   // ---- Routing Core Integration ---- //

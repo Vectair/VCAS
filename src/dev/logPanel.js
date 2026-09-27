@@ -26,6 +26,7 @@ const LogPanel = (() => {
 
   function init() {
     _buildPanel();
+    _updateFallbackBadge();
   }
 
   /**
@@ -196,8 +197,36 @@ const LogPanel = (() => {
     if (!_userState) return;
     const observation = ObservationLogger.buildObservation(item, _userState, outcomeCode);
     await ObservationLogger.record(observation);
-    if (_menuOpen) _render(); // refresh fallback-count badge if it just changed
+    if (_menuOpen) _render();
+    _updateFallbackBadge();
   }
 
-  return { init, update, isOpen, setSpeedMph, setPosition };
+  /**
+   * 2026-09-27 — real gap found investigating a tester whose observations
+   * never reached the central log: ObservationLogger.record() silently
+   * falls back to localStorage-only on any network failure and returns
+   * `ok: true` either way, so every log button (this panel's own rows AND
+   * the NAV/AIR popup's) gave identical "logged!" feedback whether the
+   * observation reached the server or is stuck on that one device. The
+   * only place this was ever surfaced was a buried Settings row ("N
+   * buffered observations") nobody had reason to check unless told to.
+   *
+   * Puts a small, unmissable badge directly on the always-visible LOG
+   * button the moment ObservationLogger.fallbackCount() is nonzero — a
+   * data-attribute + CSS ::after (see VCAS.css) rather than a DOM element,
+   * so it survives independently of whether the menu itself is open/
+   * rebuilt. Called after every _logObservation() (so a failure shows up
+   * the instant it happens) and once from init() (so a tester who's been
+   * quietly buffering for days sees it on their very next app open, not
+   * only after their next log attempt).
+   */
+  function _updateFallbackBadge() {
+    const toggle = document.getElementById("lp-toggle");
+    if (!toggle) return;
+    const count = ObservationLogger.fallbackCount();
+    if (count > 0) toggle.dataset.fallback = count > 99 ? "99+" : String(count);
+    else delete toggle.dataset.fallback;
+  }
+
+  return { init, update, isOpen, setSpeedMph, setPosition, refreshFallbackBadge: _updateFallbackBadge };
 })();
