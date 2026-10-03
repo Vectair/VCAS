@@ -548,6 +548,11 @@ equivalent yet, accumulated across many passes without a full sync:
   stem to the SCREEN label, Screen/Navigation label parity, and white
   separator lines) has no native equivalent — the native bottom bar has
   no bracket/tick concept at all to bring in line with it.
+- Passenger Mode (2026-10-03): a Settings toggle exempting a non-driving
+  occupant from the LOG/popup 5mph speed gate, with a continuous-dwell
+  auto-revert after a sustained stop (`src/passengerMode.js`) — no native
+  equivalent at all; the native port's own LOG/popup gating (if any)
+  would need the same `PassengerMode`-style exemption ported to Kotlin.
 
 A real full native sync pass — not a single-feature port — is probably
 worth scheduling once the PWA's own feature velocity slows down, rather
