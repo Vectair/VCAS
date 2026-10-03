@@ -15852,3 +15852,125 @@ rather than continuing to debug the original approach blind.
 already applies to the relays' own shared secret keys, never printed in
 this changelog. Kept by the project owner outside this repo, same as
 every other deploy-time credential in this project's history.
+
+## Passenger Mode — a real exemption from the 5mph logging gate (2026-10-03)
+
+Direct request: "a 'passenger' mode accessed in settings so that I can
+use the logging function if I'm in a vehicle but not driving." Confirmed
+shape, from the same message: stays on through NORMAL driving speed —
+that's the whole point, a genuine inversion of how every other speed-
+gated control in this app behaves — and auto-disables itself only once
+the vehicle has been travelling at or below `CONFIG.
+GPS_HEADING_MIN_SPEED_MPH` CONTINUOUSLY for `CONFIG.
+PASSENGER_MODE_DWELL_MINUTES` (5, the project owner's own suggested
+default). Once speed goes back above the threshold after that auto-
+disable, there's no separate "driving mode" to re-enter — the app is
+simply no longer exempting the logging controls from the gate they'd
+already be under regardless, same as if Passenger Mode had never been
+turned on this trip.
+
+**New `src/passengerMode.js`** — same small persisted-module shape this
+codebase already establishes (`init`/`isEnabled`, mirroring `ManualTilt`'s
+own structure closely, since it's the nearest existing precedent: a
+speed-gated settings toggle with its own `setSpeedMph()` hook into the
+one shared convergence point, `app.js`'s `applySpeedOverrideIfActive()`).
+Two real, deliberate departures from that precedent, both because the
+feature's own premise is the opposite of `ManualTilt`'s:
+- `toggle()` is always allowed either direction — `ManualTilt.setEnabled()`
+  refuses to even turn ON above the speed gate; this one exists
+  specifically to be switched on BY a passenger while the vehicle may
+  already be moving at normal road speed.
+- `setSpeedMph()` doesn't force-disable the instant speed crosses the
+  threshold (what `ManualTilt`/3D View/compass calibration all do) — it
+  runs the exact same CONTINUOUS-dwell state machine `_checkOffRoute()`
+  (app.js, off-route reroute detection) already established for this
+  codebase: a condition has to hold without interruption for the full
+  delay before anything fires, reset to "not yet" the instant it's no
+  longer true, never accumulated across on/off blips. A red light or a
+  few seconds of stop-and-go shouldn't silently drop Passenger Mode
+  mid-journey; a genuinely sustained stop (parked, trip over, possible
+  driver change) is a real reason to require re-confirmation.
+
+**Deliberately NOT persisted across a reload** — same reasoning as
+`ManualTilt`'s own enabled-state (not its pitch value, which does
+persist): real speed isn't known yet at load time, and silently resuming
+an active passenger-mode exemption from a previous session — possibly a
+different vehicle, a different person in the seat — is exactly the kind
+of stale assumption the whole auto-revert mechanism exists to prevent.
+Every fresh load, and every auto-revert, starts from the same explicit,
+no-recent-confirmation state.
+
+**New `CONFIG.PASSENGER_MODE_DWELL_MINUTES`** (5, `config.js`) — a real
+tunable constant, not hardcoded inside the module, matching this file's
+own established "centralise the numbers that might get retuned" practice
+(`GPS_HEADING_MIN_SPEED_MPH`, `OFF_ROUTE_REROUTE_DELAY_SECONDS`, etc.) —
+the Settings-screen hint text reads this value live, so the displayed
+copy can't drift from the real dwell window if it's ever retuned.
+
+**Wiring — extends the two EXISTING choke points this app already
+funnels every speed-gated logging decision through, rather than adding a
+third.** `logPanel.js`'s `setSpeedMph()`/its LOG-button click guard, and
+`ui.js`'s `_actionsInteractive()` (the single function gating both the
+popup's log-outcome buttons and its Suppress button) — each gained one
+`|| PassengerMode.isEnabled()` clause, nothing else about either module
+changed. `app.js`'s `applySpeedOverrideIfActive()` calls `PassengerMode.
+setSpeedMph(userSpeedMph)` FIRST, before `LogPanel.setSpeedMph()`/`UI.
+setSpeedMph()` — order matters here: if the dwell window has just
+elapsed, `PassengerMode.isEnabled()` needs to already read `false` by the
+time those two check it, not be one tick stale. A new `onPassengerMode
+ToggleClick()` re-syncs `LogPanel`/`UI`'s own interactive state
+immediately on toggle (same "don't make the user wait for the next GPS
+tick" convention every other settings toggle in this app already
+follows), and `_updatePassengerModeToggleBtn()` keeps both the toggle
+button's On/Off label and a plain-language status hint (which message
+depends on current state — what it does, while off; how long until it
+auto-reverts, while on) in sync, called from `init()`, the toggle's own
+click handler, `applySpeedOverrideIfActive()` (so Settings reflects a
+just-happened auto-revert even if it wasn't open at the time), and
+`_refreshSettingsScreen()` (so reopening Settings is never stale).
+
+**Settings row lives in "Data & Logging,"** directly above the existing
+"buffered observations" export row — the section this toggle most
+directly concerns, not a new section of its own.
+
+**Verified with real execution throughout, this project's own
+established discipline, across three separate harnesses, not reasoned
+through**:
+1. 10 real Playwright checks against the actual shipped `passengerMode.js`
+   with a monkey-patched `Date.now()` for deterministic dwell-timer
+   testing (no real 5-minute wait) — enabling above the speed threshold;
+   staying enabled through sustained normal-speed movement; a brief
+   under-dwell dip not disabling it; three separate short dips with a
+   return-above-threshold between each NOT accumulating toward the dwell
+   (the specific "blips don't accumulate" guarantee `_checkOffRoute()`'s
+   own pattern is built to provide); a genuine continuous 5-minute stop
+   auto-disabling it (checked at 4:59 — still on — and 5:01 — off); the
+   exact-at-threshold boundary (`<=`, not `<`); a manual re-toggle after
+   an auto-disable working cleanly; and `setSpeedMph()` being a safe no-op
+   while already disabled.
+2. 12 real Playwright checks loading the actual, unmodified `logPanel.js`/
+   `ui.js` together (not extracted fragments) — confirming the LOG button
+   and popup log/Suppress buttons are genuinely dimmed/inert above 5mph
+   with Passenger Mode off, genuinely interactive above 5mph once it's
+   on, that a real click on the popup's log button actually fires its
+   outcome callback (not just looks enabled), and — the case most likely
+   to regress silently — that the LOG button automatically re-dims the
+   instant the dwell-timer auto-revert fires, with no manual action
+   needed.
+3. 11 real Playwright checks against the real, extracted (verbatim, not
+   retyped) Settings-screen markup and `app.js` functions — the toggle
+   button's label/active-class and the status hint's own two different
+   messages (confirmed to read the real `CONFIG` values, not hardcoded
+   numbers) both update correctly on a real click, and `LogPanel`/`UI`
+   are confirmed re-synced immediately rather than waiting for the next
+   speed tick.
+
+**33 checks total across all three harnesses, zero failures.** Full
+existing `tests/` suite re-run afterward — still all passing, unaffected
+(this feature touches `config.js`/`passengerMode.js`/`logPanel.js`/
+`ui.js`/`app.js`/`index.html`, none of `src/logic/`).
+
+Not done: no change to the native Android Auto port (same standing
+"synced in dedicated passes, not every change" note this file carries
+for every other PWA-only feature) — it has no LOG/popup speed-gating
+equivalent to extend in the first place.

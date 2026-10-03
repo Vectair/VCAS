@@ -326,6 +326,8 @@
     TrafficRules.init();
     ActiveRoutingProvider.init();
     ManualTilt.init();
+    PassengerMode.init();
+    _updatePassengerModeToggleBtn();
     View3DClouds.init();
     _updateView3DCloudsToggleBtn();
     _sync3DButtonState();
@@ -516,6 +518,11 @@
       ObservationLogger.exportFallback();
       LogPanel.refreshFallbackBadge();
       _refreshSettingsScreen();
+    });
+
+    document.getElementById("btn-passenger-mode-toggle")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      onPassengerModeToggleClick();
     });
 
     document.getElementById("btn-mode-order-reset")?.addEventListener("click", (e) => {
@@ -1641,6 +1648,7 @@
     }
 
     _updateColorblindToggleBtn();
+    _updatePassengerModeToggleBtn();
     _refreshRoutingProviderSettings();
     _updateCalibSettingsStatus();
   }
@@ -2171,6 +2179,39 @@
     _reapplyCameraNow();
   }
 
+  // ---- Passenger Mode (2026-10-03) ----
+
+  /**
+   * Unlike onManualTiltToggleClick() above, this is allowed to flip ON
+   * regardless of current speed — the whole feature exists to be switched
+   * on BY a passenger while the vehicle may already be moving at normal
+   * road speed (see passengerMode.js's own doc comment). Re-syncs LogPanel/
+   * UI's own interactive state immediately rather than waiting for the
+   * next GPS tick, matching every other settings toggle's own "don't make
+   * the user wait to see the effect" convention.
+   */
+  function onPassengerModeToggleClick() {
+    PassengerMode.toggle();
+    _updatePassengerModeToggleBtn();
+    LogPanel.setSpeedMph(userSpeedMph);
+    UI.setSpeedMph(userSpeedMph);
+  }
+
+  function _updatePassengerModeToggleBtn() {
+    const on = PassengerMode.isEnabled();
+    const btn = document.getElementById("btn-passenger-mode-toggle");
+    if (btn) {
+      btn.textContent = on ? "On" : "Off";
+      btn.classList.toggle("active", on);
+    }
+    const status = document.getElementById("passenger-mode-status");
+    if (status) {
+      status.textContent = on
+        ? `Logging is unlocked while moving. Auto-disables after ${CONFIG.PASSENGER_MODE_DWELL_MINUTES} continuous minutes stopped.`
+        : `When on, lets you use the LOG panel and popup log/Suppress buttons above ${CONFIG.GPS_HEADING_MIN_SPEED_MPH}mph — for a passenger, not the driver.`;
+    }
+  }
+
   function showConfigWarningIfNeeded() {
     if (!AdsbExchangeClient.isConfigured()) {
       UI.showConfigBanner(true);
@@ -2271,6 +2312,12 @@
     if (SpeedSimPanel.isActive()) {
       userSpeedMph = SpeedSimPanel.getSpeedMph();
     }
+    // Passenger Mode's own dwell-timer auto-revert (2026-10-03) — must run
+    // BEFORE LogPanel/UI's own setSpeedMph() below, so PassengerMode.
+    // isEnabled() already reflects a just-expired dwell window by the time
+    // those two read it, rather than being one tick stale.
+    PassengerMode.setSpeedMph(userSpeedMph);
+    _updatePassengerModeToggleBtn();
     // Gates whether the LOG panel — and, same rationale, the detail
     // popup's own log-outcome/Suppress buttons (2026-08-24 follow-up,
     // ui.js's setSpeedMph) — are interactive right now (distraction/safety

@@ -1155,6 +1155,20 @@
 
           <section class="settings-section">
             <h3>Data &amp; Logging</h3>
+            <!-- Passenger Mode (2026-10-03, direct request): lets a non-
+                 driving occupant use the LOG panel and the popup's log/
+                 Suppress buttons above the normal 5mph distraction gate.
+                 Stays on through ordinary driving speed — the whole point
+                 — and auto-disables itself once the vehicle has been
+                 stopped/crawling continuously for the dwell window below
+                 (src/passengerMode.js, CONFIG.PASSENGER_MODE_DWELL_MINUTES).
+                 Status line text is written by app.js, not static, so it
+                 can't drift from the real dwell state. -->
+            <div class="settings-row">
+              <span class="settings-label">Passenger mode</span>
+              <button type="button" class="settings-toggle-btn" id="btn-passenger-mode-toggle">Off</button>
+            </div>
+            <p class="settings-hint" id="passenger-mode-status"></p>
             <div class="settings-row">
               <span class="settings-label" id="settings-export-label">No buffered observations</span>
               <button type="button" class="settings-toggle-btn" id="btn-settings-export">Export</button>
@@ -1300,6 +1314,7 @@
   <script src="src/devMode.js?v=__BUILD_ID__"></script>
   <script src="src/navDisplayStyle.js?v=__BUILD_ID__"></script>
   <script src="src/manualTilt.js?v=__BUILD_ID__"></script>
+  <script src="src/passengerMode.js?v=__BUILD_ID__"></script>
   <script src="src/navigation/navigationCameraEvaluator.js?v=__BUILD_ID__"></script>
   <script src="src/map/cameraController.js?v=__BUILD_ID__"></script>
   <script src="src/dev/viewportDevPanel.js?v=__BUILD_ID__"></script>

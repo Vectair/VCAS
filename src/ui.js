@@ -1507,7 +1507,10 @@ const UI = (() => {
    * action buttons that record/suppress something are disabled.
    */
   function _actionsInteractive() {
-    return _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    // Also interactive whenever PassengerMode.isEnabled() (2026-10-03) —
+    // same exemption logPanel.js's own setSpeedMph() now applies, for the
+    // identical reason (see passengerMode.js's own doc comment).
+    return _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH || PassengerMode.isEnabled();
   }
 
   /** Shared row of ground-truth log buttons, embedded in both popups below. */

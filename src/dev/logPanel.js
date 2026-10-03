@@ -39,11 +39,18 @@ const LogPanel = (() => {
    * app already uses elsewhere, not a new number to keep in sync.
    * Called from app.js's applySpeedOverrideIfActive() on every GPS/speed
    * update, real or dev-simulated.
+   *
+   * Also interactive whenever PassengerMode.isEnabled() (2026-10-03) — a
+   * non-driving occupant's own explicit exemption from this exact gate,
+   * see passengerMode.js's own doc comment. applySpeedOverrideIfActive()
+   * always calls PassengerMode.setSpeedMph() before this, so its own
+   * auto-revert (a sustained low-speed stop) has already been applied by
+   * the time this reads it.
    */
   function setSpeedMph(mph) {
     _speedMph = mph;
     const toggle = document.getElementById("lp-toggle");
-    const interactive = _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH;
+    const interactive = _speedMph <= CONFIG.GPS_HEADING_MIN_SPEED_MPH || PassengerMode.isEnabled();
     if (toggle) toggle.classList.toggle("lp-toggle-disabled", !interactive);
     // Force-closes an already-open panel the moment speed crosses the
     // threshold, rather than leaving it open until the user manually taps
@@ -68,7 +75,7 @@ const LogPanel = (() => {
     toggle.textContent = "LOG";
     toggle.addEventListener("click", e => {
       e.stopPropagation();
-      if (_speedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH) return; // see setSpeedMph()
+      if (_speedMph > CONFIG.GPS_HEADING_MIN_SPEED_MPH && !PassengerMode.isEnabled()) return; // see setSpeedMph()
       _menuOpen ? _close() : _open();
     });
 

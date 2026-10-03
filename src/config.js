@@ -138,6 +138,15 @@ const CONFIG = {
   // How long a manually-suppressed aircraft (via the popup's Suppress button)
   // stays hidden from NAV indicators before becoming eligible again.
   SUPPRESS_DURATION_SECONDS: 180,
+  // Passenger Mode (src/passengerMode.js) — how long the vehicle has to
+  // stay CONTINUOUSLY at or below GPS_HEADING_MIN_SPEED_MPH before the
+  // mode auto-disables itself. The user's own suggested default; a real
+  // stop (parked, trip over, possible driver change) is a reasonable
+  // moment to require re-confirmation, but a red light shouldn't silently
+  // drop it mid-journey — same dwell-timer idiom as OFF_ROUTE_REROUTE_
+  // DELAY_SECONDS below, just a much longer window for a much less
+  // frequent event.
+  PASSENGER_MODE_DWELL_MINUTES: 5,
 
   // ---- Off-route detection / rerouting ----
   // How far (perpendicular distance to the route polyline) counts as

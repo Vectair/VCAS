@@ -138,6 +138,7 @@ All keys live in `src/config.js`.
 | `DEFAULT_RANGE_NM` | `50` | Radius to query, in nautical miles |
 | `GPS_HEADING_MIN_SPEED_MPH` | `5` | Minimum speed before GPS course-over-ground is trusted as heading |
 | `SUPPRESS_DURATION_SECONDS` | `180` | How long a manually-suppressed aircraft (popup's Suppress button) stays hidden from NAV |
+| `PASSENGER_MODE_DWELL_MINUTES` | `5` | How long the vehicle must stay continuously at/below `GPS_HEADING_MIN_SPEED_MPH` before Passenger Mode auto-disables itself — see Ground-Truth Log Panel below |
 | `SUPPRESS_LOW_ALTITUDE_ENABLED` | `false` | Starting value only — overridden live by the Settings screen's Traffic Filtering section once you've touched it, persisted in localStorage |
 | `SUPPRESS_LOW_ALTITUDE_FT` | `500` | Starting value only, same as above — altitude floor is barometric (MSL), not height above you; see the caveat comment in `config.js` |
 
@@ -269,7 +270,7 @@ The **⚙** button (top-right, next to the ADS-B status pill) opens a full-scree
 
 - **Display & Accessibility** — Day/Auto/Night theme, colour-blind-safe palette toggle (NAV display style — Hybrid/Raw — lives on the main screen's mode row, not here)
 - **Traffic Filtering** — hide-aircraft-on-the-ground toggle, low-altitude suppression threshold presets
-- **Data & Logging** — export buffered ground-truth observations
+- **Data & Logging** — Passenger Mode toggle (see Ground-Truth Log Panel below), export buffered ground-truth observations
 
 The underlying state modules (`src/altitudeSuppressPanel.js`, `src/colorblindMode.js`, `src/map/themeManager.js`) are UI-agnostic — the settings screen just renders controls against their existing `get*()`/`set*()` API. `src/navDisplayStyle.js` is the same kind of module but is no longer rendered here at all — its controls (HYBRID/RAW) moved to the primary screen's mode row, since it's an in-the-moment choice like mode switching itself, not an occasional preference; `app.js` calls its `get*()`/`set*()` API directly instead.
 
@@ -303,6 +304,8 @@ The obstruction/weather/no-reason split (2026-08-27) is deliberate, not just a f
 `visible_lights` (2026-08-27, same day) is the equivalent split on the "visible" side: the visibility model's own assumptions are daylight-only (see "Visibility Categories" below), so a night sighting where only the aircraft's nav/strobe/beacon lights — not its airframe shape — were actually resolved is a genuinely different sighting mechanism than `visible_airframe`, the same way `visible_contrail` already is. Logging it separately means a future night/lights-aware adjustment (not built yet) has real evidence to be calibrated against, instead of lights-only sightings silently inflating how visible the *airframe* itself looked after dark.
 
 Tapping one logs a full snapshot — your position/heading/speed, the aircraft's position/altitude/track, the computed visibility score and relevance reason, and your outcome — as one line in a JSON Lines log (one JSON object per line, easy to append to and easy to load into pandas/jq/a spreadsheet later).
+
+**LOG (and the detail popup's own log/Suppress buttons) are dimmed and inert above `GPS_HEADING_MIN_SPEED_MPH`** — a distraction/safety measure, since logging means reading a list and tapping a specific button, real screen attention this app shouldn't invite while actually driving. **Passenger Mode** (Settings → Data & Logging, `src/passengerMode.js`) lifts that gate for a non-driving occupant: once turned on, it stays active through normal driving speed and auto-disables itself only after the vehicle has been continuously at or below `GPS_HEADING_MIN_SPEED_MPH` for `CONFIG.PASSENGER_MODE_DWELL_MINUTES` (5 minutes by default) — a brief stop doesn't drop it, a genuinely sustained one (parked, trip over, possible driver change) does, requiring a fresh manual confirmation next time. It isn't remembered across a reload, by design.
 
 **Where it goes**: `src/dev/observationLogger.js` POSTs to `CONFIG.LOG_ENDPOINT` (`src/config.js`) when one is configured — a real internet endpoint, so every device (phone, PC, whatever's actually running the deployed GitHub Pages app) logs to the exact same central place automatically, no manual export/sync between devices. `CONFIG.LOG_ENDPOINT_KEY` is sent as an `X-VCAS-Key` header on every request; it's a low-effort filter against random bots hitting the endpoint blindly, not real security — this is a static site, so both values ship to every visitor's browser and can be read from the deployed JS. When `LOG_ENDPOINT` is left blank, it falls back to the old relative `/api/log`, which only resolves to anything when running `logServer.py` locally instead of a plain static server (see Quick Start above) — useful for local dev without touching config.js.
 
