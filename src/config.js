@@ -130,7 +130,7 @@ const CONFIG = {
   // pattern as the other relays). Leave LIVE_RELAY_URL blank to disable.
   // Shared secret sent as X-VCAS-Key; ships in the deployed JS, same
   // trade-off as the other relay keys above.
-  LIVE_RELAY_URL: "",
+  LIVE_RELAY_URL: "https://vectair.org/live-relay/relay.php",
   LIVE_RELAY_KEY: "hRW1K3x_YjRRU8MsKT2HZeyG-bJOjKjS27rpAW0VmcM",
 
   // ---- Telemetry & Refresh Intervals ----
