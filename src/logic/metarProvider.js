@@ -39,7 +39,7 @@ const MetarProvider = (() => {
   const OCCLUDING_COVERS = ["BKN", "OVC", "VV"];
   const M_TO_FT = 3.28084;
 
-  let _cached = null; // { stationId, visibilitySm, clouds, allClouds, wxString, rawOb, obsTime, distanceNm, elevationFt }
+  let _cached = null; // { stationId, visibilitySm, clouds, allClouds, wxString, rawOb, obsTime, distanceNm, elevationFt, stationLat, stationLon }
   let _lastFetchAt = 0;
   let _inFlight = null;
 
@@ -196,6 +196,8 @@ const MetarProvider = (() => {
         obsTime: best.obsTime || null,
         distanceNm: bestDistNm,
         elevationFt,
+        stationLat: best.lat,
+        stationLon: best.lon,
       };
     } catch (err) {
       clearTimeout(timer);

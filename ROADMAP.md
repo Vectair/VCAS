@@ -130,6 +130,19 @@ gap.
 
 ---
 
+### Admin pages and relays are still not in the repo (2026-10-10)
+
+The admin dashboard (`vcas-data/index.php`, `stats.php`, and now `live.php`
+plus the patched Live Pipeline tab) and every relay (`adsb-relay`,
+`metar-relay`, `userep-relay`, `live-relay`, `vcas-log/log.php`) exist only on
+Bluehost and as one-off hand-off zips, so a future session cannot read or
+diff them. Worth committing them under an `admin/`/`relays/` folder with
+every secret moved to a git-ignored config file (admin `stats.php` has the
+ADS-B/METAR relay keys in plain text; `index.php` holds the password hash;
+`log.php` holds a GitHub token). Also: the Live Pipeline snapshot push has no
+per-user opt-out and ships real positions — fine for the closed test, must be
+removed or made opt-in before any wider release.
+
 ## New feature ideas
 
 ### Briefing page (2026-09-17)
