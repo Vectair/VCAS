@@ -50,7 +50,10 @@ function loadLogic() {
   // so it's required AFTER that assignment, same ordering concern
   // visibility.js/relevance.js already have.
   const Userep = require(path.join(ROOT, "userep.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx, Userep };
+  // LiveSnapshot — added 2026-10-10 for the admin dashboard's Live Pipeline
+  // tab; reads `Geo` as a free global, so required after that assignment.
+  const LiveSnapshot = require(path.join(ROOT, "liveSnapshot.js"));
+  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx, Userep, LiveSnapshot };
 }
 
 module.exports = { loadLogic };

@@ -85,6 +85,13 @@ and the one adjustment in `visibility.js` allowed to RAISE a category) is
 tested directly in `visibility.test.js` instead, via `estimate()`'s own
 7th parameter — not duplicated here.
 
+`liveSnapshot.js` (the admin dashboard's Live Pipeline payload builder,
+2026-10-10) is covered together with the per-stage `trace` that
+`Visibility.estimate()` now records: stage ordering and contents, that a
+stage reports a real change (overcast METAR, stale data, very-close and
+beyond-40nm overrides), that tracing does not alter scoring, snapshot
+shape, the aircraft cap, and the inverse-distance source shares.
+
 Not yet covered: `upperAirProvider.js`/`metarProvider.js`/
 `userepProvider.js` themselves
 (the network-fetch modules `metarWx.js` sits downstream of — would need

@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-09-23";
+  const MODEL_VERSION = "2026-10-10";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -664,7 +664,7 @@ const Visibility = (() => {
    *   precedent (metar/localObstruction/upperAir) rather than a signature
    *   refactor — see CLAUDE.md.
    *
-   * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead }
+   * Returns: { label, color, colorRaw, shape, fillOpacity, score, angularSizeDeg, elevationDeg, slantRangeNm, isOverhead, trace }
    */
   function estimate(userLat, userLon, aircraft, metar, localObstruction, upperAir, userep) {
     const { lat, lon, altitudeFt, type, category, lastSeenSeconds } = aircraft;
@@ -697,6 +697,22 @@ const Visibility = (() => {
 
     let cat;
 
+    // Per-stage trace (2026-10-10) — feeds the admin dashboard's live
+    // pipeline view (see src/logic/liveSnapshot.js). Pure bookkeeping: each
+    // entry records the tier before/after one stage and a short note, and
+    // nothing here changes what estimate() decides.
+    const trace = [];
+    const _step = (stage, before, after, note) => {
+      trace.push({
+        stage,
+        before: before ? before.label : null,
+        after: after.label,
+        score: after.score,
+        changed: !!before && before !== after,
+        note: note || "",
+      });
+    };
+
     // See _contrailRescueCategory()'s own docstring — real Schmidt-Appleman
     // physics against today's actual upper-air conditions when available,
     // the original flat altitude/range floor as a fallback otherwise; null
@@ -704,10 +720,15 @@ const Visibility = (() => {
     // real conditions say no contrail would form today.
     const contrailRescue = _contrailRescueCategory(altitudeFt, slantNm, angularSizeDeg, upperAir);
 
+    let baseStage, baseNote;
     if (veryClose) {
       cat = CATEGORIES[0]; // Certainly visible
+      baseStage = "veryClose";
+      baseNote = "under 1nm and under 500ft";
     } else if (contrailRescue) {
       cat = contrailRescue;
+      baseStage = "contrail";
+      baseNote = "contrail floor applied";
     } else if (slantNm > 40) {
       // Beyond 40 NM: cap at Possibly visible, even if angular size (e.g. a
       // very large aircraft) would otherwise put it higher — haze/curvature
@@ -717,21 +738,42 @@ const Visibility = (() => {
       // plausibly contrail but somehow still this far out (predicted-entry
       // lookahead, mostly).
       cat = CATEGORIES.find(c => c.label === "Possibly visible") || CATEGORIES[2];
+      baseStage = "rangeCap";
+      baseNote = "beyond 40nm, capped";
     } else {
       cat = CATEGORIES.find(c => angularSizeDeg >= c.minAngle) || CATEGORIES[CATEGORIES.length - 1];
+      baseStage = "angularSize";
+      baseNote = "from angular size";
     }
+    _step("angularSize", null, cat,
+      angularSizeDeg.toFixed(3) + "° (" + Math.round(sizem) + "m at " + slantNm.toFixed(1) + "nm)");
+    if (baseStage !== "angularSize") _step(baseStage, null, cat, baseNote);
 
     // Stale data degrades the category
     const isStale = lastSeenSeconds > 20;
+    let prev = cat;
     if (isStale && cat.score > 10) {
       const idx = CATEGORIES.indexOf(cat);
       cat = CATEGORIES[Math.min(idx + 1, CATEGORIES.length - 1)];
     }
+    _step("staleness", prev, cat, isStale ? "last seen " + lastSeenSeconds + "s ago" : "fresh");
 
+    prev = cat;
     cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
+    _step("metar", prev, cat, metar ? "station " + (metar.stationId || "?") : "no METAR data");
+
+    prev = cat;
     cat = _applyUpperAirAdjustment(cat, altitudeFt, upperAir);
+    _step("upperAir", prev, cat, upperAir ? "Open-Meteo cloud bands" : "no upper-air data");
+
+    prev = cat;
     cat = _applyLocalObstructionAdjustment(cat, elevationDeg, localObstruction, veryClose);
+    _step("localObstruction", prev, cat,
+      localObstruction ? "density " + (localObstruction.combinedDensity != null ? localObstruction.combinedDensity.toFixed(2) : "?") : "no map data");
+
+    prev = cat;
     cat = _applyUserepAdjustment(cat, slantNm, isStale, userep);
+    _step("userep", prev, cat, userep ? "nearby user report" : "no nearby report");
 
     return {
       label: cat.label,
@@ -747,6 +789,7 @@ const Visibility = (() => {
       elevationDeg,
       slantRangeNm: slantNm,
       isOverhead,
+      trace,
     };
   }
 

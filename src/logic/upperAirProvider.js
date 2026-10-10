@@ -176,6 +176,10 @@ const UpperAirProvider = (() => {
         cloudCoverMidPct: typeof mid === "number" && Number.isFinite(mid) ? mid : null,
         cloudCoverHighPct: typeof high === "number" && Number.isFinite(high) ? high : null,
         elevationFt,
+        // Model grid cell Open-Meteo actually resolved the request to (its
+        // response echoes it) — shown on the admin live view; null if absent.
+        gridLat: typeof body.latitude === "number" ? body.latitude : null,
+        gridLon: typeof body.longitude === "number" ? body.longitude : null,
         obsTime: hourly.time[idx],
         pressureProfile, // [] if none of the requested levels came back usable — never null, so callers can length-check directly
       };

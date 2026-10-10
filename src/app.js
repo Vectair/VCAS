@@ -306,8 +306,39 @@
     });
   }
 
+  /**
+   * Builds the LiveSnapshot pushed to the admin dashboard by LivePresence
+   * (2026-10-10) — same userState shape refreshAirMode() builds, run
+   * through Indicators.buildAll() so every aircraft carries the stage
+   * trace Visibility.estimate() records. Returns null before the first GPS
+   * fix. Closed-test tooling; inert unless CONFIG.LIVE_RELAY_URL is set.
+   */
+  function _buildLiveSnapshot() {
+    if (userLat === null) return null;
+    const { width: vw, height: vh } = ViewportDevPanel.getViewportDimensions();
+    const metar = MetarProvider.getCached();
+    const localObstruction = LocalObstruction.getCached();
+    const upperAir = UpperAirProvider.getCached();
+    const userep = UserepProvider.getCached();
+    const userState = {
+      lat: userLat, lon: userLon,
+      heading: userHeading, speedMph: userSpeedMph,
+      viewportWidth: vw, viewportHeight: vh,
+      metar, localObstruction, upperAir, userep,
+    };
+    const tracked = Indicators.buildAll(_currentAircraftList(), userState, CONFIG.STALE_THRESHOLD_SECONDS);
+    return LiveSnapshot.build({
+      installId: InstallId.get(),
+      mode: _activeDisplayMode(),
+      user: { lat: userLat, lon: userLon, heading: userHeading, speedMph: userSpeedMph },
+      tracked, metar, upperAir, userep, localObstruction,
+      modelVersion: Visibility.MODEL_VERSION,
+    });
+  }
+
   function init() {
     _registerServiceWorker();
+    LivePresence.start(_buildLiveSnapshot);
 
     AdsbExchangeClient.init(CONFIG);
 

@@ -121,6 +121,18 @@ const CONFIG = {
   USEREP_RELAY_URL: "",
   USEREP_RELAY_KEY: "yDd8l6fALOVTqwuU3IEGUZCJ5wGPVrBI1IlNB_w2CXc",
 
+  // ---- Live Pipeline (admin dashboard) relay (2026-10-10) ----
+  // Closed-test tooling: every device pushes a snapshot of its visibility
+  // pipeline (position, weather sources, per-aircraft stage trace) here
+  // every ~5s so the admin page's "Live Pipeline" tab can show how the
+  // model is working per user. NOT for an open audience — the snapshot
+  // includes real position. Not committed to this repo (same hand-off
+  // pattern as the other relays). Leave LIVE_RELAY_URL blank to disable.
+  // Shared secret sent as X-VCAS-Key; ships in the deployed JS, same
+  // trade-off as the other relay keys above.
+  LIVE_RELAY_URL: "",
+  LIVE_RELAY_KEY: "hRW1K3x_YjRRU8MsKT2HZeyG-bJOjKjS27rpAW0VmcM",
+
   // ---- Telemetry & Refresh Intervals ----
   // adsb.fi's public endpoint is rate-limited to 1 request/second; 3s
   // leaves generous headroom below that ceiling for a single client while

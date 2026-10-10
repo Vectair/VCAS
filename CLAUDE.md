@@ -15729,3 +15729,62 @@ tick concept at all. Not verified: real on-device rendering — the same
 "logic/DOM-verified, real-device-pending" caveat this file already
 carries for every UI change checked this way, not yet confirmed by the
 project owner on their own phone.
+
+## Admin dashboard: "Live Pipeline" tab — the visibility estimate, stage by stage, per connected user (2026-10-10)
+
+Direct request: a live tab on the admin web page showing each user currently
+using VCAS, which locations their weather is pulled from (and how much each
+applies), and the aircraft list sent to each user with every algorithm stage
+applied to each aircraft ending in its overall likelihood %. Closed test, so
+exposing positions is explicitly fine — **not for an open audience.**
+
+**The admin page is not in this repo.** It lives on Bluehost
+(`public_html/vcas-data/`: `index.php` = PHP-session login + dashboard,
+`stats.php` = session-gated JSON feed over `vcas-log/logs/observations.jsonl`).
+The project owner uploaded those files; the cloud session cannot reach
+vectair.org (proxy 403), so the tab was built as an **additive patch of a
+copy** (zero lines of the original removed) and handed back as a zip. Note
+`stats.php` has the two relay shared keys written in plain text — they were
+not copied into the repo or any commit.
+
+**Data path:** app -> `LivePresence` (`src/dev/livePresence.js`, POST every
+5s, inert while `CONFIG.LIVE_RELAY_URL` is blank) -> `live-relay/relay.php`
+(stores the LATEST snapshot per install in `data/<installId>.json`, lazy
+prune >10 min, 200-file cap, 256KB body cap, CORS handled before auth) ->
+`vcas-data/live.php` (same session gate as `stats.php`, reads `data/` off
+disk, so no key ever reaches the admin browser) -> the tab, polling every 3s
+only while it is visible. Relay + `live.php` + patched `index.php` are not
+committed here (same hand-off pattern as the other relays).
+
+**No scoring is re-derived anywhere.** `Visibility.estimate()` now returns an
+extra `trace` array (one entry per stage: tier before/after, score, changed
+flag, short note: angularSize, an optional veryClose/contrail/rangeCap
+override, staleness, metar, upperAir, localObstruction, userep). Pure
+bookkeeping — all 45 pre-existing visibility checks still pass unchanged.
+`MODEL_VERSION` bumped to `2026-10-10` (new trace field, no scoring change).
+`src/logic/liveSnapshot.js` (pure, tested) packages user + weather sources +
+the nearest 40 aircraft with their traces; `app.js`'s `_buildLiveSnapshot()`
+feeds it the same `userState` shape `refreshAirMode()` builds.
+`metarProvider`/`upperAirProvider` now also expose station / model-grid
+lat-lon so the sources can be placed on the map.
+
+**"Percentage each location applies" is descriptive, not a model property.**
+The real model uses the single nearest METAR station, the single Open-Meteo
+cell and the single freshest USEREP independently, each for different inputs
+— never a blend. `sharePct` is an inverse-distance share (distance floored at
+1nm) across those three, labelled as such on the page. The map-tile source
+sits at the user and has no share. The number that shows REAL influence is
+`affected`: how many of the sent aircraft that source actually changed the
+tier of. Because stages run in order (METAR before upper-air before
+obstruction), a later source often shows few/no changes simply because an
+earlier one already capped the aircraft — that is accurate, not a bug.
+
+**Verified:** 36 new checks (`tests/logic/liveSnapshot.test.js`, suite now 11
+files) on the trace and snapshot; relay exercised over real HTTP (preflight
+204, 401 with CORS headers, 400/413 validation, storage, prune); and the real
+dashboard driven in Chromium against the real relay + `live.php` (login,
+unauthenticated `live.php` -> 403, two users, 40 aircraft rows, map markers,
+idle flip after 30s, polling stops/resumes with the tab, no page errors; 20/20).
+**Not verified:** the live Bluehost deploy, and LiteSpeed honouring
+`live-relay/data/.htaccess` (`php -S` ignores it) — the deploy notes make
+checking that a mandatory step, because snapshots contain real positions.
