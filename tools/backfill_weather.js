@@ -32,9 +32,15 @@ function nm(a, b, c, d) { // haversine, nautical miles
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+let omBlocked = false; // set once Open-Meteo reports its daily limit (429): stop asking
 async function get(url, asText) {
   for (let i = 0; i < 3; i++) {
-    try { const r = await fetch(url); if (r.ok) return asText ? r.text() : r.json(); } catch (e) { /* retry */ }
+    try {
+      if (omBlocked && url.includes("open-meteo")) return null;
+      const r = await fetch(url);
+      if (r.ok) return asText ? r.text() : r.json();
+      if (r.status === 429 && url.includes("open-meteo")) { omBlocked = true; console.error("Open-Meteo rate limited; skipping upperAir"); return null; }
+    } catch (e) { /* retry */ }
     await sleep(1000 * (i + 1));
   }
   return null;
