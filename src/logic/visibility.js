@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-10-11";
+  const MODEL_VERSION = "2026-10-12";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -379,8 +379,12 @@ const Visibility = (() => {
       if (base == null || base >= altitudeFt) continue;
       if (!lowest || base < lowestBase) { lowest = layer; lowestBase = base; }
     }
-    if (!lowest) return 0;
-    return (lowest.cover === "OVC" || lowest.cover === "VV") ? 1 : (lowest.cover === "BKN" ? 0.5 : 0);
+    let cloudSev = 0;
+    if (lowest) cloudSev = (lowest.cover === "OVC" || lowest.cover === "VV") ? 1 : (lowest.cover === "BKN" ? 0.5 : 0);
+    // Present weather (rain/fog/snow/TS...) adds a capped extra, geometry-aware
+    // (fog only low, precipitation higher) — see presentWeather.js.
+    const agl = altitudeFt - (st.elevationFt != null ? st.elevationFt : 0);
+    return Math.min(1, cloudSev + PresentWeather.severityAdd(st.wx, agl));
   }
 
   function _applyLowLevelWeatherAdjustment(cat, altitudeFt, horizNm, ll, upperAir) {
@@ -400,7 +404,10 @@ const Visibility = (() => {
       let wSum = 0, vSum = 0;
       for (const st of ll.stations) {
         if (st.visibilitySm == null) continue;
-        wSum += st.weight; vSum += st.weight * Math.min(st.visibilitySm, 10);
+        // min(reported, weather-implied): no double penalty when the report already shows it
+        const ceil = PresentWeather.visCeilingFor(st.wx, altitudeFt - (st.elevationFt != null ? st.elevationFt : 0));
+        const eff = ceil != null ? Math.min(st.visibilitySm, ceil) : st.visibilitySm;
+        wSum += st.weight; vSum += st.weight * Math.min(eff, 10);
       }
       if (wSum > 0) {
         const visSm = vSum / wSum;
@@ -412,7 +419,7 @@ const Visibility = (() => {
 
   function _llNote(ll) {
     if (!ll) return "no weather data";
-    const parts = ll.stations.filter(s => s.weightPct > 0).map(s => (s.stationId || "?") + " " + Math.round(s.weightPct) + "%");
+    const parts = ll.stations.filter(s => s.weightPct > 0).map(s => (s.stationId || "?") + " " + Math.round(s.weightPct) + "%" + (s.wx && s.wx.present ? " [" + s.wx.summary + "]" : ""));
     if (ll.upperAirPct > 0) parts.push("Open-Meteo " + Math.round(ll.upperAirPct) + "%");
     return "low-level blend: " + (parts.join(" / ") || "none");
   }

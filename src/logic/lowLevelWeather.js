@@ -17,6 +17,8 @@
  *     one: the untrusted remainder of the low-level weight goes to
  *     Open-Meteo. No METAR-producing field nearby at all => Open-Meteo is
  *     100% of the low-level estimate too.
+ *   - Wind: stations upwind of the user get a multiplier on their weight
+ *     (weaker for fog-type reports); see _windMult.
  *   - Above LOW_TOP_AGL_FT, Open-Meteo is the only source (METAR cloud
  *     layers above that height are deliberately not used — see
  *     visibility.js's _applyLowLevelWeatherAdjustment).
@@ -36,6 +38,29 @@ const LowLevelWeather = (() => {
   const TRUST_ZERO_NM = 40;      // ...none at/after this one
   const MAX_OBS_AGE_MIN = 120;   // a METAR older than this is ignored (closed field, stale report)
   const LOW_TOP_AGL_FT = 5000;
+  // Wind / upwind weighting (2026-10-11): a station UPWIND of the user (the
+  // wind blows from it towards the user) is a better predictor of the user's
+  // weather than one downwind. Applied as a multiplier on the station's
+  // distance weight BEFORE normalising. Modest for cloud/precipitation, much
+  // weaker for fog-type reports (fog forms in place, it doesn't advect much).
+  const WIND_MIN_KT = 3, WIND_FULL_KT = 15;
+  const WIND_STRENGTH = 0.5, WIND_STRENGTH_FOG = 0.15;
+  const WIND_MULT_FLOOR = 0.3;
+
+  /** Multiplier (~0.3..1.5) from the station's wind; 1 when wind is unknown/variable/calm. */
+  function _windMult(userLat, userLon, s, fogLike) {
+    const dir = s.windDirDeg, spd = s.windSpeedKt;
+    if (typeof dir !== "number" || typeof spd !== "number" || !Number.isFinite(dir) || !Number.isFinite(spd)) return 1;
+    if (spd < WIND_MIN_KT) return 1;
+    if (typeof s.stationLat !== "number" || typeof s.stationLon !== "number") return 1;
+    // wind FROM dir: air at the station moves towards the user when the
+    // station lies in direction `dir` from the user.
+    const toStation = Geo.calculateBearing(userLat, userLon, s.stationLat, s.stationLon);
+    let diff = Math.abs(((toStation - dir) % 360 + 540) % 360 - 180); // 0 = directly upwind, 180 = downwind
+    const align = Math.cos(diff * Math.PI / 180);
+    const strength = (fogLike ? WIND_STRENGTH_FOG : WIND_STRENGTH) * Math.min(1, spd / WIND_FULL_KT);
+    return Math.max(WIND_MULT_FLOOR, 1 + strength * align);
+  }
 
   function _trust(d) {
     if (d <= TRUST_FULL_NM) return 1;
@@ -83,14 +108,16 @@ const LowLevelWeather = (() => {
       }
       const age = _ageMin(s.obsTime, nowMs);
       if (age != null && age > MAX_OBS_AGE_MIN) continue;
-      scored.push({ s, d, age });
+      const wx = PresentWeather.analyse(s.wxString, age);
+      scored.push({ s, d, age, wx, windM: _windMult(userLat, userLon, s, wx.fogLike) });
     }
     scored.sort((a, b) => a.d - b.d);
     const top = scored.slice(0, MAX_STATIONS);
 
-    const idwSum = top.reduce((n, x) => n + 1 / Math.pow(Math.max(x.d, MIN_DISTANCE_NM), 2), 0);
+    const idwOf = x => x.windM / Math.pow(Math.max(x.d, MIN_DISTANCE_NM), 2);
+    const idwSum = top.reduce((n, x) => n + idwOf(x), 0);
     const stations = top.map(x => {
-      const idw = 1 / Math.pow(Math.max(x.d, MIN_DISTANCE_NM), 2);
+      const idw = idwOf(x);
       const w = idwSum > 0 ? (idw / idwSum) * _trust(x.d) : 0;
       return {
         stationId: x.s.stationId || null,
@@ -101,6 +128,11 @@ const LowLevelWeather = (() => {
         visibilitySm: x.s.visibilitySm != null ? x.s.visibilitySm : null,
         clouds: Array.isArray(x.s.clouds) ? x.s.clouds : [],
         wxString: x.s.wxString || null,
+        wx: x.wx,
+        windDirDeg: typeof x.s.windDirDeg === "number" ? x.s.windDirDeg : null,
+        windSpeedKt: typeof x.s.windSpeedKt === "number" ? x.s.windSpeedKt : null,
+        windMult: _round(x.windM, 2),
+        elevationFt: typeof x.s.elevationFt === "number" ? x.s.elevationFt : null,
         ageMin: x.age != null ? Math.round(x.age) : null,
       };
     });
@@ -130,6 +162,7 @@ const LowLevelWeather = (() => {
 
   return {
     blend, MAX_STATIONS, MIN_DISTANCE_NM, TRUST_FULL_NM, TRUST_ZERO_NM, MAX_OBS_AGE_MIN, LOW_TOP_AGL_FT,
+    WIND_MIN_KT, WIND_FULL_KT, WIND_STRENGTH, WIND_STRENGTH_FOG, WIND_MULT_FLOOR,
   };
 })();
 

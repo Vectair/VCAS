@@ -53,12 +53,14 @@ const LiveSnapshot = (() => {
           name: "METAR " + (st.stationId || "station"),
           lat: _round(st.lat, 4), lon: _round(st.lon, 4),
           distanceNm: _round(st.distanceNm, 1),
-          feeds: ["low-level cloud (below 5,000ft)", "prevailing visibility"],
+          feeds: ["low-level cloud (below 5,000ft)", "prevailing visibility", "present weather"],
           sharePct: st.weightPct,
           detail: {
             visibilitySm: st.visibilitySm != null ? st.visibilitySm : null,
             clouds: (st.clouds || []).map(c => ({ cover: c.cover, baseFt: c.baseFt != null ? c.baseFt : null })),
             wx: st.wxString || null,
+            wind: st.windSpeedKt != null ? { dirDeg: st.windDirDeg, kt: st.windSpeedKt, weightMult: st.windMult } : null,
+            wxEffect: st.wx && st.wx.present ? { impliedVisSm: st.wx.impliedVisSm, impliedVisFogSm: st.wx.impliedVisFogSm, fogAdd: st.wx.fogAdd, precipAdd: st.wx.precipAdd } : null,
             ageMin: st.ageMin,
           },
         });

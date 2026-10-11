@@ -187,6 +187,8 @@ const MetarProvider = (() => {
           clouds: _parseClouds(st.clouds, elevationFt),
           allClouds: _parseAllClouds(st.clouds, elevationFt),
           wxString: typeof st.wxString === "string" && st.wxString.trim() ? st.wxString.trim() : null,
+          windDirDeg: typeof st.wdir === "number" && Number.isFinite(st.wdir) ? st.wdir : null, // "VRB" strings => null
+          windSpeedKt: typeof st.wspd === "number" && Number.isFinite(st.wspd) ? st.wspd : null,
           rawOb: typeof st.rawOb === "string" && st.rawOb.trim() ? st.rawOb.trim() : null,
           obsTime: st.obsTime || null,
           distanceNm: Geo.calculateDistanceNm(lat, lon, st.lat, st.lon),

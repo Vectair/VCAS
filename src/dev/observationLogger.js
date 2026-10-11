@@ -151,9 +151,35 @@ const ObservationLogger = (() => {
         // Open-Meteo band data that was (or wasn't) applied to it, only
         // the final tier.
         upperAir: (typeof UpperAirProvider !== "undefined") ? UpperAirProvider.getCached() : null,
+        // 2026-10-12 — the COMPLETE record of the weather the model actually
+        // used for this observation, so no historic-archive lookup is ever
+        // needed to explain it later: the blended low-level stations with
+        // their weights, wind multipliers and decoded present-weather effect
+        // (LowLevelWeather.blend), the USEREP report applied (if any), and
+        // the stage-by-stage trace of which stage changed which tier.
+        weatherUsed: _weatherUsed(userState, item),
       },
       outcome: outcomeCode,
     };
+  }
+
+  /** Snapshot of the weather inputs/effects behind this observation's score. Never throws. */
+  function _weatherUsed(userState, item) {
+    try {
+      let blend = null;
+      if (typeof LowLevelWeather !== "undefined" && typeof MetarProvider !== "undefined") {
+        const metar = MetarProvider.getCached();
+        const up = (typeof UpperAirProvider !== "undefined") ? UpperAirProvider.getCached() : null;
+        if ((metar || up) && typeof userState.lat === "number") blend = LowLevelWeather.blend(userState.lat, userState.lon, metar);
+      }
+      return {
+        blend,
+        userep: (typeof UserepProvider !== "undefined") ? UserepProvider.getCached() : null,
+        trace: item && item.vis && item.vis.trace ? item.vis.trace : null,
+      };
+    } catch (e) {
+      return null;
+    }
   }
 
   function _readFallback() {
