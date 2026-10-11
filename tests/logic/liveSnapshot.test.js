@@ -81,18 +81,18 @@ function snap(over) {
 
   const metar = s.sources.find(x => x.id === "metar");
   const air = s.sources.find(x => x.id === "upperAir");
-  t.approx(metar.sharePct + air.sharePct, 100, 0.2, "remote source shares sum to ~100");
+  t.approx(metar.sharePct + air.sharePct, 100, 0.2, "low-level shares sum to ~100");
   t.ok(metar.sharePct > air.sharePct, "nearer source (METAR 2nm) has the larger share than Open-Meteo");
   t.eq(s.sources.find(x => x.id === "localObstruction").sharePct, null, "map-tile source has no share");
-  t.ok(typeof s.weightRule === "string" && /not a blend/.test(s.weightRule), "weight rule is stated, flagged as descriptive");
-  t.ok(s.sources.every(x => typeof x.affected === "number"), "every source has an affected count");
+  t.ok(typeof s.weightRule === "string" && /5,000ft/.test(s.weightRule), "weight rule is stated");
+  t.ok(s.sources.every(x => typeof x.affected === "number"), "every source has an affected count (single station here)");
 }
 {
   const s = snap({ metar: null, upperAir: null, localObstruction: null });
   t.eq(s.sources.length, 0, "no providers cached: no sources");
 }
 {
-  // cap + share floor
+  // cap + own-position share
   const many = [];
   for (let i = 0; i < 60; i++) many.push(acBearing(1 + i * 0.1, i * 5, { hex: "h" + i }));
   const userState = { lat: USER.lat, lon: USER.lon, heading: 0, speedMph: 0, viewportWidth: 400, viewportHeight: 800 };
@@ -104,7 +104,8 @@ function snap(over) {
     metar: { stationId: "A", stationLat: USER.lat, stationLon: USER.lon, distanceNm: 0 },
     upperAir: { gridLat: USER.lat + 0.5, gridLon: USER.lon, pressureProfile: [] } });
   const sm = close.sources.find(x => x.id === "metar").sharePct;
-  t.ok(sm < 100 && sm > 0, "a 0nm source does not take 100% (distance floored at 1nm)");
+  t.ok(sm > 99 && sm <= 100, "a station at the user's own position is ~100% of the low-level estimate (got " + sm + ")");
+  t.ok(close.sources.find(x => x.id === "upperAir").sharePct < 1, "...leaving Open-Meteo ~0% below 5,000ft");
 }
 
 // ---- JSON round-trip (what the relay stores) ----

@@ -138,12 +138,17 @@ function flatProfile(temperatureC, relativeHumidityPct) {
   const rDense = Visibility.estimate(USER_LAT, USER_LON, midBandAircraft, null, null, denseMid);
   t.ok(rDense.score <= 33, "dense mid-band cloud cover caps a mid-altitude aircraft at Possibly visible");
 
-  const lowBandAircraft = aircraftAt(2, 3000); // within the low band, METAR's own domain
-  const rLowImmune = Visibility.estimate(USER_LAT, USER_LON, lowBandAircraft, null, null,
+  const lowBandAircraft = aircraftAt(2, 3000); // within the low band: a trusted nearby METAR governs it
+  const clearHere = { stationId: "HERE", stationLat: USER_LAT, stationLon: USER_LON, visibilitySm: 10, clouds: [] };
+  const rLowImmune = Visibility.estimate(USER_LAT, USER_LON, lowBandAircraft, clearHere, null,
     { cloudCoverLowPct: 100, elevationFt: 0 });
-  const rLowNoUpperAir = Visibility.estimate(USER_LAT, USER_LON, lowBandAircraft, null, null, null);
+  const rLowNoUpperAir = Visibility.estimate(USER_LAT, USER_LON, lowBandAircraft, clearHere, null, null);
   t.eq(rLowImmune.label, rLowNoUpperAir.label,
-    "low-band traffic is immune to the upper-air adjustment regardless of cover, even at 100%");
+    "with a trusted nearby METAR, Open-Meteo low-cloud cover has no say in the low band (2026-10-11 blend)");
+  const rNoMetarLow = Visibility.estimate(USER_LAT, USER_LON, lowBandAircraft, null, null,
+    { cloudCoverLowPct: 100, elevationFt: 0 });
+  t.ok(rNoMetarLow.score < rLowNoUpperAir.score,
+    "with NO nearby METAR, Open-Meteo takes the whole low-level share and its overcast does affect the low band");
 }
 
 // ---- Local obstruction: gated on BOTH density AND low elevation ----

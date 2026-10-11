@@ -23,11 +23,11 @@
  */
 const LiveSnapshot = (() => {
   const MAX_AIRCRAFT = 40;        // nearest-first cap, bounds payload size
-  const MIN_DISTANCE_FLOOR_NM = 1; // stops a ~0nm source taking ~100% share
 
   const WEIGHT_RULE =
-    "Share = inverse of distance (min 1nm) across METAR, Open-Meteo and USEREP. " +
-    "Descriptive only: the model uses each source independently, not a blend.";
+    "Share = influence on the low-level (below 5,000ft) weather estimate: up to 3 nearest METARs weighted by " +
+    "inverse distance squared, trust fading from 15nm to 40nm, Open-Meteo taking the remainder. " +
+    "Above 5,000ft Open-Meteo is 100%. USEREP and map tiles are separate adjustments.";
 
   function _round(n, dp) {
     if (typeof n !== "number" || !Number.isFinite(n)) return null;
@@ -43,20 +43,27 @@ const LiveSnapshot = (() => {
   function _weatherSources(user, metar, upperAir, userep, localObstruction, nowMs) {
     const out = [];
 
-    if (metar) {
-      out.push({
-        id: "metar",
-        name: "METAR " + (metar.stationId || "station"),
-        lat: _round(metar.stationLat, 4), lon: _round(metar.stationLon, 4),
-        distanceNm: _round(typeof metar.distanceNm === "number" ? metar.distanceNm
-          : _nmBetween(user.lat, user.lon, metar.stationLat, metar.stationLon), 1),
-        feeds: ["cloud layers", "prevailing visibility"],
-        detail: {
-          visibilitySm: metar.visibilitySm != null ? metar.visibilitySm : null,
-          clouds: Array.isArray(metar.allClouds)
-            ? metar.allClouds.map(c => ({ cover: c.cover, baseFt: c.baseFt != null ? c.baseFt : null })) : [],
-          wx: metar.wxString || null,
-        },
+    // One row per METAR station in the low-level blend (up to 3), each with
+    // its real share of the below-5000ft estimate (LowLevelWeather).
+    const ll = (metar || upperAir) ? LowLevelWeather.blend(user.lat, user.lon, metar, nowMs) : null;
+    if (ll) {
+      ll.stations.forEach(st => {
+        out.push({
+          id: "metar",
+          name: "METAR " + (st.stationId || "station"),
+          lat: _round(st.lat, 4), lon: _round(st.lon, 4),
+          distanceNm: _round(st.distanceNm, 1),
+          feeds: ["low-level cloud (below 5,000ft)", "prevailing visibility", "present weather"],
+          sharePct: st.weightPct,
+          detail: {
+            visibilitySm: st.visibilitySm != null ? st.visibilitySm : null,
+            clouds: (st.clouds || []).map(c => ({ cover: c.cover, baseFt: c.baseFt != null ? c.baseFt : null })),
+            wx: st.wxString || null,
+            wind: st.windSpeedKt != null ? { dirDeg: st.windDirDeg, kt: st.windSpeedKt, weightMult: st.windMult } : null,
+            wxEffect: st.wx && st.wx.present ? { impliedVisSm: st.wx.impliedVisSm, impliedVisFogSm: st.wx.impliedVisFogSm, fogAdd: st.wx.fogAdd, precipAdd: st.wx.precipAdd } : null,
+            ageMin: st.ageMin,
+          },
+        });
       });
     }
 
@@ -66,7 +73,8 @@ const LiveSnapshot = (() => {
         name: "Open-Meteo grid cell",
         lat: _round(upperAir.gridLat, 4), lon: _round(upperAir.gridLon, 4),
         distanceNm: _round(_nmBetween(user.lat, user.lon, upperAir.gridLat, upperAir.gridLon), 1),
-        feeds: ["cloud bands (low/mid/high)", "contrail physics"],
+        feeds: ["all cloud above 5,000ft", "contrail physics", "low level too where METARs are absent/far"],
+        sharePct: ll ? ll.upperAirPct : 100,
         detail: {
           lowPct: upperAir.cloudCoverLowPct, midPct: upperAir.cloudCoverMidPct, highPct: upperAir.cloudCoverHighPct,
           pressureLevels: Array.isArray(upperAir.pressureProfile) ? upperAir.pressureProfile.length : 0,
@@ -83,6 +91,7 @@ const LiveSnapshot = (() => {
         lat: _round(userep.lat, 4), lon: _round(userep.lon, 4),
         distanceNm: _round(_nmBetween(user.lat, user.lon, userep.lat, userep.lon), 1),
         feeds: ["sky/visibility report, can raise or lower tier"],
+        sharePct: null,
         detail: {
           sky: userep.sky, visibility: userep.visibility, cloudHeight: userep.cloudHeight || null,
           phenomena: userep.phenomena || [], ageMin,
@@ -97,6 +106,7 @@ const LiveSnapshot = (() => {
         lat: _round(user.lat, 4), lon: _round(user.lon, 4),
         distanceNm: 0,
         feeds: ["building/woodland density"],
+        sharePct: null,
         detail: {
           combinedDensity: _round(localObstruction.combinedDensity, 3),
           buildingDensity: _round(localObstruction.buildingDensity, 3),
@@ -106,15 +116,6 @@ const LiveSnapshot = (() => {
       });
     }
 
-    // Inverse-distance shares across the three remote sources only — the
-    // map-tile source sits at the user by definition, so it has no share.
-    const remote = out.filter(s => s.id !== "localObstruction" && s.distanceNm != null);
-    const total = remote.reduce((sum, s) => sum + 1 / Math.max(s.distanceNm, MIN_DISTANCE_FLOOR_NM), 0);
-    out.forEach(s => {
-      s.sharePct = (total > 0 && remote.includes(s))
-        ? _round(100 * (1 / Math.max(s.distanceNm, MIN_DISTANCE_FLOOR_NM)) / total, 1)
-        : null;
-    });
     return out;
   }
 
@@ -158,7 +159,10 @@ const LiveSnapshot = (() => {
     // How many of the sent aircraft each source actually changed the tier
     // of — the real measure of influence (see header comment).
     sources.forEach(s => {
-      s.affected = aircraft.filter(a => a.trace.some(t => t.stage === s.id && t.changed)).length;
+      // All METAR stations feed ONE blended stage, so a per-station count
+      // would be meaningless: report it once on the first station only.
+      s.affected = (s.id === "metar" && !(sources.find(x => x.id === "metar") === s)) ? null
+        : aircraft.filter(a => a.trace.some(t => t.stage === s.id && t.changed)).length;
     });
 
     return {

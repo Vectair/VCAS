@@ -30,6 +30,12 @@ function loadLogic() {
   const Contrail = require(path.join(ROOT, "contrail.js"));
   global.Geo = Geo;
   global.Contrail = Contrail;
+  // LowLevelWeather (2026-10-11) — reads `Geo` as a free global; visibility.js
+  // reads it as one, so it must be attached first.
+  const PresentWeather = require(path.join(ROOT, "presentWeather.js"));
+  global.PresentWeather = PresentWeather;
+  const LowLevelWeather = require(path.join(ROOT, "lowLevelWeather.js"));
+  global.LowLevelWeather = LowLevelWeather;
   const Visibility = require(path.join(ROOT, "visibility.js"));
   const Relevance = require(path.join(ROOT, "relevance.js"));
   global.Visibility = Visibility;
@@ -53,7 +59,7 @@ function loadLogic() {
   // LiveSnapshot — added 2026-10-10 for the admin dashboard's Live Pipeline
   // tab; reads `Geo` as a free global, so required after that assignment.
   const LiveSnapshot = require(path.join(ROOT, "liveSnapshot.js"));
-  return { Geo, Contrail, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx, Userep, LiveSnapshot };
+  return { Geo, Contrail, LowLevelWeather, PresentWeather, Visibility, Relevance, AircraftExtrapolation, Indicators, TrafficRulesLogic, SimplifiedType, MetarWx, Userep, LiveSnapshot };
 }
 
 module.exports = { loadLogic };

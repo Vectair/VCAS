@@ -677,3 +677,16 @@ polling) are done and confirmed building. Not started:
 - Derive the low-altitude suppression threshold from live GPS altitude
   instead of the fixed sea-level value Settings currently sets
   manually.
+
+## Low-level weather blend: tuning and follow-ups (2026-10-11)
+
+- The blend constants (3 stations, trust 15nm to 40nm, 2h staleness, assumed 1,500ft stratus base for Open-Meteo, 0.35/0.75 severity thresholds) are untuned guesses; revisit against `not_visible_weather` ground-truth logs now that `computed.metar` carries the station list.
+- METAR cloud layers above 5,000ft AGL are now ignored (Open-Meteo owns that); check this doesn't cost accuracy for reported BKN 6-12,000ft.
+- The Weather screen still shows only the single nearest METAR; could show the blend.
+- Native Android port has none of this (still a single-station model).
+
+## Present weather / wind follow-ups (2026-10-12)
+
+- **Tune against real outcomes:** run `tools/backfill_weather.js` (needs mesonet.agron.iastate.edu + archive-api.open-meteo.com reachable) then `tools/replay_log.js <logs> backfill.json`; adjust presentWeather.js / lowLevelWeather.js constants from the `not_visible_weather` crosstab. Entries logged after this change carry `computed.weatherUsed` and need no backfill.
+- Unverified live: aviationweather.gov `wdir`/`wspd`/`wxString` field shapes; IEM `asos.py` CSV columns used by the backfill script.
+- Not built: TAF windows, Open-Meteo wind in the upwind weighting, native Android port of present weather/wind, showing present-weather effects on the Weather screen.

@@ -15788,3 +15788,66 @@ idle flip after 30s, polling stops/resumes with the tab, no page errors; 20/20).
 **Not verified:** the live Bluehost deploy, and LiteSpeed honouring
 `live-relay/data/.htaccess` (`php -S` ignores it) — the deploy notes make
 checking that a mandatory step, because snapshots contain real positions.
+
+## Blended low-level weather: up to 3 nearest METARs + Open-Meteo, replacing "single nearest METAR" (2026-10-11)
+
+Prompted by the Live Pipeline dashboard showing only ONE METAR source. The
+model had only ever used the single nearest station (`metarProvider.js`
+kept the nearest and discarded the rest); the project owner's intended
+design — a best-guess observation for the user's own position, blended
+across nearby fields — had been discussed but never built. Built now:
+
+- **`src/logic/lowLevelWeather.js`** (new, pure, tested): the 3 nearest
+  usable METARs (obs not older than 2h — closed fields drop out) are
+  weighted by inverse distance SQUARED (distance floored at 0.5nm), so at
+  an airfield that station is ~100% and equidistant stations split 50/50.
+  Each station also has a trust factor, 1.0 within 15nm fading to 0 at
+  40nm; the untrusted remainder goes to **Open-Meteo**, so with no
+  reporting field nearby Open-Meteo is 100% of the low level too. Distances
+  are recomputed from the user's live position on every call (memoised 60s).
+  The 15/40nm, 3-station and 2h numbers are tuned guesses.
+- **`visibility.js`**: `_applyMetarAdjustment`/`_lowestOccludingLayer`
+  removed, replaced by `_applyLowLevelWeatherAdjustment`. Per station,
+  severity for the aircraft = lowest BKN/OVC/VV layer at or below 5,000ft
+  AGL and under the aircraft (OVC/VV 1.0, BKN 0.5); Open-Meteo low cloud %
+  maps the same way (>=90 ~ overcast, >=70 ~ broken) and only counts for
+  aircraft above an assumed 1,500ft stratus base. Weighted blend >= 0.75
+  acts as overcast (worst tier), >= 0.35 as broken (cap at Possibly).
+  Visibility is a weighted mean over the stations, applied only when
+  METARs hold >= half the weight. The trace stage is still named "metar";
+  its note shows the shares ("EGGP 50% / Open-Meteo 12%"). Above 5,000ft
+  `_applyUpperAirAdjustment` (low-band cutoff 6500 -> 5000) is the only
+  cloud source. **Behaviour change to be aware of:** METAR layers whose
+  base is above 5,000ft AGL are no longer used at all (the owner's rule:
+  METARs don't speak for the sky above that); flip `LOW_TOP_AGL_FT` if
+  that proves wrong. `MODEL_VERSION` -> 2026-10-11.
+- **`metarProvider.js`**: keeps up to 8 stations (`stations`, nearest
+  first) alongside the legacy nearest-station fields the Weather screen
+  reads; search box widened to +/-1 degree; also re-fetches after moving 15nm.
+- **Dashboard**: `liveSnapshot.js` now emits one METAR row per blended
+  station with its real share; the Live Pipeline tab (updated
+  `vcas-data/index.php`, hand-off file, not in the repo) also got a
+  persistent-map fix (the whole card was being rebuilt every 3s, which made
+  the map flash) and chip/tier-bar visuals.
+
+Verified: 24 new checks in `tests/logic/lowLevelWeather.test.js`, the
+older visibility/liveSnapshot tests updated for the new semantics (one
+test's premise — "low band is immune to Open-Meteo" — is now true only
+when a trusted METAR exists), full suite green, dashboard re-driven in
+Chromium. NOT verified against live aviationweather.gov data (same caveat
+as before; `obsTime` as epoch seconds is still an assumption — if it
+isn't, the 2h staleness filter simply does nothing).
+
+## Present weather, wind weighting, full weather record per log entry, replay tooling (2026-10-12)
+
+Direct design discussion with the project owner, following the blended low-level weather build (above): present weather (rain/fog/snow/thunder) matters because it changes slant and vertical visibility in ways the reported prevailing vis and cloud don't, and it is short-lived and patchy. Also: wind should make an upwind station count for more. And the existing log history should be usable to tune all of this.
+
+**`src/logic/presentWeather.js` (new, pure, tested):** decodes a station's `wxString` into (a) a visibility CEILING (`impliedVisSm` for precipitation/thunder/blowing — any height; `impliedVisFogSm` for fog/mist/haze/smoke/dust — only aircraft below ~3,000ft AGL, because fog is shallow), applied as `min(reported, implied)` so a station already reporting 800m fog is not penalised twice; and (b) extra severity (`fogAdd` low, `precipAdd` fading out 5,000→10,000ft AGL), capped at 0.5 so present weather alone lowers a tier by about one step and never reaches the worst tier ("informing, not dictating"). Shallow fog (MI/BC/PR) adds nothing for aircraft above it. SH ×0.6, VC ×0.4 (patchy/not-at-station); transient weather (precip, TS) decays with observation age (full to 20 min, half by 100 min); fog does not decay. `_stationSeverity` in `visibility.js` now = cloud severity + `PresentWeather.severityAdd(...)`, capped at 1; the trace note for the weather stage lists each station's weather group. `MODEL_VERSION` -> 2026-10-12.
+
+**Wind / upwind weighting (`lowLevelWeather.js`):** a station whose wind carries its air towards the user gets a distance-weight multiplier (up to ~1.5), a downwind one is reduced (floor 0.3); scaled by wind speed (none below 3kt, full at 15kt); fog-type reports use a much weaker strength (0.15 vs 0.5) because fog forms in place. VRB/missing wind = no effect. `metarProvider.js` now keeps `windDirDeg`/`windSpeedKt` (`wdir`/`wspd` from aviationweather.gov — unverified against a live response). Open-Meteo wind and TAF are NOT used (TAF deliberately deferred).
+
+**Item 1 of the retro-fit plan — every new log entry carries the full weather record:** `computed.weatherUsed = { blend, userep, trace }` — the blended stations with weights, wind multipliers, decoded present-weather effects, the USEREP report applied, and the stage-by-stage tier trace. Future entries therefore never need a historic-archive lookup.
+
+**Item 3 (for old entries) — tools, not committed output:** `tools/backfill_weather.js` (reads a `vcas-logs` checkout, fetches Iowa Environmental Mesonet METARs for the 3 nearest GB stations + Open-Meteo archive cloud cover per entry, writes a clearly-labelled `source:"reconstructed"` JSON) and `tools/replay_log.js` (re-runs `Visibility.estimate()` over logged entries with logged or reconstructed weather, prints outcome vs logged-tier vs replayed-tier). The replay works against the real log now (162 entries replayed; 11 change tier under the current model, run with logged weather only, which for old entries is mostly absent). The backfill needs mesonet.agron.iastate.edu + archive-api.open-meteo.com — **blocked in this sandbox (proxy 403); not run, and its response parsing is unverified against live data.** The project owner was asked to add those domains (plus api.open-meteo.com, aviationweather.gov) to the cloud environment's allowed domains (item 2); until then it must be run from a machine with network access.
+
+All constants are untuned guesses; the replay against `not_visible_weather` entries is the way to tune them. Tests: `tests/logic/presentWeather.test.js` (48 checks: parsing, intensity/descriptor/age behaviour, geometry, wind weighting, scoring without double-counting). Not done: native Android port; TAF; Open-Meteo wind; Weather screen still shows only the nearest METAR.
