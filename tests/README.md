@@ -109,3 +109,5 @@ first — don't guess), and run the file directly before trusting any
 assertion in it, the same discipline this project has always applied to
 one-off verification scripts, just now kept around afterward instead of
 discarded.
+
+`lowLevelWeather.js` (2026-10-11): the blended low-level weather estimate (nearest-3 METAR inverse-distance weighting, trust fade, Open-Meteo remainder) plus its use inside `Visibility.estimate()`.

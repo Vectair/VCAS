@@ -15788,3 +15788,52 @@ idle flip after 30s, polling stops/resumes with the tab, no page errors; 20/20).
 **Not verified:** the live Bluehost deploy, and LiteSpeed honouring
 `live-relay/data/.htaccess` (`php -S` ignores it) — the deploy notes make
 checking that a mandatory step, because snapshots contain real positions.
+
+## Blended low-level weather: up to 3 nearest METARs + Open-Meteo, replacing "single nearest METAR" (2026-10-11)
+
+Prompted by the Live Pipeline dashboard showing only ONE METAR source. The
+model had only ever used the single nearest station (`metarProvider.js`
+kept the nearest and discarded the rest); the project owner's intended
+design — a best-guess observation for the user's own position, blended
+across nearby fields — had been discussed but never built. Built now:
+
+- **`src/logic/lowLevelWeather.js`** (new, pure, tested): the 3 nearest
+  usable METARs (obs not older than 2h — closed fields drop out) are
+  weighted by inverse distance SQUARED (distance floored at 0.5nm), so at
+  an airfield that station is ~100% and equidistant stations split 50/50.
+  Each station also has a trust factor, 1.0 within 15nm fading to 0 at
+  40nm; the untrusted remainder goes to **Open-Meteo**, so with no
+  reporting field nearby Open-Meteo is 100% of the low level too. Distances
+  are recomputed from the user's live position on every call (memoised 60s).
+  The 15/40nm, 3-station and 2h numbers are tuned guesses.
+- **`visibility.js`**: `_applyMetarAdjustment`/`_lowestOccludingLayer`
+  removed, replaced by `_applyLowLevelWeatherAdjustment`. Per station,
+  severity for the aircraft = lowest BKN/OVC/VV layer at or below 5,000ft
+  AGL and under the aircraft (OVC/VV 1.0, BKN 0.5); Open-Meteo low cloud %
+  maps the same way (>=90 ~ overcast, >=70 ~ broken) and only counts for
+  aircraft above an assumed 1,500ft stratus base. Weighted blend >= 0.75
+  acts as overcast (worst tier), >= 0.35 as broken (cap at Possibly).
+  Visibility is a weighted mean over the stations, applied only when
+  METARs hold >= half the weight. The trace stage is still named "metar";
+  its note shows the shares ("EGGP 50% / Open-Meteo 12%"). Above 5,000ft
+  `_applyUpperAirAdjustment` (low-band cutoff 6500 -> 5000) is the only
+  cloud source. **Behaviour change to be aware of:** METAR layers whose
+  base is above 5,000ft AGL are no longer used at all (the owner's rule:
+  METARs don't speak for the sky above that); flip `LOW_TOP_AGL_FT` if
+  that proves wrong. `MODEL_VERSION` -> 2026-10-11.
+- **`metarProvider.js`**: keeps up to 8 stations (`stations`, nearest
+  first) alongside the legacy nearest-station fields the Weather screen
+  reads; search box widened to +/-1 degree; also re-fetches after moving 15nm.
+- **Dashboard**: `liveSnapshot.js` now emits one METAR row per blended
+  station with its real share; the Live Pipeline tab (updated
+  `vcas-data/index.php`, hand-off file, not in the repo) also got a
+  persistent-map fix (the whole card was being rebuilt every 3s, which made
+  the map flash) and chip/tier-bar visuals.
+
+Verified: 24 new checks in `tests/logic/lowLevelWeather.test.js`, the
+older visibility/liveSnapshot tests updated for the new semantics (one
+test's premise — "low band is immune to Open-Meteo" — is now true only
+when a trusted METAR exists), full suite green, dashboard re-driven in
+Chromium. NOT verified against live aviationweather.gov data (same caveat
+as before; `obsTime` as epoch seconds is still an assumption — if it
+isn't, the 2h staleness filter simply does nothing).

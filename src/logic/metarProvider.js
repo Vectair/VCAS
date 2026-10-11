@@ -34,13 +34,16 @@
 const MetarProvider = (() => {
   const BASE_URL = "https://aviationweather.gov/api/data/metar";
   const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // generous headroom under hourly METAR updates
-  const SEARCH_RADIUS_DEG = 0.75; // ~45nm bbox half-width at mid-latitudes — a generous catchment for "nearest station"
+  const SEARCH_RADIUS_DEG = 1.0; // ~60nm bbox half-width in latitude — wide enough to find the 3 nearest reporting fields (LowLevelWeather)
+  const REFETCH_MOVE_NM = 15;    // stations are chosen by distance, so re-query after moving this far
+  const MAX_STATIONS_KEPT = 8;
   const TIMEOUT_MS = 10000;
   const OCCLUDING_COVERS = ["BKN", "OVC", "VV"];
   const M_TO_FT = 3.28084;
 
-  let _cached = null; // { stationId, visibilitySm, clouds, allClouds, wxString, rawOb, obsTime, distanceNm, elevationFt, stationLat, stationLon }
+  let _cached = null; // nearest station's fields + `stations` (nearest-first candidates) — { stationId, visibilitySm, clouds, allClouds, wxString, rawOb, obsTime, distanceNm, elevationFt, stationLat, stationLon }
   let _lastFetchAt = 0;
+  let _fetchLat = null, _fetchLon = null;
   let _inFlight = null;
 
   /**
@@ -172,33 +175,35 @@ const MetarProvider = (() => {
       const stations = await res.json();
       if (!Array.isArray(stations) || stations.length === 0) return null;
 
-      let best = null, bestDistNm = Infinity;
-      for (const s of stations) {
-        if (typeof s.lat !== "number" || typeof s.lon !== "number") continue;
-        const d = Geo.calculateDistanceNm(lat, lon, s.lat, s.lon);
-        if (d < bestDistNm) { bestDistNm = d; best = s; }
+      const parsed = [];
+      for (const st of stations) {
+        if (typeof st.lat !== "number" || typeof st.lon !== "number") continue;
+        // aviationweather.gov reports station elevation in METRES (confirmed
+        // via a real documented example — see _parseClouds's own comment).
+        const elevationFt = typeof st.elev === "number" && Number.isFinite(st.elev) ? st.elev * M_TO_FT : null;
+        parsed.push({
+          stationId: st.icaoId || null,
+          visibilitySm: _parseVisibilitySm(st.visib),
+          clouds: _parseClouds(st.clouds, elevationFt),
+          allClouds: _parseAllClouds(st.clouds, elevationFt),
+          wxString: typeof st.wxString === "string" && st.wxString.trim() ? st.wxString.trim() : null,
+          rawOb: typeof st.rawOb === "string" && st.rawOb.trim() ? st.rawOb.trim() : null,
+          obsTime: st.obsTime || null,
+          distanceNm: Geo.calculateDistanceNm(lat, lon, st.lat, st.lon),
+          elevationFt,
+          stationLat: st.lat,
+          stationLon: st.lon,
+        });
       }
-      if (!best) return null;
+      if (!parsed.length) return null;
+      parsed.sort((x, y) => x.distanceNm - y.distanceNm);
+      const kept = parsed.slice(0, MAX_STATIONS_KEPT);
 
-      // aviationweather.gov reports station elevation in METRES (confirmed
-      // via a real documented example — see _parseClouds's own comment).
-      const elevationFt = typeof best.elev === "number" && Number.isFinite(best.elev)
-        ? best.elev * M_TO_FT
-        : null;
-
-      return {
-        stationId: best.icaoId || null,
-        visibilitySm: _parseVisibilitySm(best.visib),
-        clouds: _parseClouds(best.clouds, elevationFt),
-        allClouds: _parseAllClouds(best.clouds, elevationFt),
-        wxString: typeof best.wxString === "string" && best.wxString.trim() ? best.wxString.trim() : null,
-        rawOb: typeof best.rawOb === "string" && best.rawOb.trim() ? best.rawOb.trim() : null,
-        obsTime: best.obsTime || null,
-        distanceNm: bestDistNm,
-        elevationFt,
-        stationLat: best.lat,
-        stationLon: best.lon,
-      };
+      // Legacy top-level fields = the single nearest station (the Weather
+      // screen reads these); `stations` carries the candidates
+      // LowLevelWeather blends from, re-distanced against the user's live
+      // position on every use.
+      return Object.assign({}, kept[0], { stations: kept });
     } catch (err) {
       clearTimeout(timer);
       console.warn("MetarProvider: fetch failed —", err.message);
@@ -215,13 +220,14 @@ const MetarProvider = (() => {
   async function refresh(lat, lon) {
     const now = Date.now();
     if (_inFlight) return _inFlight;
-    if (_cached && (now - _lastFetchAt) < REFRESH_INTERVAL_MS) return _cached;
     if (lat == null || lon == null) return _cached;
+    const moved = _fetchLat != null ? Geo.calculateDistanceNm(_fetchLat, _fetchLon, lat, lon) : 0;
+    if (_cached && (now - _lastFetchAt) < REFRESH_INTERVAL_MS && moved < REFETCH_MOVE_NM) return _cached;
 
     _inFlight = _fetchNearest(lat, lon).then(result => {
       _inFlight = null;
       _lastFetchAt = Date.now();
-      if (result) _cached = result;
+      if (result) { _cached = result; _fetchLat = lat; _fetchLon = lon; }
       return _cached;
     });
     return _inFlight;

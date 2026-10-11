@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-10-10";
+  const MODEL_VERSION = "2026-10-11";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -189,7 +189,7 @@ const Visibility = (() => {
   // about-provenance as CONTRAIL_*/LOCAL_OBSTRUCTION_* above — pending
   // real calibration once ground-truth log data with a populated
   // computed.upperAir snapshot actually accumulates.
-  const UPPER_AIR_LOW_BAND_MAX_AGL_FT = 6500;
+  const UPPER_AIR_LOW_BAND_MAX_AGL_FT = 5000; // matches LowLevelWeather.LOW_TOP_AGL_FT: below this the blended low-level estimate governs
   const UPPER_AIR_MID_BAND_MAX_AGL_FT = 23000;
   const UPPER_AIR_DENSE_THRESHOLD_PCT = 70;
 
@@ -331,38 +331,6 @@ const Visibility = (() => {
   }
 
   /**
-   * The lowest cloud layer that could actually occlude an aircraft at
-   * `altitudeFt` — only BKN/OVC/VV layers whose base sits below it (see
-   * MetarProvider, which drops FEW/SCT before this ever runs, since a
-   * mostly-clear sky barely matters). Only the LOWEST such layer matters:
-   * once line of sight hits a broken/overcast/obscured layer, whatever's
-   * above it is moot regardless of how many more layers are reported
-   * higher up.
-   *
-   * Compares against `layer.baseMslFt` (2026-09-02 fix), not the raw
-   * `baseFt` — METAR cloud bases are reported AGL relative to the
-   * reporting STATION, while `altitudeFt` (ADS-B) is MSL-referenced.
-   * Comparing the two directly (the original bug) could misjudge whether
-   * a layer is actually below the aircraft, especially at an elevated
-   * station. `baseMslFt` is computed once in metarProvider.js, where
-   * station elevation is known; see that file's own comment for the real
-   * example that confirmed this. Falls back to `baseFt` if `baseMslFt`
-   * somehow isn't set (defensive only — metarProvider.js always sets it
-   * once baseFt itself is non-null).
-   */
-  function _lowestOccludingLayer(clouds, altitudeFt) {
-    if (!Array.isArray(clouds) || altitudeFt == null) return null;
-    let lowest = null;
-    let lowestBase = null;
-    for (const layer of clouds) {
-      const base = layer.baseMslFt != null ? layer.baseMslFt : layer.baseFt;
-      if (base == null || base >= altitudeFt) continue;
-      if (!lowest || base < lowestBase) { lowest = layer; lowestBase = base; }
-    }
-    return lowest;
-  }
-
-  /**
    * Caps a category at "Possibly visible" — used for both partial cloud
    * occlusion (BKN) and reduced reported ground visibility, neither of
    * which should ever make an already-worse tier (e.g. a stale-degraded
@@ -374,72 +342,79 @@ const Visibility = (() => {
     return CATEGORIES[Math.max(curIdx, possiblyIdx)];
   }
 
-  /**
-   * Adjusts a base angular-size category using current METAR conditions —
-   * strictly a scoring input (see MetarProvider's own docstring for why:
-   * this app's two principles are navigation and identification, not a
-   * weather display). Two independent mechanisms:
-   *
-   *  1. Cloud occlusion (vertical): an OVC/VV layer below the aircraft is
-   *     treated as a near-total block on line of sight — not a dimmer, a
-   *     wall — dropping straight to the bottom tier regardless of how
-   *     large/close the aircraft would otherwise read. BKN (broken, real
-   *     gaps but contested LOS) gets a partial cap instead of a full drop.
-   *  2. Reported prevailing visibility (horizontal haze): replaces the
-   *     generic, always-on 40NM cap in the base estimate with the day's
-   *     actual reported figure, but only when it's meaningfully below
-   *     "good" (<10SM) — many stations cap their reportable value at
-   *     10SM even on much clearer days, so treating that as a real limit
-   *     would make ordinary good-visibility days needlessly pessimistic.
-   *     Compared against `horizNm` (2026-09-02 fix), not slant range —
-   *     prevailing/surface visibility is a horizontal atmospheric-path
-   *     measurement, not a spherical radius around the station. Using
-   *     slant range (the original bug) could wrongly penalize a high,
-   *     near-overhead aircraft purely for its vertical distance, which
-   *     the METAR gives no actual basis for judging.
-   *
-   * No-ops entirely (returns `cat` unchanged) when `metar` is null/absent,
-   * so this is fully opt-in from the caller's side.
-   *
-   * GAP, formerly unfixed (2026-09-02), closed by _applyUpperAirAdjustment
-   * below (2026-09-08): when no BKN/OVC/VV layer is reported at all,
-   * `_lowestOccludingLayer` returns null and this function's cloud check
-   * silently no-ops — but METAR/CAVOK only actually characterizes the
-   * surface-to-~5,000ft column and prevailing visibility; it says nothing
-   * about an unreported mid/upper-level layer (e.g. a jet at FL320 could
-   * be sitting above a real but unreported OVC deck at FL180-230). "No
-   * cloud reported" being read as "confirmed clear to the aircraft's
-   * altitude" isn't actually what METAR promises. This was deliberately
-   * left unpatched here for a real reason — without an actual upper-air
-   * data source, any interim confidence cap would have been an
-   * uncalibrated guess risking a fight with the contrail-rescue logic
-   * above — until UpperAirProvider (Open-Meteo) gave this a real,
-   * genuinely CORS-open data source to close the gap properly with. See
-   * _applyUpperAirAdjustment()'s own comment, and CLAUDE.md, for the
-   * full writeup either way.
-   */
-  function _applyMetarAdjustment(cat, altitudeFt, horizNm, metar) {
-    if (!metar) return cat;
+  // --- Blended low-level weather (2026-10-11) -----------------------------
+  // Replaces the old "single nearest METAR" adjustment. See
+  // src/logic/lowLevelWeather.js for the weighting (up to 3 nearest METAR
+  // stations by inverse-distance-squared, trust fading with range, Open-
+  // Meteo taking whatever share METARs can't credibly claim).
+  //
+  // Per station, severity of its own low-layer picture for THIS aircraft:
+  // lowest BKN/OVC/VV layer at or below LOW_TOP_AGL_FT whose MSL base sits
+  // under the aircraft => OVC/VV 1.0, BKN 0.5, else 0. Open-Meteo's low
+  // cloud-cover % is mapped the same way (>=90% ~ overcast, >=70% ~ broken)
+  // and only counts once the aircraft is above LOW_OM_ASSUMED_BASE_AGL_FT —
+  // a coarse model has no cloud base, so an assumed typical stratus base
+  // stands in (guess). The weighted blend o: >= 0.75 acts like overcast
+  // (worst tier), >= 0.35 acts like broken (cap at Possibly). Reported
+  // visibility is blended as a weighted mean (10+ counts as 10) over the
+  // METAR stations only, and applied only when METARs hold >= half the
+  // weight (Open-Meteo reports no visibility).
+  const LOW_OM_ASSUMED_BASE_AGL_FT = 1500;
+  const BLEND_OVERCAST_AT = 0.75;
+  const BLEND_BROKEN_AT = 0.35;
 
-    const occluding = _lowestOccludingLayer(metar.clouds, altitudeFt);
-    if (occluding) {
-      if (occluding.cover === "OVC" || occluding.cover === "VV") {
-        return CATEGORIES[CATEGORIES.length - 1]; // "Very unlikely/not visible"
-      }
-      if (occluding.cover === "BKN") {
-        cat = _capAtPossiblyVisible(cat);
+  function _omSeverity(pct) {
+    if (pct == null) return 0;
+    if (pct >= 90) return 1;
+    if (pct >= 70) return 0.5;
+    return 0;
+  }
+
+  function _stationSeverity(st, altitudeFt) {
+    if (altitudeFt == null) return 0;
+    let lowest = null, lowestBase = null;
+    for (const layer of st.clouds || []) {
+      if (layer.baseFt != null && layer.baseFt > LowLevelWeather.LOW_TOP_AGL_FT) continue;
+      const base = layer.baseMslFt != null ? layer.baseMslFt : layer.baseFt;
+      if (base == null || base >= altitudeFt) continue;
+      if (!lowest || base < lowestBase) { lowest = layer; lowestBase = base; }
+    }
+    if (!lowest) return 0;
+    return (lowest.cover === "OVC" || lowest.cover === "VV") ? 1 : (lowest.cover === "BKN" ? 0.5 : 0);
+  }
+
+  function _applyLowLevelWeatherAdjustment(cat, altitudeFt, horizNm, ll, upperAir) {
+    if (!ll) return cat;
+    let o = 0;
+    for (const st of ll.stations) o += st.weight * _stationSeverity(st, altitudeFt);
+    if (upperAir && ll.upperAirPct > 0 && altitudeFt != null) {
+      const elevFt = upperAir.elevationFt != null ? upperAir.elevationFt : 0;
+      if (altitudeFt - elevFt > LOW_OM_ASSUMED_BASE_AGL_FT) {
+        o += (ll.upperAirPct / 100) * _omSeverity(upperAir.cloudCoverLowPct);
       }
     }
-    // else: no occluding layer reported — see the KNOWN GAP note above.
+    if (o >= BLEND_OVERCAST_AT) return CATEGORIES[CATEGORIES.length - 1];
+    if (o >= BLEND_BROKEN_AT) cat = _capAtPossiblyVisible(cat);
 
-    if (metar.visibilitySm != null && metar.visibilitySm < 10) {
-      const visNm = metar.visibilitySm * NM_PER_SM;
-      if (horizNm > visNm) {
-        cat = _capAtPossiblyVisible(cat);
+    if (ll.metarWeight >= 0.5) {
+      let wSum = 0, vSum = 0;
+      for (const st of ll.stations) {
+        if (st.visibilitySm == null) continue;
+        wSum += st.weight; vSum += st.weight * Math.min(st.visibilitySm, 10);
+      }
+      if (wSum > 0) {
+        const visSm = vSum / wSum;
+        if (visSm < 10 && horizNm > visSm * NM_PER_SM) cat = _capAtPossiblyVisible(cat);
       }
     }
-
     return cat;
+  }
+
+  function _llNote(ll) {
+    if (!ll) return "no weather data";
+    const parts = ll.stations.filter(s => s.weightPct > 0).map(s => (s.stationId || "?") + " " + Math.round(s.weightPct) + "%");
+    if (ll.upperAirPct > 0) parts.push("Open-Meteo " + Math.round(ll.upperAirPct) + "%");
+    return "low-level blend: " + (parts.join(" / ") || "none");
   }
 
   /**
@@ -759,8 +734,9 @@ const Visibility = (() => {
     _step("staleness", prev, cat, isStale ? "last seen " + lastSeenSeconds + "s ago" : "fresh");
 
     prev = cat;
-    cat = _applyMetarAdjustment(cat, altitudeFt, horizNm, metar);
-    _step("metar", prev, cat, metar ? "station " + (metar.stationId || "?") : "no METAR data");
+    const ll = (metar || upperAir) ? LowLevelWeather.blend(userLat, userLon, metar) : null;
+    cat = _applyLowLevelWeatherAdjustment(cat, altitudeFt, horizNm, ll, upperAir);
+    _step("metar", prev, cat, _llNote(ll));
 
     prev = cat;
     cat = _applyUpperAirAdjustment(cat, altitudeFt, upperAir);
