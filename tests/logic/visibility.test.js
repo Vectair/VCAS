@@ -151,6 +151,17 @@ function flatProfile(temperatureC, relativeHumidityPct) {
     "with NO nearby METAR, Open-Meteo takes the whole low-level share and its overcast does affect the low band");
 }
 
+// ---- Upper-air: a dense MID deck also hides a HIGH-band aircraft above it (2026-10-12) ----
+{
+  const high = aircraftAt(1, 26000, { type: "B738" }); // high band (>23,000ft AGL), below the contrail altitude gate
+  const base = Visibility.estimate(USER_LAT, USER_LON, high, null, null, { cloudCoverMidPct: 0, cloudCoverHighPct: 0, elevationFt: 0 });
+  t.ok(base.score > 33, "baseline: high-band aircraft with clear skies is above Possibly visible (non-vacuous)");
+  const midDeck = Visibility.estimate(USER_LAT, USER_LON, high, null, null, { cloudCoverMidPct: 100, cloudCoverHighPct: 10, elevationFt: 0 });
+  t.ok(midDeck.score <= 33, "100% mid cloud below a high-band aircraft caps it at Possibly visible");
+  const sparseMid = Visibility.estimate(USER_LAT, USER_LON, high, null, null, { cloudCoverMidPct: 40, cloudCoverHighPct: 10, elevationFt: 0 });
+  t.eq(sparseMid.score, base.score, "sparse mid + sparse high cloud does not cap a high-band aircraft");
+}
+
 // ---- Local obstruction: gated on BOTH density AND low elevation ----
 {
   // Low elevation + dense surroundings -> capped.

@@ -20,7 +20,7 @@ const Visibility = (() => {
   // plain date, not semver — matches this project's own established
   // convention of dating changes rather than making a major/minor/patch
   // judgement call for what "counts."
-  const MODEL_VERSION = "2026-10-12";
+  const MODEL_VERSION = "2026-10-12b";
 
   // Wingspan/span lookup in metres (approximate)
   const AIRCRAFT_SIZE_METRES = {
@@ -465,9 +465,15 @@ const Visibility = (() => {
     const aglFt = altitudeFt - elevFt;
     if (aglFt <= UPPER_AIR_LOW_BAND_MAX_AGL_FT) return cat; // METAR's own domain — leave it alone
 
+    // An aircraft in the HIGH band is also hidden by a dense MID deck below
+    // it (2026-10-12: log replay found a 34,625ft aircraft logged
+    // not_visible_weather above 100% mid cloud that was never capped because
+    // only its own band was checked). Cloud cover overlaps between bands, so
+    // take the max rather than summing.
     const bandPct = aglFt <= UPPER_AIR_MID_BAND_MAX_AGL_FT
       ? upperAir.cloudCoverMidPct
-      : upperAir.cloudCoverHighPct;
+      : Math.max(upperAir.cloudCoverHighPct == null ? 0 : upperAir.cloudCoverHighPct,
+                 upperAir.cloudCoverMidPct == null ? 0 : upperAir.cloudCoverMidPct);
 
     if (bandPct == null || bandPct < UPPER_AIR_DENSE_THRESHOLD_PCT) return cat;
     return _capAtPossiblyVisible(cat);

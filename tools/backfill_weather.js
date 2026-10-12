@@ -32,9 +32,15 @@ function nm(a, b, c, d) { // haversine, nautical miles
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+let omBlocked = false; // set once Open-Meteo reports its daily limit (429): stop asking
 async function get(url, asText) {
   for (let i = 0; i < 3; i++) {
-    try { const r = await fetch(url); if (r.ok) return asText ? r.text() : r.json(); } catch (e) { /* retry */ }
+    try {
+      if (omBlocked && url.includes("open-meteo")) return null;
+      const r = await fetch(url);
+      if (r.ok) return asText ? r.text() : r.json();
+      if (r.status === 429 && url.includes("open-meteo")) { omBlocked = true; console.error("Open-Meteo rate limited; skipping upperAir"); return null; }
+    } catch (e) { /* retry */ }
     await sleep(1000 * (i + 1));
   }
   return null;
@@ -95,7 +101,7 @@ function toStation(row, st, userLat, userLon, elevFt) {
       await sleep(250);
     }
     const day = t.toISOString().slice(0, 10);
-    const om = await get(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${day}&end_date=${day}&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&timezone=UTC`);
+    const om = await get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${day}&end_date=${day}&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&timezone=UTC`);
     let upperAir = null;
     if (om && om.hourly && om.hourly.time) {
       const idx = om.hourly.time.findIndex(x => new Date(x + "Z").getUTCHours() === t.getUTCHours());
