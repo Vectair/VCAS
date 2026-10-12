@@ -690,3 +690,5 @@ polling) are done and confirmed building. Not started:
 - **Tune against real outcomes:** run `tools/backfill_weather.js` (needs mesonet.agron.iastate.edu + archive-api.open-meteo.com reachable) then `tools/replay_log.js <logs> backfill.json`; adjust presentWeather.js / lowLevelWeather.js constants from the `not_visible_weather` crosstab. Entries logged after this change carry `computed.weatherUsed` and need no backfill.
 - Unverified live: aviationweather.gov `wdir`/`wspd`/`wxString` field shapes; IEM `asos.py` CSV columns used by the backfill script.
 - Not built: TAF windows, Open-Meteo wind in the upwind weighting, native Android port of present weather/wind, showing present-weather effects on the Weather screen.
+
+- **Weather tuning follow-ups (2026-10-12):** `visible_airframe` entries under showers/100% mid+high cover replay to "Very unlikely" (3 cases) — consider capping the upper-air/present-weather effect at "Possibly visible" instead of the worst tier. Open-Meteo cell cover % can't see gaps. Re-run `tools/backfill_weather.js` + `tools/replay_log.js` as the log grows (new entries carry `computed.weatherUsed`).
