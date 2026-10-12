@@ -101,7 +101,7 @@ function toStation(row, st, userLat, userLon, elevFt) {
       await sleep(250);
     }
     const day = t.toISOString().slice(0, 10);
-    const om = await get(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${day}&end_date=${day}&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&timezone=UTC`);
+    const om = await get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${day}&end_date=${day}&hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&timezone=UTC`);
     let upperAir = null;
     if (om && om.hourly && om.hourly.time) {
       const idx = om.hourly.time.findIndex(x => new Date(x + "Z").getUTCHours() === t.getUTCHours());
